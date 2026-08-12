@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "gateId": "PG-01",
+  "policy": {
+    "policyVersion": "1.0.0-poc",
+    "policySha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "validatorVersion": "offline-fixture-validator-1",
+    "validatorSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "evaluationMode": "semantic-validator"
+  },
+  "subject": {
+    "type": "documents",
+    "identifiers": { "fixture": "sanitized-offline-fixture" },
+    "environment": "offline-test"
+  },
+  "checks": [
+    {
+      "checkId": "PG01-OFFLINE-FIXTURE",
+      "mandatory": true,
+      "procedure": "Validate the checked-in sanitized offline evidence fixture without network or cloud writes.",
+      "startedAt": "2026-08-12T00:00:00.000Z",
+      "endedAt": "2026-08-12T00:00:01.000Z",
+      "threshold": { "rule": "fixture is structurally valid", "operator": "equals", "expected": true, "units": "boolean" },
+      "measurement": { "summary": "sanitized fixture validated", "value": true, "units": "boolean", "sampleCount": 1 },
+      "artifacts": [
+        { "path": "tests/fixtures/sanitized-evidence.txt", "sha256": "519cea1b93b87008648096b95d7ecc492c4c46fb1c25a0c862b6e8f32c3909e3" }
+      ],
+      "result": "pass",
+      "failureFallback": "Block later gates and repair the offline validation path."
+    }
+  ],
+  "blockingIssues": [],
+  "gateResult": "pass",
+  "failureFallback": "Do not infer cloud readiness from an offline fixture."
+}

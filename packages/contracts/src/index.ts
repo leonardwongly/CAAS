@@ -1,0 +1,188 @@
+import { z } from "zod";
+
+export const MAX_TEXT_LENGTH = 160;
+export const MAX_REFERENCE_LENGTH = 32;
+export const MAX_ALIASES = 16;
+/** Maximum number of endpoint-inclusive points in a route. */
+export const MAX_ROUTE_POINTS = 256;
+export const MAX_ROUTE_LEGS = MAX_ROUTE_POINTS - 1;
+
+const finiteNumber = z.number().finite();
+const normalizedText = z.string().trim().min(1).max(MAX_TEXT_LENGTH);
+const normalizedReferenceValue = z.string().trim().min(1).max(MAX_REFERENCE_LENGTH);
+
+export const CoordinateSchema = z.object({
+  lat: finiteNumber.min(-90).max(90),
+  lon: finiteNumber.min(-180).max(180),
+}).strict();
+export type Coordinate = z.infer<typeof CoordinateSchema>;
+
+export const GeoJsonPositionSchema = z.tuple([
+  finiteNumber.min(-180).max(180),
+  finiteNumber.min(-90).max(90),
+]);
+export type GeoJsonPosition = z.infer<typeof GeoJsonPositionSchema>;
+
+export const LeafletCoordinateSchema = z.object({
+  lat: finiteNumber.min(-90).max(90),
+  lng: finiteNumber.min(-180).max(180),
+}).strict();
+export type LeafletCoordinate = z.infer<typeof LeafletCoordinateSchema>;
+
+export const ReferenceKindSchema = z.enum(["airport", "city", "station", "place", "unknown"]);
+export type ReferenceKind = z.infer<typeof ReferenceKindSchema>;
+
+export const LocationReferenceSchema = z.object({
+  value: normalizedReferenceValue,
+  kind: ReferenceKindSchema.default("unknown"),
+}).strict().transform(({ value, kind }) => ({
+  value: value.toUpperCase(),
+  kind,
+}));
+export type LocationReference = z.output<typeof LocationReferenceSchema>;
+
+export const LocationSchema = z.object({
+  id: normalizedReferenceValue,
+  name: normalizedText,
+  code: normalizedReferenceValue.optional(),
+  kind: ReferenceKindSchema.default("place"),
+  coordinate: CoordinateSchema,
+  aliases: z.array(normalizedText).max(MAX_ALIASES).default([]),
+}).strict().transform((location) => ({
+  ...location,
+  id: location.id.toUpperCase(),
+  code: location.code?.toUpperCase(),
+  aliases: [...new Set(location.aliases.map((alias) => alias.toUpperCase()))],
+}));
+export type Location = z.output<typeof LocationSchema>;
+
+export const RouteLegSchema = z.object({
+  from: LocationReferenceSchema,
+  to: LocationReferenceSchema,
+  distanceNm: finiteNumber.nonnegative().optional(),
+}).strict();
+export type RouteLeg = z.output<typeof RouteLegSchema>;
+
+const routeSequence = z.number().int().min(0).max(MAX_ROUTE_POINTS - 1);
+export const RouteGapReasonSchema = z.enum(["invalid-reference", "not-found", "ambiguous", "invalid-coordinate", "missing"]);
+export type RouteGapReason = z.infer<typeof RouteGapReasonSchema>;
+
+/** An unresolved occurrence retained in its original ordered position. */
+export const RouteGapSchema = z.object({
+  status: z.literal("gap"),
+  sequence: routeSequence,
+  reference: LocationReferenceSchema.nullable(),
+  reason: RouteGapReasonSchema,
+}).strict();
+export type RouteGap = z.output<typeof RouteGapSchema>;
+
+/** A coordinate-bearing occurrence, including coordinate-only upstream points. */
+export const RoutePointSchema = z.object({
+  status: z.literal("point"),
+  sequence: routeSequence,
+  designatedIdentifier: normalizedReferenceValue.transform((value) => value.toUpperCase()).nullable(),
+  coordinate: CoordinateSchema,
+}).strict();
+export type RoutePoint = z.output<typeof RoutePointSchema>;
+
+export const RouteOccurrenceSchema = z.discriminatedUnion("status", [RoutePointSchema, RouteGapSchema]);
+export type RouteOccurrence = z.output<typeof RouteOccurrenceSchema>;
+
+/** A continuous renderable part of a route. Gaps must never be bridged by a segment. */
+export const RouteSegmentSchema = z.object({
+  points: z.array(RoutePointSchema).min(2).max(MAX_ROUTE_POINTS),
+}).strict();
+export type RouteSegment = z.output<typeof RouteSegmentSchema>;
+
+export const RoutePathSchema = z.object({
+  occurrences: z.array(RouteOccurrenceSchema).max(MAX_ROUTE_POINTS),
+  segments: z.array(RouteSegmentSchema).max(MAX_ROUTE_POINTS),
+  gaps: z.array(RouteGapSchema).max(MAX_ROUTE_POINTS),
+}).strict();
+export type RoutePath = z.output<typeof RoutePathSchema>;
+
+export const RouteCandidateSchema = z.object({
+  id: normalizedReferenceValue,
+  origin: LocationReferenceSchema,
+  destination: LocationReferenceSchema,
+  legs: z.array(RouteLegSchema).min(1).max(MAX_ROUTE_LEGS),
+  distanceNm: finiteNumber.nonnegative(),
+  rankDistanceNm: finiteNumber.nonnegative(),
+  rank: z.number().int().positive().optional(),
+}).strict();
+export type RouteCandidate = z.output<typeof RouteCandidateSchema>;
+
+export const RouteQuerySchema = z.object({
+  origin: LocationReferenceSchema,
+  destination: LocationReferenceSchema,
+  maxLegs: z.number().int().min(1).max(MAX_ROUTE_LEGS).default(MAX_ROUTE_LEGS),
+}).strict();
+export type RouteQuery = z.output<typeof RouteQuerySchema>;
+
+export const RouteDraftSchema = z.object({
+  origin: z.string().trim().max(MAX_REFERENCE_LENGTH).default(""),
+  destination: z.string().trim().max(MAX_REFERENCE_LENGTH).default(""),
+  via: z.array(z.string().trim().max(MAX_REFERENCE_LENGTH)).max(MAX_ROUTE_LEGS - 1).default([]),
+}).strict();
+export type RouteDraft = z.output<typeof RouteDraftSchema>;
+
+export const CoordinateInputSchema = z.preprocess((value) => {
+  if (Array.isArray(value)) {
+    return { lat: value[1], lon: value[0] };
+  }
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    return {
+      lat: record.lat ?? record.latitude,
+      lon: record.lon ?? record.lng ?? record.longitude,
+    };
+  }
+  return value;
+}, z.object({
+  lat: z.union([finiteNumber, z.string().trim().min(1)]).transform((value) => Number(value)),
+  lon: z.union([finiteNumber, z.string().trim().min(1)]).transform((value) => Number(value)),
+}).pipe(CoordinateSchema));
+
+export type CoordinateInput = z.input<typeof CoordinateInputSchema>;
+
+export function parseCoordinate(value: unknown): Coordinate {
+  return CoordinateInputSchema.parse(value);
+}
+
+export function safeParseCoordinate(value: unknown): z.SafeParseReturnType<unknown, Coordinate> {
+  return CoordinateInputSchema.safeParse(value);
+}
+
+export function parseReference(value: unknown): LocationReference {
+  if (typeof value === "string") {
+    return LocationReferenceSchema.parse({ value });
+  }
+  return LocationReferenceSchema.parse(value);
+}
+
+export function safeParseReference(value: unknown): z.SafeParseReturnType<unknown, LocationReference> {
+  if (typeof value === "string") {
+    return LocationReferenceSchema.safeParse({ value });
+  }
+  return LocationReferenceSchema.safeParse(value);
+}
+
+export function normalizeReference(value: string): string {
+  return parseReference(value).value;
+}
+
+export function parseLocation(value: unknown): Location {
+  return LocationSchema.parse(value);
+}
+
+export function safeParseLocation(value: unknown): z.SafeParseReturnType<unknown, Location> {
+  return LocationSchema.safeParse(value);
+}
+
+export function parseRouteDraft(value: unknown): RouteDraft {
+  return RouteDraftSchema.parse(value);
+}
+
+export function safeParseRouteDraft(value: unknown): z.SafeParseReturnType<unknown, RouteDraft> {
+  return RouteDraftSchema.safeParse(value);
+}

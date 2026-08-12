@@ -1,0 +1,219 @@
+policyVersion: "1.0.0-poc"
+policyId: flight-route-explorer-poc
+schema:
+  evidenceManifest: deploy/evidence-manifest.schema.json
+  evaluation: semantic-validator-required
+  callerResultMustMatchDerived: true
+  allowedOperators:
+    - equals
+    - less-than-or-equal
+    - greater-than-or-equal
+    - all-less-than-or-equal
+    - set-equals
+    - hash-equals
+    - manual-approval
+
+execution:
+  cloudWrites:
+    default: disabled
+    requiredPreconditions:
+      - PG-03-pass
+      - explicit-cloud-write-authorization
+      - demonstration-planned-within-48-hours
+    prohibitedByDefault:
+      - azure-login
+      - provider-registration
+      - resource-creation
+      - deployment
+      - workflow-dispatch
+  exactSubject:
+    required: true
+    rebuildAfterLocalGate: false
+    digestFormat: sha256
+  bootstrap:
+    region: southeastasia
+    externalIngress: disabled
+    authenticationConfig: absent
+    image: exact-verified-digest-only
+    initialScale:
+      minReplicas: 0
+      maxReplicas: 1
+  teardown:
+    targetHoursAfterDemonstration: 24
+    maximumRetentionDays: 7
+    operatorApprovalRequired: true
+
+resources:
+  allowed:
+    - Microsoft.Resources/resourceGroups
+    - Microsoft.Consumption/budgets
+    - Microsoft.OperationalInsights/workspaces
+    - Microsoft.ContainerRegistry/registries
+    - Microsoft.KeyVault/vaults
+    - Microsoft.ManagedIdentity/userAssignedIdentities
+    - Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials
+    - Microsoft.App/managedEnvironments
+    - Microsoft.App/containerApps
+    - Microsoft.App/containerApps/authConfigs
+    - Microsoft.Authorization/roleAssignments
+  prohibited:
+    - Microsoft.Storage/storageAccounts
+    - Microsoft.App/jobs
+    - Microsoft.ServiceBus/namespaces
+    - Microsoft.Network/privateEndpoints
+    - Microsoft.Network/azureFirewalls
+    - Microsoft.Network/applicationGateways
+    - Microsoft.Web/sites
+  topology:
+    managedEnvironments: 1
+    containerApps: 1
+    registries: 1
+    keyVaults: 1
+    runtimeIdentities: 1
+    deploymentIdentities: 1
+    applicationEnvironments: 1
+
+identities:
+  runtime:
+    permissions:
+      - acr-pull
+      - key-vault-secret-read
+    forbidden:
+      - role-assignment
+      - registry-push
+  deployment:
+    federation: github-protected-environment-oidc
+    permissions:
+      - verified-registry-push
+      - exact-app-update-after-bootstrap
+    forbidden:
+      - key-vault-secret-read
+      - role-assignment
+      - unrelated-resource-mutation
+  allowedPrincipal:
+    source: deployment-input
+    committedIdentifier: false
+
+checks:
+  PG-01:
+    mandatory:
+      - id: PG01-POLICY-VERSIONED
+        procedure: Confirm the checked-in policy has a non-empty version and references the evidence schema.
+        operator: equals
+        expected: true
+        units: boolean
+        failureFallback: Block all later gates until policy metadata is versioned.
+      - id: PG01-OFFLINE-STATIC
+        procedure: Run static validation without Azure credentials or network writes.
+        operator: equals
+        expected: true
+        units: boolean
+        failureFallback: Stop and repair the offline validation path.
+      - id: PG01-NO-LEGACY-TOPOLOGY
+        procedure: Inspect the compiled resource graph for prohibited resource types and historical topology.
+        operator: equals
+        expected: true
+        units: boolean
+        failureFallback: Remove prohibited resources before any implementation proceeds.
+
+  PG-03:
+    mandatory:
+      - id: PG03-EXACT-DIGEST
+        procedure: Verify the retained OCI layout, signature, SBOM, provenance, scan result, and digest-bound manifest.
+        operator: hash-equals
+        expected: verified-oci-subject
+        units: digest
+        failureFallback: Do not rebuild or begin Azure bootstrap.
+      - id: PG03-LOOPBACK-REAL-DATA
+        procedure: Run the exact retained subject loopback-only against the five-family real-data gate.
+        operator: equals
+        expected: true
+        units: boolean
+        failureFallback: Keep Azure writes blocked and repair the release candidate.
+      - id: PG03-SECRETLESS
+        procedure: Confirm no CAAS key, application secret, tenant identifier, or user identifier entered the subject or CI logs.
+        operator: equals
+        expected: true
+        units: boolean
+        failureFallback: Revoke exposed material, invalidate the subject, and rebuild only through the authorized release process.
+      - id: PG03-RESOURCE-SHAPE
+        procedure: Confirm one non-root Linux image with one vCPU and two GiB hard memory ceiling.
+        operator: set-equals
+        expected:
+          - non-root
+          - linux
+          - 1-vcpu
+          - 2-giB
+        units: shape
+        failureFallback: Block cloud bootstrap until the image shape is corrected.
+
+  PG-04:
+    mandatory:
+      - id: PG04-AUTHORIZATION
+        procedure: Record explicit cloud-write authorization and the time-bounded demonstration window.
+        operator: manual-approval
+        expected: explicit-cloud-write-authorization
+        units: null
+        failureFallback: Keep deployment disabled and request explicit authorization.
+      - id: PG04-INGRESS-DISABLED
+        procedure: Verify the first Container App revision is created with external ingress disabled and no auth configuration.
+        operator: equals
+        expected: true
+        units: boolean
+        failureFallback: Abort the candidate, disable ingress, and clean up; this is not rollback.
+      - id: PG04-IMMUTABLE-DEPLOYMENT
+        procedure: Verify the registry subject and deployed revision use the unchanged PG-03 digest.
+        operator: hash-equals
+        expected: PG-03-subject
+        units: digest
+        failureFallback: Stop descendants, keep ingress disabled, and remove the candidate.
+      - id: PG04-AUTH-CONFIG
+        procedure: Verify single-tenant auth, external allowed-user input, app audience, secret references, and deployment-identity denial.
+        operator: equals
+        expected: true
+        units: boolean
+        failureFallback: Disable ingress and clear bootstrap credentials.
+      - id: PG04-ALLOWED-USER-SMOKE
+        procedure: Run the allowed-user browse, map/table, edit/diff, live-data, and tile-failure non-map smoke.
+        operator: equals
+        expected: true
+        units: boolean
+        failureFallback: Disable ingress immediately and follow first-deploy abort cleanup.
+      - id: PG04-LATER-ROLLBACK
+        procedure: After a known-good revision exists, restore the prior revision and complete app-scoped configuration within five minutes.
+        operator: less-than-or-equal
+        expected: 300
+        units: seconds
+        failureFallback: Keep ingress disabled and request teardown or retention authority.
+
+  PG-05:
+    mandatory:
+      - id: PG05-UAT
+        procedure: Complete the authorized single-user accessibility and business UAT against the exact deployed digest.
+        operator: manual-approval
+        expected: accepted
+        units: null
+        failureFallback: Do not declare the POC demonstration ready.
+      - id: PG05-TEARDOWN
+        procedure: Record teardown or separately approved retention with access expiry and cost evidence.
+        operator: manual-approval
+        expected: recorded
+        units: null
+        failureFallback: Keep access disabled and escalate to the POC decision authority.
+
+validator:
+  requiredRules:
+    - reject-missing-checks
+    - reject-unknown-checks
+    - reject-duplicate-checks
+    - reject-incompatible-types-or-units
+    - reject-insufficient-samples
+    - reject-reversed-timestamps
+    - reject-missing-or-unresolved-artifacts
+    - reject-hash-mismatched-artifacts
+    - reject-subject-or-environment-drift
+    - reject-expired-exceptions
+    - reject-open-p0-p1-issues
+    - derive-check-result
+    - derive-gate-result
+    - reject-caller-result-drift

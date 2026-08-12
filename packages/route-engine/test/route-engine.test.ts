@@ -1,0 +1,77 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  buildRouteQueryFromDraft,
+  competitionRank,
+  fromGeoJsonPosition,
+  haversineDistanceNm,
+  rankDistanceNm,
+  rankRouteCandidates,
+  resolveExactReference,
+  resolveRouteQuery,
+  toGeoJsonLineString,
+  fromGeoJsonLineString,
+  toLeafletRoute,
+  fromLeafletRoute,
+  toGeoJsonPosition,
+  toLeafletCoordinate,
+} from "../src/index.ts";
+
+const jfk = { id: "KJFK", code: "JFK", name: "John F. Kennedy", kind: "airport", coordinate: { lat: 40.6413, lon: -73.7781 }, aliases: [] } as const;
+const lhr = { id: "EGLL", code: "LHR", name: "Heathrow", kind: "airport", coordinate: { lat: 51.47, lon: -0.4543 }, aliases: [] } as const;
+const duplicateOne = { ...jfk, id: "JFK-1", name: "John F. Kennedy" };
+const duplicateTwo = { ...jfk, id: "JFK-2", name: "John F. Kennedy" };
+
+test("Haversine uses nautical-mile earth radius and preserves full precision", () => {
+  const distance = haversineDistanceNm(jfk.coordinate, lhr.coordinate);
+  assert.ok(distance > 2_990 && distance < 3_000);
+  assert.equal(haversineDistanceNm(jfk.coordinate, jfk.coordinate), 0);
+  assert.equal(rankDistanceNm(distance), Math.round((distance + Number.EPSILON) * 1_000_000) / 1_000_000);
+});
+
+test("exact resolution distinguishes missing and ambiguous references", () => {
+  assert.equal(resolveExactReference("LHR", [jfk, lhr]).status, "resolved");
+  assert.deepEqual(resolveExactReference("missing", [jfk, lhr]), {
+    status: "gap", reference: { value: "MISSING", kind: "unknown" }, reason: "not-found",
+  });
+  const ambiguous = resolveExactReference("John F. Kennedy", [duplicateOne, duplicateTwo]);
+  assert.equal(ambiguous.status, "ambiguous");
+  if (ambiguous.status === "ambiguous") assert.equal(ambiguous.matches.length, 2);
+});
+
+test("route query keeps endpoint gaps explicit", () => {
+  const result = resolveRouteQuery({ origin: { value: "JFK" }, destination: { value: "NOPE" } }, [jfk, lhr]);
+  assert.equal(result.status, "gap");
+  assert.equal(result.origin.status, "resolved");
+  assert.equal(result.destination.status, "gap");
+});
+
+test("competition ranking keeps ties and skips ranks", () => {
+  assert.deepEqual(competitionRank([10, 10, 12, 14]), [1, 1, 3, 4]);
+  assert.deepEqual(competitionRank([12, 10, 10, 14]), [3, 1, 1, 4]);
+  const ranked = rankRouteCandidates([{ distanceNm: 10 }, { distanceNm: 10.0000004 }, { distanceNm: 12 }]);
+  assert.deepEqual(ranked.map((item) => item.rank), [1, 1, 3]);
+});
+
+test("GeoJSON is longitude-latitude while Leaflet is latitude-longitude", () => {
+  assert.deepEqual(toGeoJsonPosition(jfk.coordinate), [-73.7781, 40.6413]);
+  assert.deepEqual(fromGeoJsonPosition([-73.7781, 40.6413]), jfk.coordinate);
+  assert.deepEqual(toLeafletCoordinate(jfk.coordinate), { lat: 40.6413, lng: -73.7781 });
+});
+
+test("route projections accept the full endpoint-inclusive 256-point bound", () => {
+  const points = Array.from({ length: 256 }, (_, index) => ({ lat: -90 + (index * 180) / 255, lon: -180 + (index * 360) / 255 }));
+  const geoJson = toGeoJsonLineString(points);
+  assert.equal(geoJson.coordinates.length, 256);
+  assert.deepEqual(fromGeoJsonLineString(geoJson), points);
+  const leaflet = toLeafletRoute(points);
+  assert.equal(leaflet.positions.length, 256);
+  assert.deepEqual(fromLeafletRoute(leaflet), points);
+  assert.throws(() => toGeoJsonLineString([...points, points[0]!]), RangeError);
+  assert.throws(() => toLeafletRoute([...points, points[0]!]), RangeError);
+});
+test("draft helpers stay safe for incomplete user input", () => {
+  const result = buildRouteQueryFromDraft({ origin: "JFK", destination: "" });
+  assert.equal(result.ok, false);
+  assert.equal(buildRouteQueryFromDraft({ origin: "JFK", destination: "LHR" }).ok, true);
+});

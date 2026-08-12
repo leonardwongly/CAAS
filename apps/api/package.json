@@ -1,0 +1,18 @@
+{
+  "name": "@flight-route-explorer/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-strip-types src/cli.ts",
+    "dev": "node --watch --experimental-strip-types src/cli.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test --experimental-strip-types test/*.test.ts"
+  },
+  "dependencies": {
+    "@flight-route-explorer/contracts": "workspace:*",
+    "@flight-route-explorer/route-engine": "workspace:*",
+    "@flight-route-explorer/upstream-caas": "workspace:*",
+    "fastify": "5.3.3"
+  }
+}

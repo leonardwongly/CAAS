@@ -1,0 +1,16 @@
+{
+  "name": "@flight-route-explorer/upstream-caas",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test --experimental-strip-types test/*.test.ts"
+  },
+  "dependencies": {
+    "@flight-route-explorer/contracts": "workspace:*"
+  }
+}

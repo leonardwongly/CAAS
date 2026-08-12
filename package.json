@@ -1,0 +1,29 @@
+{
+  "name": "flight-route-explorer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.5.2",
+  "engines": {
+    "node": ">=22.14.0",
+    "pnpm": ">=11.5.2 <12"
+  },
+  "scripts": {
+    "build": "pnpm --filter @flight-route-explorer/web exec vite build && pnpm --filter '!@flight-route-explorer/web' --recursive --if-present run build",
+    "clean": "pnpm --recursive --if-present run clean",
+    "dev": "pnpm --filter \"@flight-route-explorer/*\" --recursive --parallel --if-present run dev",
+    "lint": "pnpm --recursive --if-present run lint",
+    "test": "pnpm --recursive --if-present run test",
+    "test:offline": "node scripts/test-offline.mjs",
+    "typecheck": "pnpm exec tsc --showConfig --project tsconfig.base.json > /dev/null && pnpm --filter '!@flight-route-explorer/web' --recursive --if-present run typecheck",
+    "validate:config": "node scripts/validate-config.mjs",
+    "validate:policy": "node scripts/validation/validate-offline.mjs",
+    "container:smoke": "node scripts/smoke-container.mjs",
+    "validate": "pnpm run validate:config && pnpm run validate:policy && pnpm run typecheck && pnpm run test && pnpm run test:offline && pnpm run container:smoke"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "typescript": "5.8.3",
+    "yaml": "2.7.0"
+  }
+}

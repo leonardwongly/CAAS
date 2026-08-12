@@ -1,0 +1,2 @@
+sanitized offline validation artifact
+fixture-only; contains no live response, credential, tenant, user, or resource identifier

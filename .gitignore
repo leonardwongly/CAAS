@@ -1,0 +1,19 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Node and pnpm artifacts
+node_modules/
+.pnpm-store/
+pnpm-debug.log*
+**/dist/
+**/coverage/
+
+# macOS metadata
+.DS_Store
+**/.DS_Store
+
+# Local generated analysis and scratch output
+.superpowers/
+tmp/

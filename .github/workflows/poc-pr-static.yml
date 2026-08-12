@@ -1,0 +1,86 @@
+name: POC deployment artifact validation
+
+on:
+  pull_request:
+    paths:
+      - 'infra/bicep/**'
+      - 'deploy/**'
+      - 'apps/**'
+      - 'packages/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: poc-deployment-artifacts-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-validation:
+    name: Offline deployment artifact checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Verify the workflow is secretless and non-mutating
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Rni --exclude='poc-pr-static.yml' -E '(^|[^[:alnum:]_])(az login|az deployment|az provider|what-if|azure/login|azure/cli|workflow_dispatch|secrets\.)' .github/workflows; then
+            echo 'cloud login, cloud writes, dispatch, or workflow secrets are not allowed in PR validation' >&2
+            exit 1
+          fi
+
+      - name: Verify the Bicep topology stays minimal
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RniE 'Microsoft\.Storage|Microsoft\.ServiceBus|Microsoft\.App/jobs|privateEndpoints|azureFirewalls|applicationGateways|Microsoft\.Web/sites' infra/bicep; then
+            echo 'prohibited legacy or excess Azure topology found' >&2
+            exit 1
+          fi
+
+      - name: Assert deployment contracts offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby <<'RUBY'
+          main = File.read('infra/bicep/main.bicep')
+          resource_group = File.read('infra/bicep/resource-group.bicep')
+          workflow = File.read('.github/workflows/poc-pr-static.yml')
+
+          abort 'resource-group module is not subscription-scoped correctly' unless main.include?("resource deploymentResourceGroup 'Microsoft.Resources/resourceGroups@") && main.include?("module resourceGroupResources 'resource-group.bicep'") && main.include?('scope: resourceGroup(resourceGroupName)') && resource_group.start_with?("targetScope = 'resourceGroup'")
+          abort 'cloud writes must remain disabled by default' unless main.include?('param deployResources bool = false')
+          abort 'bootstrap ingress must remain disabled by default' unless main.include?('param bootstrap bool = true') && resource_group.include?('external: bootstrap ? false : enableExternalIngress')
+          abort 'imageDigest must have exact sha256 length bounds' unless main.match?(/@minLength\(71\)\s*@maxLength\(71\)\s*param imageDigest string/)
+          digest = /\Asha256:[0-9a-f]{64}\z/
+          abort 'sha256 digest assertion is invalid' unless digest.match?('sha256:' + ('a' * 64)) && !digest.match?('sha256:' + ('g' * 64)) && !digest.match?('sha1:' + ('a' * 64))
+          abort 'image must be digest-qualified' unless main.include?("var image = '${imageRepository}@${imageDigest}'") && main.include?('sha256:')
+          abort 'runtime secret must map to the server apikey contract' unless resource_group.include?("name: 'apikey'") && resource_group.include?('secretRef: caasApiKeySecretName')
+          abort 'Entra secret must be a separate parameterized Key Vault reference' unless resource_group.include?("keyVaultUrl: '${keyVault.properties.vaultUri}secrets/${entraClientSecretName}'") && resource_group.include?('clientSecretSettingName: entraClientSecretName') && resource_group.include?('bootstrap ? [] : [') && resource_group.include?('if (!bootstrap)')
+          %w[tenantId allowedUserObjectId entraClientId appAudience].each do |name|
+            abort "#{name} must reject empty post-bootstrap input" unless main.match?(/@minLength\(1\)\s*param #{name} string/)
+          end
+          abort 'health probes must match the API port and paths' unless resource_group.include?("targetPort: 8080") && resource_group.include?("path: '/health/startup'") && resource_group.include?("path: '/health/live'") && resource_group.include?("path: '/health/ready'") && resource_group.scan(/port: 8080/).length >= 3
+          abort 'workflow actions must be immutable commit pins' unless workflow.scan(/^\s*uses:\s+\S+@([0-9a-f]{40})\b/).length >= 2
+          RUBY
+
+      - name: Build Bicep offline
+        uses: Azure/bicep-build-action@c333f970fb0daae2241062b5b7acf30a97f696c9 # v1.0.0
+        with:
+          bicepFilePath: infra/bicep/main.bicep
+          outputFilePath: /tmp/flight-route-explorer-poc.json
+
+      - name: Parse policy and check required safety invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -e 'require "yaml"; data = YAML.load_file("deploy/poc-policy.yaml"); abort "missing policyVersion" unless data.fetch("policyVersion"); abort "bootstrap ingress must be disabled" unless data.dig("execution", "bootstrap", "externalIngress") == "disabled"; abort "cloud writes must default off" unless data.dig("execution", "cloudWrites", "default") == "disabled"; abort "exact subject required" unless data.dig("execution", "exactSubject", "required") == true; abort "no prohibited topology" unless data.dig("resources", "prohibited").include?("Microsoft.Storage/storageAccounts")'
