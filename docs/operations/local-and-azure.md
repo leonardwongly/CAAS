@@ -89,6 +89,8 @@ There is no staging environment. The unchanged verified digest goes directly to 
 
 A first deployment has no rollback target. On failure, keep ingress disabled, deactivate/remove the failed candidate under the authorized cleanup procedure, clear temporary credentials, and repair or abort. Only after a known-good revision exists may a later failure restore the prior revision and the complete app-scoped configuration (ingress/traffic, identity, Key Vault references, environment, scale/probes, and separate auth configuration). The restored application reacquires current CAAS data; external data is not snapshot-rolled back.
 
+Authorized Azure procedures (release path, preflight, deployment, abort/rollback drills, post-demo verification, and the reconciled topology) live under `docs/operations/` and `docs/architecture/`: `azure-release-path.md`, `azure-preflight-and-bootstrap.md`, `azure-deployment-procedure.md`, `azure-abort-and-rollback-drills.md`, `azure-post-demo-verification.md`, `azure-poc-topology.md`. Their paired dry-run/negative-check scripts are in `deploy/`.
+
 ## Cost and teardown controls
 
 The accepted governance ceiling is USD 50 with alert thresholds at USD 25, USD 37.50, and USD 45. Alerts are notifications, not billing cutoffs; expiry tags do not delete resources. Provisioning starts no earlier than 48 hours before the demonstration, teardown targets 24 hours afterward, and seven days is an operator-enforced maximum requiring explicit teardown approval or separately authorized retention. Stop new deployment work at a USD 45 forecast/actual alert and request teardown or retention authority.

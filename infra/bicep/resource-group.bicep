@@ -27,6 +27,9 @@ param maxReplicas int
 @description('Bootstrap keeps the Container App external ingress disabled and does not create auth configuration.')
 param bootstrap bool
 
+@description('Two-phase bootstrap split (design section 0.5 DAG steps 3-5): the app is created by the one-time bootstrap authority only after the unchanged PG-03 digest has been pushed through OIDC. The exact-app deployment grant is deliberately NOT in Bicep; it is assigned by the bootstrap authority only after this resource exists.')
+param createContainerApp bool
+
 @description('Explicit post-auth gate for external ingress. Keep false until the protected smoke checks pass.')
 param enableExternalIngress bool
 
@@ -171,7 +174,7 @@ resource acrPushForDeployment 'Microsoft.Authorization/roleAssignments@2022-04-0
   }
 }
 
-resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
+resource containerApp 'Microsoft.App/containerApps@2023-05-01' = if (createContainerApp) {
   name: containerAppName
   location: location
   tags: commonTags
@@ -184,6 +187,8 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
   properties: {
     managedEnvironmentId: managedEnvironment.id
     configuration: {
+      // Plan section 6.2: one active serving revision, min 0 outside planned
+      // use, min 1 during the demonstration, maxReplicas 1 per active revision.
       activeRevisionsMode: 'Single'
       ingress: {
         // Bootstrap invariant: external ingress is disabled until auth and smoke gates pass.
@@ -228,6 +233,9 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             }
           ]
           probes: [
+            // Plan section 6.2: cold start to readiness is a 120-second
+            // objective with a 180-second hard deadline. 5 + 17 x 10 = 175
+            // seconds of startup-probe budget stays inside the hard deadline.
             {
               type: 'Startup'
               httpGet: {
@@ -236,7 +244,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               }
               initialDelaySeconds: 5
               periodSeconds: 10
-              failureThreshold: 30
+              failureThreshold: 17
             }
             {
               type: 'Liveness'
@@ -256,7 +264,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               }
               initialDelaySeconds: 10
               periodSeconds: 10
-              failureThreshold: 18
+              failureThreshold: 17
             }
           ]
         }
