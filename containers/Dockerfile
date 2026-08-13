@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:22.14.0-bookworm-slim AS dependencies
+FROM node:22.14.0-bookworm-slim@sha256:1c18d9ab3af4585870b92e4dbc5cac5a0dc77dd13df1a5905cea89fc720eb05b AS dependencies
 WORKDIR /workspace
 
 RUN corepack enable && corepack prepare pnpm@11.5.2 --activate
@@ -16,7 +16,7 @@ FROM dependencies AS build
 COPY . .
 RUN pnpm run build
 
-FROM node:22.14.0-bookworm-slim AS runtime
+FROM node:22.14.0-bookworm-slim@sha256:1c18d9ab3af4585870b92e4dbc5cac5a0dc77dd13df1a5905cea89fc720eb05b AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production \

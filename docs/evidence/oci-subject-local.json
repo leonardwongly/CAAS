@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "gateId": "PG-03",
+  "policy": {
+    "policyVersion": "1.0.0-poc",
+    "policySha256": "364d9f13247f104bc749eec5d2e85c0c7c8ba128dd2f0839d47ac1d953496100",
+    "validatorVersion": "release-evidence-validator-v1",
+    "validatorSha256": "e38cac909d618558adbf5db2e287bb7d2e0afbcd7fe5da64a37ff75ada68927d",
+    "evaluationMode": "semantic-validator"
+  },
+  "subject": {
+    "type": "oci",
+    "identifiers": {
+      "digest": "sha256:7d38ab90770e4865c860409f1a4498b59d89372ef0d9b6bd785f7a479d2a3f05",
+      "commit": "c0f63377ace1",
+      "tarSha256": "1ab28a87806e72092d6c41c860cf13355ed25fb20eed37abfcb1ab88a58c699b"
+    },
+    "environment": "local-build-candidate"
+  },
+  "checks": [
+    {
+      "checkId": "PG03-EXACT-DIGEST",
+      "mandatory": true,
+      "procedure": "The subject must be the single authoritative CI-built OCI image; the locally built candidate is recorded here with its real digest and remains unverified until the authoritative CI subject is recorded.",
+      "startedAt": "2026-08-13T15:57:11.504Z",
+      "endedAt": "2026-08-13T15:57:11.505Z",
+      "threshold": {
+        "rule": "measured value hash-equals expected",
+        "operator": "hash-equals",
+        "expected": "verified-oci-subject",
+        "units": "digest"
+      },
+      "measurement": {
+        "summary": "exact subject digest is the verified OCI subject",
+        "value": "sha256:7d38ab90770e4865c860409f1a4498b59d89372ef0d9b6bd785f7a479d2a3f05",
+        "units": "digest",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "deploy/poc-policy.yaml",
+          "sha256": "364d9f13247f104bc749eec5d2e85c0c7c8ba128dd2f0839d47ac1d953496100"
+        },
+        {
+          "path": "deploy/evidence-manifest.schema.json",
+          "sha256": "956a103c73ed79ce93b8d2816b1157c19d82673b1c9fbb4fb01de514b4bc96c0"
+        },
+        {
+          "path": "containers/Dockerfile",
+          "sha256": "87b28b0d04dd757510fe0f948cb206ceca5df35dc146f3510c1b3faa16884c80"
+        },
+        {
+          "path": "scripts/validation/build-oci.mjs",
+          "sha256": "506e6ff41e61f35ae0d78e3d4fc1f3792ff2b0b3f3d838a0a453cd93bc2aeb1d"
+        },
+        {
+          "path": "scripts/validation/validate-evidence-bundle.mjs",
+          "sha256": "e38cac909d618558adbf5db2e287bb7d2e0afbcd7fe5da64a37ff75ada68927d"
+        },
+        {
+          "path": ".github/workflows/oci-subject-build.yml",
+          "sha256": "e9a6286c6e7b31bbf1cc7bddcf400adb009351609d8c10b139f3005a1b1936f5"
+        },
+        {
+          "path": "docs/evidence/oci-digest-bundle-c0f63377ace1.json",
+          "sha256": "9065327fd83e4af1970fadba158c09258303bc265ed849086fdeb5e95b6078ad"
+        }
+      ],
+      "result": "blocked",
+      "failureFallback": "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject."
+    },
+    {
+      "checkId": "PG03-LOOPBACK-REAL-DATA",
+      "mandatory": true,
+      "procedure": "The verified subject must pass the loopback gate with real data (authorized live run). Mechanics pass fixture-backed (docs/evidence/loopback-lane-local.json); the authorized live run is pending (docs/evidence/live-lane-<sha>.json, mode pending-authorized-execution).",
+      "startedAt": "2026-08-13T15:57:11.504Z",
+      "endedAt": "2026-08-13T15:57:11.505Z",
+      "threshold": {
+        "rule": "measured value equals expected",
+        "operator": "equals",
+        "expected": true,
+        "units": "boolean"
+      },
+      "measurement": {
+        "summary": "exact subject passes loopback with real data",
+        "value": false,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "deploy/poc-policy.yaml",
+          "sha256": "364d9f13247f104bc749eec5d2e85c0c7c8ba128dd2f0839d47ac1d953496100"
+        },
+        {
+          "path": "deploy/evidence-manifest.schema.json",
+          "sha256": "956a103c73ed79ce93b8d2816b1157c19d82673b1c9fbb4fb01de514b4bc96c0"
+        },
+        {
+          "path": "containers/Dockerfile",
+          "sha256": "87b28b0d04dd757510fe0f948cb206ceca5df35dc146f3510c1b3faa16884c80"
+        },
+        {
+          "path": "scripts/validation/build-oci.mjs",
+          "sha256": "506e6ff41e61f35ae0d78e3d4fc1f3792ff2b0b3f3d838a0a453cd93bc2aeb1d"
+        },
+        {
+          "path": "scripts/validation/validate-evidence-bundle.mjs",
+          "sha256": "e38cac909d618558adbf5db2e287bb7d2e0afbcd7fe5da64a37ff75ada68927d"
+        },
+        {
+          "path": ".github/workflows/oci-subject-build.yml",
+          "sha256": "e9a6286c6e7b31bbf1cc7bddcf400adb009351609d8c10b139f3005a1b1936f5"
+        },
+        {
+          "path": "docs/evidence/oci-digest-bundle-c0f63377ace1.json",
+          "sha256": "9065327fd83e4af1970fadba158c09258303bc265ed849086fdeb5e95b6078ad"
+        }
+      ],
+      "result": "blocked",
+      "failureFallback": "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject."
+    },
+    {
+      "checkId": "PG03-SECRETLESS",
+      "mandatory": true,
+      "procedure": "The image was built by scripts/validation/build-oci.mjs with no credential in the environment, no registry push, and the image config records no secret environment; the CI workflow is hermetic (no secrets, no Azure operations).",
+      "startedAt": "2026-08-13T15:57:11.504Z",
+      "endedAt": "2026-08-13T15:57:11.505Z",
+      "threshold": {
+        "rule": "measured value equals expected",
+        "operator": "equals",
+        "expected": true,
+        "units": "boolean"
+      },
+      "measurement": {
+        "summary": "subject is built secretless",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "deploy/poc-policy.yaml",
+          "sha256": "364d9f13247f104bc749eec5d2e85c0c7c8ba128dd2f0839d47ac1d953496100"
+        },
+        {
+          "path": "deploy/evidence-manifest.schema.json",
+          "sha256": "956a103c73ed79ce93b8d2816b1157c19d82673b1c9fbb4fb01de514b4bc96c0"
+        },
+        {
+          "path": "containers/Dockerfile",
+          "sha256": "87b28b0d04dd757510fe0f948cb206ceca5df35dc146f3510c1b3faa16884c80"
+        },
+        {
+          "path": "scripts/validation/build-oci.mjs",
+          "sha256": "506e6ff41e61f35ae0d78e3d4fc1f3792ff2b0b3f3d838a0a453cd93bc2aeb1d"
+        },
+        {
+          "path": "scripts/validation/validate-evidence-bundle.mjs",
+          "sha256": "e38cac909d618558adbf5db2e287bb7d2e0afbcd7fe5da64a37ff75ada68927d"
+        },
+        {
+          "path": ".github/workflows/oci-subject-build.yml",
+          "sha256": "e9a6286c6e7b31bbf1cc7bddcf400adb009351609d8c10b139f3005a1b1936f5"
+        },
+        {
+          "path": "docs/evidence/oci-digest-bundle-c0f63377ace1.json",
+          "sha256": "9065327fd83e4af1970fadba158c09258303bc265ed849086fdeb5e95b6078ad"
+        }
+      ],
+      "result": "pass",
+      "failureFallback": "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject."
+    },
+    {
+      "checkId": "PG03-RESOURCE-SHAPE",
+      "mandatory": true,
+      "procedure": "non-root runtime user and linux/amd64 verified from docker image inspect of the built image; 1 vcpu and 2 GiB verified by validate:policy from infra/bicep invariants (cpu: 1, memory '2Gi').",
+      "startedAt": "2026-08-13T15:57:11.504Z",
+      "endedAt": "2026-08-13T15:57:11.505Z",
+      "threshold": {
+        "rule": "the set of measured values equals the expected set",
+        "operator": "set-equals",
+        "expected": [
+          "non-root",
+          "linux",
+          "1-vcpu",
+          "2-giB"
+        ],
+        "units": "shape"
+      },
+      "measurement": {
+        "summary": "subject shape matches the fixed resource policy",
+        "value": [
+          "non-root",
+          "linux",
+          "1-vcpu",
+          "2-giB"
+        ],
+        "units": "shape",
+        "sampleCount": 4
+      },
+      "artifacts": [
+        {
+          "path": "deploy/poc-policy.yaml",
+          "sha256": "364d9f13247f104bc749eec5d2e85c0c7c8ba128dd2f0839d47ac1d953496100"
+        },
+        {
+          "path": "deploy/evidence-manifest.schema.json",
+          "sha256": "956a103c73ed79ce93b8d2816b1157c19d82673b1c9fbb4fb01de514b4bc96c0"
+        },
+        {
+          "path": "containers/Dockerfile",
+          "sha256": "87b28b0d04dd757510fe0f948cb206ceca5df35dc146f3510c1b3faa16884c80"
+        },
+        {
+          "path": "scripts/validation/build-oci.mjs",
+          "sha256": "506e6ff41e61f35ae0d78e3d4fc1f3792ff2b0b3f3d838a0a453cd93bc2aeb1d"
+        },
+        {
+          "path": "scripts/validation/validate-evidence-bundle.mjs",
+          "sha256": "e38cac909d618558adbf5db2e287bb7d2e0afbcd7fe5da64a37ff75ada68927d"
+        },
+        {
+          "path": ".github/workflows/oci-subject-build.yml",
+          "sha256": "e9a6286c6e7b31bbf1cc7bddcf400adb009351609d8c10b139f3005a1b1936f5"
+        },
+        {
+          "path": "docs/evidence/oci-digest-bundle-c0f63377ace1.json",
+          "sha256": "9065327fd83e4af1970fadba158c09258303bc265ed849086fdeb5e95b6078ad"
+        }
+      ],
+      "result": "pass",
+      "failureFallback": "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject."
+    }
+  ],
+  "blockingIssues": [],
+  "gateResult": "blocked",
+  "failureFallback": "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject."
+}

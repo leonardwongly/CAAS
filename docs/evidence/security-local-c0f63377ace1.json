@@ -1,0 +1,196 @@
+{
+  "recordKind": "measurement-results",
+  "lane": "security",
+  "subject": {
+    "type": "commit",
+    "identifiers": {
+      "commit": "c0f63377ace1"
+    },
+    "environment": "local-hermetic"
+  },
+  "startedAt": "2026-08-13T15:57:13.592Z",
+  "endedAt": "2026-08-13T15:57:13.808Z",
+  "scope": "tracked-file secret scan, .env tracking, fixture scope, response headers on fixture-backed server, image metadata when built",
+  "checks": [
+    {
+      "checkId": "SEC-CREDENTIAL-SCAN",
+      "name": "no credential material in tracked files",
+      "procedure": "No private keys, AWS/GitHub/Slack tokens, or similar material appears in any tracked file.",
+      "startedAt": "2026-08-13T15:57:13.592Z",
+      "endedAt": "2026-08-13T15:57:13.622Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "no credential material in tracked files",
+        "value": true,
+        "units": "hits",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "9329d971a9fd059e3f30f59cbdc54b6766725aebea24af64b77104e9c8d2959a"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-DOTENV-NOT-TRACKED",
+      "name": "no local .env tracked",
+      "procedure": "The only tracked .env* file is .env.example.",
+      "startedAt": "2026-08-13T15:57:13.592Z",
+      "endedAt": "2026-08-13T15:57:13.622Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "no local .env tracked",
+        "value": true,
+        "units": "files",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "9329d971a9fd059e3f30f59cbdc54b6766725aebea24af64b77104e9c8d2959a"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-ENV-EXAMPLE-PLACEHOLDER",
+      "name": ".env.example contains only placeholders",
+      "procedure": "Every value in .env.example is a documented placeholder, not a real credential.",
+      "startedAt": "2026-08-13T15:57:13.592Z",
+      "endedAt": "2026-08-13T15:57:13.622Z",
+      "result": "pass",
+      "measurement": {
+        "summary": ".env.example contains only placeholders",
+        "value": false,
+        "units": "values",
+        "sampleCount": 3
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "9329d971a9fd059e3f30f59cbdc54b6766725aebea24af64b77104e9c8d2959a"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-FIXTURE-SCOPE",
+      "name": "fixture credentials scoped to fixtures",
+      "procedure": "The loopback fixture apikey/refresh secret appear only in scripts/validation and tests.",
+      "startedAt": "2026-08-13T15:57:13.592Z",
+      "endedAt": "2026-08-13T15:57:13.630Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "fixture credentials scoped to fixtures",
+        "value": true,
+        "units": "files",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "9329d971a9fd059e3f30f59cbdc54b6766725aebea24af64b77104e9c8d2959a"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-RESPONSE-HEADERS",
+      "name": "documented response security headers",
+      "procedure": "All documented security headers present on API responses.",
+      "startedAt": "2026-08-13T15:57:13.592Z",
+      "endedAt": "2026-08-13T15:57:13.770Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "documented response security headers",
+        "value": true,
+        "units": "headers",
+        "sampleCount": 6
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "9329d971a9fd059e3f30f59cbdc54b6766725aebea24af64b77104e9c8d2959a"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-IMAGE-NON-ROOT",
+      "name": "image runs as non-root",
+      "procedure": "The built image's runtime user is not root.",
+      "startedAt": "2026-08-13T15:57:13.592Z",
+      "endedAt": "2026-08-13T15:57:13.808Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "image runs as non-root",
+        "value": true,
+        "units": "user",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "9329d971a9fd059e3f30f59cbdc54b6766725aebea24af64b77104e9c8d2959a"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-IMAGE-NO-SECRET-ENV",
+      "name": "image has no credential environment",
+      "procedure": "No apikey/secret/token environment is baked into the image.",
+      "startedAt": "2026-08-13T15:57:13.592Z",
+      "endedAt": "2026-08-13T15:57:13.808Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "image has no credential environment",
+        "value": true,
+        "units": "keys",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "9329d971a9fd059e3f30f59cbdc54b6766725aebea24af64b77104e9c8d2959a"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-PACKAGE-AUDIT",
+      "name": "dependency audit against registry",
+      "procedure": "Pending an authorized networked run: `pnpm audit --prod` against the frozen pnpm-lock.yaml (pnpm 11.5.2), commit the resulting record. Not run here because the validation lanes are hermetic/offline.",
+      "startedAt": "2026-08-13T15:57:13.592Z",
+      "endedAt": "2026-08-13T15:57:13.808Z",
+      "result": "blocked",
+      "measurement": {
+        "summary": "pending authorized networked audit",
+        "value": null,
+        "units": "vulnerabilities",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "9329d971a9fd059e3f30f59cbdc54b6766725aebea24af64b77104e9c8d2959a"
+        }
+      ],
+      "failureFallback": "Keep the security gate blocked until a real audit records a result."
+    }
+  ],
+  "summary": {
+    "checks": 8,
+    "passed": 7,
+    "blocked": 1,
+    "failed": 0
+  },
+  "artifacts": [
+    {
+      "path": "scripts/validation/measure-security.mjs",
+      "sha256": "9329d971a9fd059e3f30f59cbdc54b6766725aebea24af64b77104e9c8d2959a"
+    }
+  ]
+}
