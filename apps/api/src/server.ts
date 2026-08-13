@@ -586,11 +586,40 @@ function selectionMap(draft: RouteDraft): ReadonlyMap<number, RouteDraftSelectio
   return bySequence;
 }
 
+function decodeSelectionToken(value: unknown): ScopedToken | undefined {
+  if (typeof value !== "string") return undefined;
+  const parts = value.split(".");
+  if (parts.length !== 2 || !/^[A-Za-z0-9_-]+$/.test(parts[0]!) || !/^[A-Za-z0-9_-]+$/.test(parts[1]!)) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(parts[0]!, "base64url").toString("utf8")) as unknown;
+    return parsed && typeof parsed === "object" ? parsed as ScopedToken : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function verifySelectionSignature(value: string, snapshot: Snapshot): boolean {
+  const parts = value.split(".");
+  const expected = createHmac("sha256", snapshot.tokenSecret).update(parts[0]!).digest("base64url");
+  const actual = Buffer.from(parts[1]!);
+  const expectedBuffer = Buffer.from(expected);
+  return actual.length === expectedBuffer.length && timingSafeEqual(actual, expectedBuffer);
+}
+
 function selectedLocation(snapshot: Snapshot, selection: RouteDraftSelection, reference: string, now: () => number): Location {
-  const decoded = readScoped(selection.locationId, snapshot);
+  // Decode the body first so a genuine selection from an older generation can be
+  // told apart from a forged one: the token secret rotates with every snapshot,
+  // so an old-generation token no longer verifies. Both paths fail closed.
+  const decoded = decodeSelectionToken(selection.locationId);
   if (!decoded) throw new ApiHttpError(400, "TOKEN_INVALID", "The explicit coordinate selection is not a valid service-issued selection.");
-  if (decoded.g !== snapshot.id || decoded.t !== "location" || typeof decoded.e !== "number" || decoded.e < now() || typeof decoded.n !== "string" || typeof decoded.i !== "number" || !Number.isInteger(decoded.i) || decoded.i < 0) {
+  if (decoded.g !== snapshot.id || typeof decoded.e !== "number" || decoded.e < now() || typeof decoded.n !== "string") {
     throw new ApiHttpError(410, "GENERATION_EXPIRED", "The explicit coordinate selection belongs to an older data generation.");
+  }
+  if (decoded.t !== "location" || typeof decoded.i !== "number" || !Number.isInteger(decoded.i) || decoded.i < 0) {
+    throw new ApiHttpError(400, "TOKEN_INVALID", "The explicit coordinate selection is not a service-issued location selection.");
+  }
+  if (!verifySelectionSignature(selection.locationId, snapshot)) {
+    throw new ApiHttpError(400, "TOKEN_INVALID", "The explicit coordinate selection signature is invalid.");
   }
   const location = snapshot.locations[decoded.i];
   if (!location) throw new ApiHttpError(404, "POINT_NOT_FOUND", "The selected point was not found.");
