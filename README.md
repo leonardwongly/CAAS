@@ -29,6 +29,22 @@ The retained [PG-00 discovery manifest](docs/evidence/pg-00-live-api-discovery.j
 
 All 270,789 reference records passed the bounded identifier/coordinate parser during discovery. Of 891 designated route occurrences, 80 were unresolved, 9 matched more than one reference family, and ambiguity is preserved. This proves the recorded discovery observation only; it does not prove future code, retry behavior, quotas, or deployment behavior.
 
+### Retained local lane and measurement records
+
+On the merged tree (commit `1c838bd`) the validation lanes below are real commands with retained records under `docs/evidence/`; earlier runs are archived under `docs/evidence/archived/`:
+
+| Lane | Record | Result |
+|---|---|---|
+| Authorized live five-family run (commit `e78278d4b924`) | [live-lane-e78278d4b924.json](docs/evidence/live-lane-e78278d4b924.json) | 5/5 checks pass; real acquisition, exact-once browse, refresh auth, secret excluded |
+| Loopback five-family lane (fixture-backed mechanics) | [loopback-lane-local-1c838bdf6372.json](docs/evidence/loopback-lane-local-1c838bdf6372.json) | 22/22 checks pass (acquisition, browse exact-once, search, rank ties, refresh, fail-closed startup, restart, airway exclusion) |
+| Loopback container lane (no credential, fail-closed boot) | [loopback-container-local-1c838bdf6372.json](docs/evidence/loopback-container-local-1c838bdf6372.json) | 7/7 checks pass; digest-pinned base, non-root, no secret env |
+| Security measurement (hermetic) | [security-local-1c838bdf6372.json](docs/evidence/security-local-1c838bdf6372.json) | 7/8 pass; `SEC-PACKAGE-AUDIT` blocked (pending an authorized networked audit) |
+| Performance measurement (fixture-backed loopback) | [performance-local-1c838bdf6372.json](docs/evidence/performance-local-1c838bdf6372.json) | 8/8 pass against the documented policy objectives; live/CI values pending |
+| Workspace lint (import boundaries, script hygiene) | [lint-local-1c838bdf6372.json](docs/evidence/lint-local-1c838bdf6372.json) | 3/3 checks pass |
+| Local OCI subject candidate | [oci-subject-local.json](docs/evidence/oci-subject-local.json) | Recorded digest `sha256:2adbe935…`; explicitly unverified until the authoritative CI subject is recorded |
+
+Offline and browser lanes currently pass on this tree: 140 offline tests (`pnpm run test:offline`), 15 accessibility tests, 16 E2E tests, and 8 responsive tests. The per-criterion and per-gate status of all this evidence is recorded in the [POC capability and gate-status matrix](docs/status/poc-capability-and-gate-matrix.md).
+
 ## Binding implementation contract
 
 - The Fastify server is the only CAAS client. The browser calls same-origin application APIs, never CAAS directly.
@@ -83,9 +99,9 @@ pnpm run typecheck
 pnpm run validate
 ```
 
-`pnpm run validate:config` checks root JSON/YAML/TypeScript configuration and the placeholder environment contract. `pnpm run validate` runs configuration and policy validation, workspace typechecks, package tests, offline checks, and the Linux container smoke lane. `pnpm run build` builds the Vite UI and backend/package TypeScript outputs. The real-data lane is intentionally separate from offline validation and requires the ignored local `.env` credential.
+`pnpm run validate:config` checks root JSON/YAML/TypeScript configuration and the placeholder environment contract. `pnpm run validate` runs configuration and policy validation, workspace typechecks, package tests, the offline suite, evidence validation, lint, and the Linux container smoke lane. `pnpm run build` builds the Vite UI and backend/package TypeScript outputs. The real-data lane is intentionally separate from offline validation and requires the ignored local `.env` credential.
 
-The future implementation plan names additional lanes (`pnpm test:unit`, `test:property`, `test:contract`, `test:integration`, `test:a11y`, `test:e2e`, `test:live`, `test:performance`, `test:security`, `test:container`, `test:evidence`, `pnpm verify`, and Linux image commands). They are documented in [validation and evidence](docs/testing/evidence-and-validation.md) as planned contracts, not as commands that currently pass.
+The named lanes in the plan are now implemented commands on this tree: `test:offline` (140 tests), `test:a11y`, `test:e2e`, `test:responsive`, `test:integration` (loopback lane), `test:security`, `test:performance`, `test:container`, `test:evidence`, `test:live` (executed once in an authorized run with a retained record), `oci:build`/`oci:verify`, and `verify`. The plan's `test:unit` and `test:property` names do not exist as commands; unit- and property-style coverage lives in the offline suite and package tests. A command counts as passed only when its retained record includes the exact subject, result, measurements, and artifact hashes, per [validation and evidence](docs/testing/evidence-and-validation.md).
 
 ## Azure write boundary
 
@@ -93,7 +109,7 @@ Routine work is local and loopback-only. **No Azure provider registration, Entra
 
 There is no staging-to-production promotion. The unchanged verified digest is pushed directly to one private, single-user POC. First deployment has no rollback target: keep ingress disabled and abort/deactivate/clean up on failure. Only after a known-good deployment exists may a later revision restore the prior revision plus complete app-scoped configuration; external CAAS data is reacquired and is never rolled back as a snapshot.
 
-No Azure deployment, authentication configuration, rollback drill, UAT, or teardown is evidenced today. See [operations](docs/operations/local-and-azure.md) for the read-only preflight and stop conditions.
+No Azure deployment, authentication configuration, rollback drill, UAT, or teardown is evidenced today. The authorized release path is defined as operator procedures: [Azure release path](docs/operations/azure-release-path.md), [go/no-go preflight](docs/operations/azure-preflight-and-bootstrap.md), [deployment procedure](docs/operations/azure-deployment-procedure.md), [abort and rollback drills](docs/operations/azure-abort-and-rollback-drills.md), and [post-demo verification](docs/operations/azure-post-demo-verification.md); see [operations](docs/operations/local-and-azure.md) for the read-only preflight and stop conditions.
 
 ## AI use
 
@@ -101,6 +117,6 @@ AI-assisted tools were used for requirements analysis, design exploration, imple
 
 ## Known limitations and evidence boundary
 
-The discovery record confirms successful responses only. It did not deliberately induce throttling or upstream failures, observed no pagination metadata or Flight response rate-limit/retry headers, and makes no quota, retry, or failure-behavior claim. No Challenge Data Use Record is present, so HTTP `200` and possession of a key do not authorize reviewer redistribution of live CAAS-derived data.
+The discovery record confirms successful responses only. It did not deliberately induce throttling or upstream failures, observed no pagination metadata or Flight response rate-limit/retry headers, and makes no quota, retry, or failure-behavior claim. No executed Challenge Data Use Record is present (a [template](docs/data-use/data-use-record.md) and the [authorization gate](docs/data-use/data-use-authorization-gate.md) are defined, decision pending), so HTTP `200` and possession of a key do not authorize reviewer redistribution of live CAAS-derived data.
 
-Not evidenced: authoritative CI OCI digest, CI execution, automated accessibility/security/performance gates, Azure, deployment, rollback, UAT, or production approval. The local implementation is a non-operational demonstration only; public or broad organizational use remains prohibited until the separate production gate is approved.
+Not evidenced: authoritative CI-built OCI digest and CI execution, Azure resources, deployment, rollback drills, UAT execution, package-audit results (networked audit pending), or production approval. The local implementation is a non-operational demonstration only; public or broad organizational use remains prohibited until the separate production gate is approved.

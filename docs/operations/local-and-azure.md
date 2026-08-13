@@ -20,7 +20,7 @@ pnpm run validate
 
 `apikey` belongs only in the untracked local `.env` or an authorized runtime secret injection. Never put it in a URL, command argument, source file, Docker build argument, image layer, browser bundle, log, or retained artifact. The current `.env.example` is a placeholder contract, not a usable credential.
 
-The root scripts currently declare `build`, `clean`, `dev`, `lint`, `test`, `test:offline`, `typecheck`, `validate:config`, `validate:policy`, `container:smoke`, and `validate`. `test:offline` runs the cross-package offline suite (43 tests across 8 files); `validate:policy` enforces `deploy/poc-policy.yaml` and the Bicep topology invariants; `container:smoke` checks the Dockerfile without building unless `RUN_CONTAINER_BUILD=1`. `lint` and `test` are recursive `--if-present` wrappers: until a package defines them, either may complete without application work, and a successful no-op is not an application test result.
+The root scripts currently declare `build`, `clean`, `dev`, `lint`, `test`, `test:offline`, `typecheck`, `validate:config`, `validate:policy`, `container:smoke`, and `validate`. `test:offline` runs the cross-package offline suite (140 tests across 22 files); `validate:policy` enforces `deploy/poc-policy.yaml` and the Bicep topology invariants; `container:smoke` checks the Dockerfile without building unless `RUN_CONTAINER_BUILD=1`. `lint` performs real import-boundary and script-hygiene checks (`scripts/validation/lint-import-boundaries.mjs`); `test` runs the package suites plus the a11y, e2e, and responsive vitest lanes.
 
 ## Planned local release sequence
 

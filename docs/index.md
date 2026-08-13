@@ -9,10 +9,60 @@ evidence; they do not prove Azure deployment or production operational controls.
 - [System design](superpowers/specs/2026-08-11-flight-route-explorer-design.md)
 - [Implementation plan](superpowers/plans/2026-08-11-flight-route-explorer-implementation-plan.md)
 - [Archived historical design sections 3-29](superpowers/historical/2026-08-11-flight-route-explorer-design-legacy-sections-3-29.md) (non-binding historical analysis)
+- [POC boundary and reconciliation](architecture/poc-boundary.md)
+- [POC interaction exclusions](architecture/poc-interaction-exclusions.md) (what the POC deliberately does not provide)
+- [Azure POC topology conformance](architecture/azure-poc-topology.md)
+- [Network-enforced egress design (production prerequisite)](operations/egress-design.md)
+
+## Capability and gate status
+
+- [POC capability and gate-status matrix](status/poc-capability-and-gate-matrix.md) — every `AC-POC-*` criterion and `PG-00..PG-04` gate with evidenced/implemented/planned/deferred status
+
+## Operations, release, and Azure procedures
+
+- [Local operations: Linux first, Azure late](operations/local-and-azure.md)
+- [Azure release path: authorized, time-boxed POC delivery](operations/azure-release-path.md)
+- [Azure go/no-go preflight and least-privilege bootstrap](operations/azure-preflight-and-bootstrap.md)
+- [Azure POC deployment procedure](operations/azure-deployment-procedure.md)
+- [Azure abort and rollback drills](operations/azure-abort-and-rollback-drills.md)
+- [Azure post-demo cost, access, and teardown verification](operations/azure-post-demo-verification.md)
+- [Product-owner UAT and timed POC walkthrough](operations/uat-and-timed-walkthrough.md)
+
+## Data use and authorization
+
+- [Real CAAS data contract](data-use/caas-contract.md)
+- [CAAS data-use authorization gate](data-use/data-use-authorization-gate.md) (decision pending)
+- [CAAS Data Use Record (template)](data-use/data-use-record.md) (no authority granted by the template)
+- [Release data-use gate](data-use/release-data-use-gate.md) (checkpoint shared by Azure and live-demo release paths)
+
+## Testing, accessibility, and evidence
+
+- [Validation and evidence rules](testing/evidence-and-validation.md)
+- [Accessibility and UAT evidence hub](testing/accessibility-evidence.md)
+- [Keyboard-only review](testing/keyboard-review.md)
+- [Screen-reader and browser compatibility review](testing/screen-reader-review.md)
+- [Responsive, zoom/reflow, forced-colors, reduced-motion review](testing/responsive-review.md)
+- [UAT walkthrough protocol](testing/uat-walkthrough.md)
+- [Security, safety, and privacy boundary](security/safety-and-secrets.md)
+
+## Production boundary (separate gate; production remains prohibited)
+
+- [Production access approval record (template)](operations/production-access-approval.md)
+- [Production operations: ownership, SLOs, incident response, DR (design candidates)](operations/production-operations.md)
+- [Production-prerequisites register](operations/production-prerequisites-register.md) (every item open)
+- [ADR: binding POC authority and legacy reconciliation](adr/0001-poc-authority-and-legacy-reconciliation.md)
 
 ## Evidence
 
 - [Secret-free PG-00 live API discovery manifest](evidence/pg-00-live-api-discovery.json)
+- [Authorized live five-family lane run (`e78278d4b924`)](evidence/live-lane-e78278d4b924.json)
+- [Loopback five-family lane, current tree (`1c838bdf6372`, 22 checks)](evidence/loopback-lane-local-1c838bdf6372.json)
+- [Loopback container lane, current tree (`1c838bdf6372`, 7 checks)](evidence/loopback-container-local-1c838bdf6372.json)
+- [Security measurement lane, current tree (`1c838bdf6372`; package audit blocked)](evidence/security-local-1c838bdf6372.json)
+- [Performance measurement lane, current tree (`1c838bdf6372`)](evidence/performance-local-1c838bdf6372.json)
+- [Workspace lint lane, current tree (`1c838bdf6372`)](evidence/lint-local-1c838bdf6372.json)
+- [Local OCI subject manifest (`PG-03` candidate, unverified)](evidence/oci-subject-local.json)
+- [Older lane records (archived)](evidence/archived/)
 - [Gate evidence manifest schema](../deploy/evidence-manifest.schema.json)
 
 ## Status
@@ -44,5 +94,6 @@ billing cutoff and expiry tags do not delete resources. Azure teardown targets
 requiring explicit teardown approval or separately authorized retention. No
 cloud resource, provider registration, app registration, secret, or deployment
 is evidenced by these documents. The local implementation is committed in the
-repository, but no later gate (CI execution, authoritative OCI digest evidence,
-Azure, or UAT) is claimed as evidenced.
+repository, but no later gate (authoritative CI-built OCI digest, Azure, or
+production) is claimed as evidenced; CI execution and UAT execution remain
+un-evidenced.
