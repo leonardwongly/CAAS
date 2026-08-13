@@ -61,6 +61,15 @@ param caasApiKeySecretName string = 'caas-api-key'
 @minLength(1)
 param entraClientSecretName string = 'entra-client-secret'
 
+@description('Two-phase bootstrap split (design section 0.5 DAG steps 3-5): keep false for the first apply so the one-time bootstrap authority creates the Container App only after the unchanged PG-03 digest has been pushed through OIDC. No placeholder image is ever used.')
+param createContainerApp bool = true
+
+@description('Email addresses notified by the budget alerts. The authorized bootstrap must supply at least one contact (email or action group); otherwise the alerts cannot deliver the USD 25 / 37.50 / 45 governance signals.')
+param budgetContactEmails array = []
+
+@description('Action group resource ID notified by the budget alerts. The authorized bootstrap must supply at least one contact (email or action group); otherwise the alerts cannot deliver the USD 25 / 37.50 / 45 governance signals.')
+param budgetActionGroupId string = ''
+
 @description('Budget period start supplied by the authorized bootstrap operator.')
 param budgetStartDate string
 
@@ -101,30 +110,37 @@ resource budget 'Microsoft.Consumption/budgets@2023-05-01' = if (deployResources
       startDate: budgetStartDate
       endDate: budgetEndDate
     }
+    // Design section 0.5 / plan section 6.3: USD 50 governance ceiling with
+    // alert thresholds at USD 25, USD 37.50, and USD 45. Azure budget
+    // notification thresholds are percentages of the budget amount:
+    // 50% = USD 25, 75% = USD 37.50, 90% = USD 45.
+    // Alerts are delayed notifications, not billing cutoffs; expiry tags do
+    // not delete resources. At least one contact must be supplied at
+    // deployment time or the alerts cannot deliver.
     notifications: {
       forecasted25: {
         enabled: true
         operator: 'GreaterThan'
         threshold: 50
-        contactEmails: []
+        contactEmails: budgetContactEmails
         contactRoles: []
-        contactGroups: []
+        contactGroups: budgetActionGroupId != '' ? [budgetActionGroupId] : []
       }
       forecasted37: {
         enabled: true
         operator: 'GreaterThan'
         threshold: 75
-        contactEmails: []
+        contactEmails: budgetContactEmails
         contactRoles: []
-        contactGroups: []
+        contactGroups: budgetActionGroupId != '' ? [budgetActionGroupId] : []
       }
       forecasted45: {
         enabled: true
         operator: 'GreaterThan'
         threshold: 90
-        contactEmails: []
+        contactEmails: budgetContactEmails
         contactRoles: []
-        contactGroups: []
+        contactGroups: budgetActionGroupId != '' ? [budgetActionGroupId] : []
       }
     }
   }
@@ -153,6 +169,7 @@ module resourceGroupResources 'resource-group.bicep' = if (deployResources) {
     entraClientSecretName: entraClientSecretName
     githubRepository: githubRepository
     githubEnvironment: githubEnvironment
+    createContainerApp: createContainerApp
   }
 }
 
@@ -161,4 +178,4 @@ output bootstrapIngress string = bootstrap ? 'disabled' : 'gated-after-authentic
 output immutableImage string = image
 output resourceGroup string = resourceGroupName
 output registryLoginServer string = deployResources ? resourceGroupResources.outputs.registryLoginServer : '${registryName}.azurecr.io'
-output containerAppResourceId string = deployResources ? resourceGroupResources.outputs.containerAppResourceId : 'not-materialized'
+output containerAppResourceId string = (deployResources && createContainerApp) ? resourceGroupResources.outputs.containerAppResourceId : 'not-materialized'
