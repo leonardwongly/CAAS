@@ -7,7 +7,7 @@ const dockerfilePath = resolve(root, "containers/Dockerfile");
 const dockerfile = await readFile(dockerfilePath, "utf8");
 
 const requiredPatterns = [
-  [/^FROM node:22(?:\.\d+){0,2}-bookworm-slim AS dependencies$/m, "a pinned Linux dependencies stage"],
+  [/^FROM node:22(?:\.\d+){0,2}-bookworm-slim(?:@sha256:[0-9a-f]{64})? AS dependencies$/m, "a pinned Linux dependencies stage"],
   [/^FROM .* AS build$/m, "a separate build stage"],
   [/^FROM .* AS runtime$/m, "a separate runtime stage"],
   [/^USER app$/m, "a non-root runtime user"],
