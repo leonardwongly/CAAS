@@ -6,7 +6,22 @@
   "scripts": {
     "build": "pnpm run typecheck",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --test --experimental-strip-types *.test.ts route-safety/*.test.ts runtime-policies/*.test.ts upstream-bounds/*.test.ts",
-    "test:upstream-bounds": "node --test --experimental-strip-types upstream-bounds/*.test.ts"
+    "test": "node --test --experimental-strip-types *.test.ts route-safety/*.test.ts runtime-policies/*.test.ts upstream-bounds/*.test.ts && pnpm run test:a11y && pnpm run test:e2e && pnpm run test:responsive",
+    "test:upstream-bounds": "node --test --experimental-strip-types upstream-bounds/*.test.ts",
+    "test:a11y": "vitest run --config vitest.config.ts a11y",
+    "test:e2e": "vitest run --config vitest.config.ts e2e",
+    "test:responsive": "vitest run --config vitest.config.ts responsive"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.4",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "axe-core": "^4.13.0",
+    "jsdom": "^26.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "vitest": "^3.2.7"
   }
 }

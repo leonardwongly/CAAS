@@ -4,7 +4,10 @@
     "rootDir": "..",
     "types": ["node"],
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx"
   },
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts", "**/*.tsx"]
 }

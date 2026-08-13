@@ -75,6 +75,7 @@ function App() {
   const [primarySurface, setPrimarySurface] = useState<"none" | "routes" | "route-data" | "editor">("none");
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftError, setDraftError] = useState<string>();
+  const [mapOnly, setMapOnly] = useState(false);
   const [status, setStatus] = useState("");
   const [generation, setGeneration] = useState<GenerationSummary>();
   const [rankLabel, setRankLabel] = useState<string>();
@@ -83,6 +84,38 @@ function App() {
   const routeRequest = useRef(0);
   const draftRequest = useRef<AbortController | undefined>(undefined);
   const searchRequest = useRef<AbortController | undefined>(undefined);
+  const routesTriggerRef = useRef<HTMLButtonElement>(null);
+  const dataTriggerRef = useRef<HTMLButtonElement>(null);
+  const editorTriggerRef = useRef<HTMLButtonElement>(null);
+  const mapOnlyTriggerRef = useRef<HTMLButtonElement>(null);
+  const restoreControlsRef = useRef<HTMLButtonElement>(null);
+
+  // Design §15.2: focus return is deterministic after closing a surface,
+  // selecting a route, retrying an error, or leaving Map Only.
+  function closeSurface(surface: "none" | "routes" | "route-data" | "editor") {
+    setPrimarySurface("none");
+    const trigger = surface === "routes" ? routesTriggerRef : surface === "route-data" ? dataTriggerRef : surface === "editor" ? editorTriggerRef : undefined;
+    if (trigger) requestAnimationFrame(() => trigger.current?.focus());
+  }
+
+  function resetDraftState() {
+    draftRequest.current?.abort();
+    setDraftActive(false);
+    setDraft(undefined);
+    setDraftError(undefined);
+  }
+
+  function enterMapOnly() {
+    setPrimarySurface("none");
+    resetDraftState();
+    setMapOnly(true);
+    requestAnimationFrame(() => restoreControlsRef.current?.focus());
+  }
+
+  function leaveMapOnly() {
+    setMapOnly(false);
+    requestAnimationFrame(() => mapOnlyTriggerRef.current?.focus());
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -223,16 +256,16 @@ function App() {
 
   return (
     <div className="app-shell map-first-shell">
-      <a className="skip-link" href="#flight-search">Skip to flight search</a>
-      <div className="safety-banner compact-safety" role="note"><strong><span aria-hidden="true">⚠</span> Safety notice</strong><span>{SAFETY_NOTICE}</span></div>
-      <header className="map-topbar">
+      <div className="safety-banner compact-safety" role="region" aria-label="Safety notice"><strong><span aria-hidden="true">⚠</span> Safety notice</strong><span>{SAFETY_NOTICE}</span></div>
+      {!mapOnly && <header className="map-topbar">
+        <a className="skip-link" href="#flight-search">Skip to flight search</a>
         <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Map-first route comparison</h1></div>
         <div className="toolbar-search"><SearchBox selected={undefined} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={chooseFlight} /></div>
-        <div className="toolbar-flight" aria-label="Selected flight">
+        <div className="toolbar-flight" role="group" aria-label="Selected flight">
           {selectedFlight ? <><strong>{selectedFlight.callsign}</strong><span>{selectedFlight.departure} → {selectedFlight.destination}</span><small>{selectedRoute?.complete ? `${formatDistance(selectedRoute.distanceNm)} · ${selectedRoute.rank !== undefined ? `Rank ${selectedRoute.rank}` : "Unranked"}` : "Recorded route is incomplete and unranked"}</small></> : <span>Search for a recorded flight plan to begin.</span>}
         </div>
         <button className="quiet-button toolbar-clear" type="button" onClick={() => { setPrimarySurface("none"); resetAll(); }}>Clear session</button>
-      </header>
+      </header>}
 
       {(generation || refreshError) && (
         <div className="generation-strip">
@@ -246,23 +279,26 @@ function App() {
       )}
 
       <main className="map-workspace">
+        {mapOnly && <h1 className="sr-only">Map-first route comparison</h1>}
         <section className="map-panel map-first-panel" aria-labelledby="map-heading">
           <h2 className="sr-only" id="map-heading">Global route map</h2>
           <RouteMap route={selectedRoute} callsign={selectedFlight?.callsign} />
           <div className="map-hud">{selectedRoute ? <><span className="eyebrow">ACTIVE RECORDED ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? `${formatDistance(selectedRoute.distanceNm)} · ${selectedRoute.rank === 1 ? RANK_ONE_LABEL : selectedRoute.rank !== undefined ? `Rank ${selectedRoute.rank}` : RANK_CRITERION}` : "Incomplete · not included in ranking"}</span></> : <><span className="eyebrow">GLOBAL MAP</span><strong>Recorded routes appear after selection</strong><span>Only exact, server-resolved geometry is shown.</span></>}</div>
-          <nav className="map-rail" aria-label="Route workspace controls">
-            <button type="button" aria-pressed={primarySurface === "routes"} onClick={() => setPrimarySurface((surface) => surface === "routes" ? "none" : "routes")} disabled={!selectedFlight}>Routes</button>
-            <button type="button" aria-pressed={primarySurface === "route-data"} onClick={() => setPrimarySurface((surface) => surface === "route-data" ? "none" : "route-data")} disabled={!selectedRoute}>Data</button>
-            <button type="button" aria-pressed={primarySurface === "editor"} onClick={() => { if (!selectedRoute) return; setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} disabled={!selectedRoute}>Edit copy</button>
-          </nav>
-          {primarySurface !== "none" && <aside className="map-drawer" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : "Local route editor"}>
-            <div className="drawer-header"><p className="eyebrow">{primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : "EDIT COPY"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") { draftRequest.current?.abort(); setDraftActive(false); setDraft(undefined); setDraftError(undefined); } setPrimarySurface("none"); }}>Close</button></div>
-            {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} rankLabel={rankLabel} onRetry={() => setRouteReload((current) => current + 1)} onSelect={(option) => { setSelectedRoute(option); setPrimarySurface("none"); setStatus(`Selected ${option.label ?? "route option"}.`); }} />}
+          {!mapOnly && <nav className="map-rail" aria-label="Route workspace controls">
+            <button ref={routesTriggerRef} type="button" aria-pressed={primarySurface === "routes"} onClick={() => setPrimarySurface((surface) => surface === "routes" ? "none" : "routes")} disabled={!selectedFlight}>Routes</button>
+            <button ref={dataTriggerRef} type="button" aria-pressed={primarySurface === "route-data"} onClick={() => setPrimarySurface((surface) => surface === "route-data" ? "none" : "route-data")} disabled={!selectedRoute}>Data</button>
+            <button ref={editorTriggerRef} type="button" aria-pressed={primarySurface === "editor"} onClick={() => { if (!selectedRoute) return; setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} disabled={!selectedRoute}>Edit copy</button>
+            <button ref={mapOnlyTriggerRef} type="button" onClick={enterMapOnly}>Map only</button>
+          </nav>}
+          {mapOnly && <button ref={restoreControlsRef} className="restore-controls" type="button" onClick={leaveMapOnly} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leaveMapOnly(); } }}>Restore controls</button>}
+          {!mapOnly && primarySurface !== "none" && <aside className="map-drawer" role="region" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : "Local route editor"}>
+            <div className="drawer-header"><p className="eyebrow">{primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : "EDIT COPY"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>
+            {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} rankLabel={rankLabel} onRetry={() => { setRouteReload((current) => current + 1); requestAnimationFrame(() => document.getElementById("options-heading")?.focus()); }} onSelect={(option) => { setSelectedRoute(option); setStatus(`Selected ${option.label ?? "route option"}.`); closeSurface("routes"); }} />}
             {primarySurface === "route-data" && selectedRoute && <RouteDetails route={selectedRoute} onStartDraft={() => { setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} />}
-            {primarySurface === "editor" && selectedRoute && draftActive && <DraftEditor draft={draft} baseline={selectedRoute} loading={draftLoading} error={draftError} onUpdate={(via) => void updateDraft(via)} onClose={() => { draftRequest.current?.abort(); setDraftActive(false); setDraft(undefined); setDraftError(undefined); setPrimarySurface("none"); }} />}
+            {primarySurface === "editor" && selectedRoute && draftActive && <DraftEditor draft={draft} baseline={selectedRoute} loading={draftLoading} error={draftError} onUpdate={(via) => void updateDraft(via)} onClose={() => { resetDraftState(); closeSurface("editor"); }} />}
           </aside>}
-          <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected recorded route</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>
-          <div className="sr-status" aria-live="polite">{routeLoading ? "Loading route options." : status}</div>
+          {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected recorded route</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
+          <div className="sr-status" role="status" aria-live="polite">{routeLoading ? "Loading route options." : status}</div>
         </section>
       </main>
     </div>
@@ -295,12 +331,12 @@ function SearchBox({ selected, state, onFocus, onQuery, onSearch, onSelect }: { 
           else if (event.key === "ArrowUp" && hasResults) { event.preventDefault(); setActiveIndex((index) => Math.max(index - 1, 0)); }
           else if (event.key === "Enter") { event.preventDefault(); if (activeIndex >= 0 && state.matches[activeIndex]) select(state.matches[activeIndex]); else onSearch(); }
           else if (event.key === "Escape") { event.preventDefault(); setActiveIndex(-1); setResultsOpen(false); }
-        }} aria-expanded={hasResults} aria-controls={hasResults ? resultId : undefined} aria-activedescendant={activeIndex >= 0 ? `flight-match-${activeIndex}` : undefined} placeholder="For example: SQ321" autoComplete="off" />
+        }} aria-expanded={hasResults} aria-controls={hasResults ? resultId : undefined} aria-activedescendant={activeIndex >= 0 ? `flight-match-${activeIndex}` : undefined} aria-autocomplete="list" placeholder="For example: SQ321" autoComplete="off" />
         <button className="search-button" type="button" onClick={onSearch} disabled={state.loading || !state.query.trim()} aria-label="Search flight plans">{state.loading ? <span className="spinner" /> : "↗"}</button>
       </div>
       {selected && <p className="selected-value"><span className="check">✓</span> Selected <strong>{selected.callsign}</strong> <span>{selected.departure} → {selected.destination}</span></p>}
       {state.error && <p className="field-error" role="alert">{state.error}</p>}
-      {hasResults && <div className="duplicate-picker" id={resultId} role="listbox" aria-label="Choose an exact flight-plan match"><p className="picker-label">{state.matches.length > 1 ? "Multiple flight plans — choose the exact record" : "Flight-plan match"}</p>{state.matches.map((match, index) => <div className={`match-option ${activeIndex === index ? "is-active" : ""}`} id={`flight-match-${index}`} role="option" aria-selected={activeIndex === index} key={match.id} tabIndex={-1} onMouseDown={(event) => event.preventDefault()} onClick={() => select(match)}><span><strong>{match.callsign}</strong><small>{match.departure} → {match.destination} · {match.routePointCount} recorded points</small></span><span aria-hidden="true">›</span></div>)}</div>}
+      {hasResults && <div className="duplicate-picker"><p className="picker-label">{state.matches.length > 1 ? "Multiple flight plans — choose the exact record" : "Flight-plan match"}</p><div id={resultId} role="listbox" aria-label="Choose an exact flight-plan match">{state.matches.map((match, index) => <div className={`match-option ${activeIndex === index ? "is-active" : ""}`} id={`flight-match-${index}`} role="option" aria-selected={activeIndex === index} key={match.id} tabIndex={-1} onMouseDown={(event) => event.preventDefault()} onClick={() => select(match)}><span><strong>{match.callsign}</strong><small>{match.departure} → {match.destination} · {match.routePointCount} recorded points</small></span><span aria-hidden="true">›</span></div>)}</div></div>}
       {state.searched && !state.loading && state.query.trim() && !state.error && !hasResults && !selected && <p className="helper-text">No matching flight plans returned.</p>}
     </div>
   );
@@ -320,7 +356,7 @@ function RouteOptions({ options, selected, loading, error, rankLabel, onRetry, o
   const rankOne = ranked.filter((option) => rankOf(option) === 1);
   const otherRanked = ranked.filter((option) => (rankOf(option) ?? 0) > 1);
   const unranked = options.filter((option) => !isCompleteCandidate(option));
-  return <section className="options-section" aria-labelledby="options-heading"><div className="section-title"><div><p className="eyebrow">COMPARE</p><h2 id="options-heading">Route options</h2></div>{options.length > 0 && <span className="count-label">{options.length} returned</span>}</div>{loading && <div className="loading-row"><span className="spinner dark" /> Asking for the selected flight’s options…</div>}{error && <div className="notice error-notice" role="alert"><strong>Could not load route options.</strong><span>{error}</span><button className="retry-button" type="button" onClick={onRetry}>Retry route options</button></div>}{!loading && !error && options.length === 0 && <p className="muted-copy">The service returned no route options. This is a visible gap, not an estimated route.</p>}{options.length > 0 && <p className="criterion-copy">{OPERATIONAL_PROXY_EXPLANATION}</p>}{rankOne.length > 0 && <RouteGroup title={rankLabel ?? RANK_ONE_LABEL} description={RANK_ONE_GROUP_DESCRIPTION} count={`${rankOne.length} tied first-place candidate${rankOne.length === 1 ? "" : "s"}`} options={rankOne} selected={selected} onSelect={onSelect} />}{otherRanked.length > 0 && <RouteGroup title={COMPLETE_RANKED_GROUP_TITLE} description={COMPLETE_RANKED_GROUP_DESCRIPTION} count={`${otherRanked.length} ranked candidate${otherRanked.length === 1 ? "" : "s"}`} criterion={RANK_CRITERION} options={otherRanked} selected={selected} onSelect={onSelect} />}{unranked.length > 0 && <RouteGroup title={INCOMPLETE_GROUP_TITLE} description={INCOMPLETE_GROUP_DESCRIPTION} count={`${unranked.length} unranked candidate${unranked.length === 1 ? "" : "s"}`} options={unranked} selected={selected} onSelect={onSelect} />}</section>;
+  return <section className="options-section" aria-labelledby="options-heading"><div className="section-title"><div><p className="eyebrow">COMPARE</p><h2 id="options-heading" tabIndex={-1}>Route options</h2></div>{options.length > 0 && <span className="count-label">{options.length} returned</span>}</div>{loading && <div className="loading-row"><span className="spinner dark" /> Asking for the selected flight’s options…</div>}{error && <div className="notice error-notice" role="alert"><strong>Could not load route options.</strong><span>{error}</span><button className="retry-button" type="button" onClick={onRetry}>Retry route options</button></div>}{!loading && !error && options.length === 0 && <p className="muted-copy">The service returned no route options. This is a visible gap, not an estimated route.</p>}{options.length > 0 && <p className="criterion-copy">{OPERATIONAL_PROXY_EXPLANATION}</p>}{rankOne.length > 0 && <RouteGroup title={rankLabel ?? RANK_ONE_LABEL} description={RANK_ONE_GROUP_DESCRIPTION} count={`${rankOne.length} tied first-place candidate${rankOne.length === 1 ? "" : "s"}`} options={rankOne} selected={selected} onSelect={onSelect} />}{otherRanked.length > 0 && <RouteGroup title={COMPLETE_RANKED_GROUP_TITLE} description={COMPLETE_RANKED_GROUP_DESCRIPTION} count={`${otherRanked.length} ranked candidate${otherRanked.length === 1 ? "" : "s"}`} criterion={RANK_CRITERION} options={otherRanked} selected={selected} onSelect={onSelect} />}{unranked.length > 0 && <RouteGroup title={INCOMPLETE_GROUP_TITLE} description={INCOMPLETE_GROUP_DESCRIPTION} count={`${unranked.length} unranked candidate${unranked.length === 1 ? "" : "s"}`} options={unranked} selected={selected} onSelect={onSelect} />}</section>;
 }
 
 function RouteGroup({ title, description, count, criterion, options, selected, onSelect }: { title: string; description: string; count: string; criterion?: string | undefined; options: RouteOption[]; selected?: RouteOption | undefined; onSelect: (route: RouteOption) => void }) {
@@ -336,7 +372,7 @@ function Metric({ label, value, note }: { label: string; value: string; note?: s
 function Evidence({ label, value, tone }: { label: string; value: string; tone: "blue" | "amber" | "red" | "green" }) { return <div className={`evidence evidence-${tone}`}><span>{label}</span><p>{value}</p></div>; }
 
 function RouteTable({ legs }: { legs: RouteLeg[] }) {
-  return legs.length ? <div className="table-scroll" tabIndex={0} aria-label="Scrollable route-leg table"><table aria-labelledby="route-legs-heading"><caption className="sr-only">Structured route legs and unresolved gaps</caption><thead><tr><th scope="col">Sequence</th><th scope="col">From</th><th scope="col">To</th><th scope="col">Distance</th><th scope="col">Status</th></tr></thead><tbody>{legs.map((leg, index) => {
+  return legs.length ? <div className="table-scroll" role="group" tabIndex={0} aria-label="Scrollable route-leg table"><table aria-labelledby="route-legs-heading"><caption className="sr-only">Structured route legs and unresolved gaps</caption><thead><tr><th scope="col">Sequence</th><th scope="col">From</th><th scope="col">To</th><th scope="col">Distance</th><th scope="col">Status</th></tr></thead><tbody>{legs.map((leg, index) => {
     const isGap = leg.status === "gap" || leg.kind === "gap" || !leg.from || !leg.to;
     return <tr className={isGap ? "gap-row" : undefined} key={leg.id}><th scope="row">{index + 1}</th>{isGap ? <td colSpan={2}><strong>Unresolved gap</strong><span className="gap-reason">{leg.reason ?? "The route service did not resolve this segment."}</span></td> : <><td>{leg.from}</td><td>{leg.to}</td></>}<td>{formatDistance(leg.distanceNm)}</td><td>{isGap ? "gap" : leg.status ?? "resolved"}</td></tr>;
   })}</tbody></table></div> : <p className="muted-copy">No leg data was supplied for this route. Nothing has been inferred.</p>;
@@ -345,6 +381,7 @@ function RouteTable({ legs }: { legs: RouteLeg[] }) {
 function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { draft?: DraftComparison | undefined; baseline: RouteOption; loading: boolean; error?: string | undefined; onUpdate: (via: string[], selections: DraftSelection[]) => void; onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<PointMatch[]>([]);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string>();
   const via = draft?.draft.via ?? [];
@@ -352,6 +389,8 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
   const delta = draft?.comparison.distanceDeltaNm;
   const percentage = draft?.comparison.percentageDistanceDelta;
   const selectedAt = (sequence: number) => selections.some((selection) => selection.sequence === sequence);
+  const matchResultsId = "draft-point-results";
+  const hasMatches = matches.length > 0;
 
   function remapMove(index: number, direction: -1 | 1): DraftSelection[] {
     const target = index + direction;
@@ -368,12 +407,20 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
       : [selection.sequence > index ? { sequence: selection.sequence - 1, locationId: selection.locationId } : selection]);
   }
 
+  function commitMatch(match: PointMatch) {
+    onUpdate([...via, match.identifier], match.locationId ? [...selections, { sequence: via.length, locationId: match.locationId }] : selections);
+    setQuery("");
+    setMatches([]);
+    setActiveIndex(-1);
+  }
+
   async function findReference() {
     const value = query.trim();
     if (!value) return;
     setLookupLoading(true);
     setLookupError(undefined);
     setMatches([]);
+    setActiveIndex(-1);
     try {
       const found = await lookupPoint(value);
       setMatches(found);
@@ -386,14 +433,19 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
   }
 
   return <section className="draft-section" aria-labelledby="draft-heading">
-    <div className="section-title"><div><p className="eyebrow">EDIT COPY</p><h2 id="draft-heading">Local computational draft</h2></div><button className="quiet-button" type="button" onClick={onClose}>Close draft</button></div>
+    <div className="section-title"><div><p className="eyebrow">EDIT COPY</p><h2 id="draft-heading" tabIndex={-1}>Local computational draft</h2></div><button className="quiet-button" type="button" onClick={onClose}>Close draft</button></div>
     <p className="draft-safety">Computationally complete; operational constraints not assessed. Endpoints are locked and every change is checked against exact reference data.</p>
     <div className="draft-endpoints"><span><strong>From</strong> {baseline.origin ?? "Selected origin"}</span><span><strong>To</strong> {baseline.destination ?? "Selected destination"}</span></div>
-    <div className="draft-search"><label htmlFor="draft-point-search">Add an exact reference point</label><div className="search-input-row"><input id="draft-point-search" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void findReference(); } else if (event.key === "Escape") { setMatches([]); setLookupError(undefined); } }} placeholder="Search an exact fix, NAVAID, or airport" /><button className="search-button" type="button" onClick={() => void findReference()} disabled={lookupLoading || !query.trim()} aria-label="Find exact reference point">{lookupLoading ? <span className="spinner" /> : "Find"}</button></div>{lookupError && <p className="field-error" role="alert">{lookupError}</p>}<div className="sr-status" aria-live="polite">{lookupLoading ? "Looking up exact reference points." : matches.length ? `${matches.length} exact reference point${matches.length === 1 ? "" : "s"} available.` : ""}</div>
-      {matches.length > 0 && <div className="reference-picker" role="group" aria-label="Resolved reference-point search results">{matches.map((match) => <button type="button" key={`${match.locationId}-${match.identifier}`} onClick={() => { onUpdate([...via, match.identifier], match.locationId ? [...selections, { sequence: via.length, locationId: match.locationId }] : selections); setQuery(""); setMatches([]); }}><span><strong>{match.identifier}</strong><small>{match.kind} · {match.coordinate.lat.toFixed(4)}, {match.coordinate.lon.toFixed(4)}{match.duplicateGroup ? " · multiple exact coordinates" : ""}</small></span><span>{match.duplicateGroup ? "Choose exact location" : "Add"}</span></button>)}</div>}
+    <div className="draft-search"><label htmlFor="draft-point-search">Add an exact reference point</label><div className="search-input-row"><input id="draft-point-search" role="combobox" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+      if (event.key === "ArrowDown" && hasMatches) { event.preventDefault(); setActiveIndex((index) => Math.min(index + 1, matches.length - 1)); }
+      else if (event.key === "ArrowUp" && hasMatches) { event.preventDefault(); setActiveIndex((index) => Math.max(index - 1, 0)); }
+      else if (event.key === "Enter") { event.preventDefault(); if (activeIndex >= 0 && matches[activeIndex]) commitMatch(matches[activeIndex]!); else void findReference(); }
+      else if (event.key === "Escape") { event.preventDefault(); setMatches([]); setLookupError(undefined); setActiveIndex(-1); }
+    }} aria-expanded={hasMatches} aria-controls={hasMatches ? matchResultsId : undefined} aria-activedescendant={activeIndex >= 0 ? `draft-match-${activeIndex}` : undefined} aria-autocomplete="list" placeholder="Search an exact fix, NAVAID, or airport" autoComplete="off" /><button className="search-button" type="button" onClick={() => void findReference()} disabled={lookupLoading || !query.trim()} aria-label="Find exact reference point">{lookupLoading ? <span className="spinner" /> : "Find"}</button></div>{lookupError && <p className="field-error" role="alert">{lookupError}</p>}<div className="sr-status" role="status" aria-live="polite">{lookupLoading ? "Looking up exact reference points." : matches.length ? `${matches.length} exact reference point${matches.length === 1 ? "" : "s"} available.` : ""}</div>
+      {hasMatches && <div className="reference-picker" id={matchResultsId} role="listbox" aria-label="Resolved reference-point search results">{matches.map((match, index) => <div role="option" id={`draft-match-${index}`} aria-selected={activeIndex === index} className={activeIndex === index ? "is-active" : undefined} tabIndex={-1} key={`${match.identifier}-${match.coordinate.lat}-${match.coordinate.lon}`} onMouseDown={(event) => event.preventDefault()} onClick={() => commitMatch(match)}><span><strong>{match.identifier}</strong><small>{match.kind} · {match.coordinate.lat.toFixed(4)}, {match.coordinate.lon.toFixed(4)}{match.duplicateGroup ? " · multiple exact coordinates" : ""}</small></span><span>{match.duplicateGroup ? "Choose exact location" : "Add"}</span></div>)}</div>}
     </div>
     <div className="draft-points"><div className="group-heading"><h3>Intermediate points</h3><button className="text-button" type="button" onClick={() => onUpdate([], [])} disabled={!via.length || loading}>Reset to endpoint-only draft</button></div>{via.length ? <ol role="list">{via.map((point, index) => <li key={`${point}-${index}`}><span><strong>{point}</strong><small>{selectedAt(index) ? "Exact coordinate selected from the ambiguous group." : "Manual-direct segments are not airways."}</small></span><span className="draft-row-actions"><button type="button" onClick={() => onUpdate(via.map((value, position) => position === index - 1 ? point : position === index ? via[index - 1]! : value), remapMove(index, -1))} disabled={loading || index === 0} aria-label={`Move ${point} up`}>Move up</button><button type="button" onClick={() => onUpdate(via.map((value, position) => position === index + 1 ? point : position === index ? via[index + 1]! : value), remapMove(index, 1))} disabled={loading || index === via.length - 1} aria-label={`Move ${point} down`}>Move down</button><button type="button" onClick={() => onUpdate(via.filter((_, position) => position !== index), remapRemove(index))} disabled={loading} aria-label={`Remove ${point}`}>Remove</button></span></li>)}</ol> : <p className="muted-copy">No intermediate points. This draft uses a direct modeled endpoint-to-endpoint segment.</p>}</div>
-    {loading && <div className="loading-row"><span className="spinner dark" /> Validating the local draft…</div>}{error && <div className="notice error-notice" role="alert"><span>{error}</span><button className="retry-button" type="button" onClick={() => onUpdate(via, selections)} disabled={loading}>Retry draft validation</button></div>}
+    {loading && <div className="loading-row"><span className="spinner dark" /> Validating the local draft…</div>}{error && <div className="notice error-notice" role="alert"><span>{error}</span><button className="retry-button" type="button" onClick={() => { onUpdate(via, selections); requestAnimationFrame(() => document.getElementById("draft-heading")?.focus()); }} disabled={loading}>Retry draft validation</button></div>}
     {draft && <div className="draft-result"><Metric label="Draft status" value={draft.comparison.status === "complete" ? "Complete" : "Incomplete"} /><Metric label="Modeled distance" value={formatDistance(draft.route.distanceNm)} /><Metric label="Change from selected route" value={delta === undefined ? "Unavailable" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} NM`} note={percentage !== undefined ? `Directed baseline → target · ${percentage >= 0 ? "+" : ""}${percentage.toFixed(1)}%` : "Directed baseline → target"} /><Metric label="Draft gaps" value={String(draft.route.gaps.length)} note={draft.comparison.message} /></div>}
   </section>;
 }

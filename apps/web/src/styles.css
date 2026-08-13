@@ -159,7 +159,7 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
 .detail-actions { align-items: center; display: flex; gap: 10px; min-width: 0; }
 .edit-copy-button, .text-button { background: rgba(82, 184, 232, .1); border: 1px solid rgba(82, 184, 232, .35); border-radius: 6px; color: var(--blue); font-size: .72rem; font-weight: 750; padding: 9px 11px; }
 .edit-copy-button:hover, .text-button:hover { background: rgba(82, 184, 232, .18); }
-.edit-copy-button:focus-visible, .text-button:focus-visible, .draft-row-actions button:focus-visible, .reference-picker button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.edit-copy-button:focus-visible, .text-button:focus-visible, .draft-row-actions button:focus-visible, .reference-picker button:focus-visible, .reference-picker [role="option"].is-active { outline: 2px solid var(--blue); outline-offset: 2px; }
 .draft-section { background: rgba(12, 28, 43, .94); border: 1px solid rgba(93, 224, 187, .3); border-radius: 12px; margin-top: 18px; padding: 22px 25px; }
 .draft-safety { color: var(--amber); font-size: .76rem; line-height: 1.5; margin-bottom: 16px; }
 .draft-endpoints { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 17px; }
@@ -168,13 +168,14 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
 .draft-search { border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); padding: 17px 0; }
 .draft-search label { color: #aec3d3; display: block; font-size: .75rem; font-weight: 700; margin-bottom: 8px; }
 .reference-picker { background: #102638; border: 1px solid #38556b; border-radius: 7px; margin-top: 10px; overflow: hidden; }
-.reference-picker button { align-items: center; background: transparent; border: 0; border-top: 1px solid var(--line); color: var(--ink); display: flex; justify-content: space-between; padding: 10px 12px; text-align: left; width: 100%; }
-.reference-picker button:first-child { border-top: 0; }
-.reference-picker button:hover { background: rgba(82, 184, 232, .12); }
+.reference-picker button, .reference-picker [role="option"] { align-items: center; background: transparent; border: 0; border-top: 1px solid var(--line); color: var(--ink); display: flex; justify-content: space-between; padding: 10px 12px; text-align: left; width: 100%; }
+.reference-picker button:first-child, .reference-picker [role="option"]:first-child { border-top: 0; }
+.reference-picker button:hover, .reference-picker [role="option"]:hover { background: rgba(82, 184, 232, .12); }
+.reference-picker [role="option"].is-active { background: rgba(82, 184, 232, .16); }
 .reference-picker strong, .reference-picker small { display: block; }
 .reference-picker strong { color: #eef7fc; font-size: .78rem; }
 .reference-picker small { color: var(--muted); font-size: .69rem; margin-top: 3px; }
-.reference-picker button > span:last-child { color: var(--mint); font-size: .7rem; }
+.reference-picker button > span:last-child, .reference-picker [role="option"] > span:last-child { color: var(--mint); font-size: .7rem; }
 .draft-points { padding-top: 17px; }
 .draft-points ol { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
 .draft-points li { align-items: center; background: #0a1a28; border: 1px solid #274256; border-radius: 7px; display: flex; gap: 14px; justify-content: space-between; padding: 10px 12px; }
@@ -211,7 +212,7 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
 .map-drawer .options-section, .map-drawer .details-section, .map-drawer .draft-section, .map-drawer .empty-options { background: transparent; border: 0; border-radius: 0; padding: 0; }.map-drawer .section-title { margin-bottom: 15px; }.map-drawer .detail-actions .opaque-id { display: none; }.map-drawer .metric-grid { grid-template-columns: repeat(2, 1fr); margin-bottom: 16px; }.map-drawer .metric { min-height: 76px; padding: 12px; }.map-drawer .metric:nth-child(2) { border-right: 0; }.map-drawer .metric:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }.map-drawer .detail-columns { grid-template-columns: 1fr; }.map-drawer .evidence-stack { margin-top: 14px; }.map-drawer .option-grid { grid-template-columns: 1fr; }.map-drawer .route-card-distance { font-size: 1.15rem; margin: 9px 0 3px; }.map-drawer .route-card { padding: 12px; }.map-drawer .draft-section { margin: 0; }.map-drawer .draft-result { grid-template-columns: repeat(2, 1fr); }
 .map-first-panel > .map-legend { background: rgba(7, 19, 31, .94); border-top: 1px solid var(--line); bottom: 0; left: 0; padding: 11px 20px; position: absolute; right: 0; z-index: 3; }
 @media (max-width: 1100px) { .map-topbar { grid-template-columns: auto minmax(220px, 1fr) auto; }.toolbar-flight { display: none; }.map-drawer { width: min(430px, 40vw); }.map-first-panel .map-stage { min-height: 560px; } }
-@media (max-width: 760px) { .map-first-shell { padding: 10px; }.map-topbar { grid-template-columns: 1fr auto; }.product-mark { display: none; }.toolbar-search { grid-column: 1 / 2; }.toolbar-clear { grid-column: 2; grid-row: 1; }.map-workspace { min-height: 640px; }.map-first-panel .map-stage { height: calc(100vh - 150px); min-height: 560px; }.map-hud { max-width: calc(100% - 102px); }.map-drawer { bottom: 44px; left: 8px; max-width: none; top: auto; width: calc(100% - 16px); max-height: 58%; }.map-first-panel > .map-legend { font-size: .6rem; gap: 10px; padding: 9px 12px; }.map-first-panel .map-endpoints { bottom: 46px; left: 12px; right: auto; }.map-first-panel .map-fallback-banner { bottom: 98px; left: 12px; right: 12px; }.map-endpoint span { max-width: 160px; } }
+@media (max-width: 760px) { .map-first-shell { padding: 10px; }.map-topbar { grid-template-columns: 1fr auto; }.product-mark { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }.toolbar-search { grid-column: 1 / 2; }.toolbar-clear { grid-column: 2; grid-row: 1; }.map-workspace { min-height: 640px; }.map-first-panel .map-stage { height: calc(100vh - 150px); min-height: 560px; }.map-hud { max-width: calc(100% - 102px); }.map-drawer { bottom: 44px; left: 8px; max-width: none; top: auto; width: calc(100% - 16px); max-height: 58%; }.map-first-panel > .map-legend { font-size: .6rem; gap: 10px; padding: 9px 12px; }.map-first-panel .map-endpoints { bottom: 46px; left: 12px; right: auto; }.map-first-panel .map-fallback-banner { bottom: 98px; left: 12px; right: 12px; }.map-endpoint span { max-width: 160px; } }
 
 /* Audit remediation: convey safety without color, keep dense data usable, and make recoverable errors obvious. */
 .safety-banner strong { align-items: center; display: inline-flex; gap: 5px; }
@@ -236,3 +237,24 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
 .freshness-banner { background: rgba(242, 186, 107, .08); border: 1px solid rgba(242, 186, 107, .3); color: var(--amber); }
 .freshness-banner-unusable { background: rgba(241, 127, 134, .09); border: 1px solid rgba(241, 127, 134, .3); color: var(--red); }
 .generation-strip .quiet-button { padding: 7px 12px; white-space: nowrap; }
+
+/* Accessibility & UAT pass (2026-08-13): Map Only surface, deterministic
+   focus-return targets, and forced-colors support (design §15.2, §15.4, §15.7). */
+.restore-controls { background: rgba(7, 19, 31, .92); border: 1px solid rgba(148, 183, 211, .3); border-radius: 6px; color: var(--ink); font-size: .7rem; padding: 9px 10px; position: absolute; right: 18px; top: 18px; z-index: 4; }
+.restore-controls:hover { border-color: var(--blue); color: #f0fbff; }
+.restore-controls:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.section-title h2:focus, .group-heading h3:focus { outline: 2px solid var(--blue); outline-offset: 2px; }
+@media (forced-colors: active) {
+  .route-path { stroke: CanvasText; }
+  .route-shadow { stroke: transparent; }
+  .world-graticule { stroke: GrayText; }
+  .map-marker circle:first-child { fill: Canvas; stroke: currentColor; }
+  .map-marker text { fill: CanvasText; stroke: Canvas; }
+  .gap-boundary circle { fill: Canvas; stroke: Highlight; }
+  .gap-boundary text { fill: CanvasText; }
+  .legend-line { background: CanvasText; }
+  .legend-dot { background: transparent; border: 2px solid CanvasText; }
+  .legend-gap { border-color: CanvasText; }
+  .map-fallback-banner, .map-hud, .map-endpoint, .map-attribution, .safety-banner, .map-legend, .restore-controls, .map-rail button { border-color: ButtonBorder; }
+  .search-input-row input:focus-visible, .skip-link:focus, .route-card:focus-visible, .quiet-button:focus-visible, .search-button:focus-visible, .map-rail button:focus-visible, .restore-controls:focus-visible, .retry-button:focus-visible, .table-scroll:focus-visible, .edit-copy-button:focus-visible, .text-button:focus-visible, .draft-row-actions button:focus-visible, .section-title h2:focus, .group-heading h3:focus { outline-color: Highlight; }
+}

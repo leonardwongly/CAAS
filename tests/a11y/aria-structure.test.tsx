@@ -1,0 +1,186 @@
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it } from "vitest";
+import App from "../../apps/web/src/App.tsx";
+import { DRAFT_SAFETY_LABEL, installApiStub, RANK_CRITERION, SAFETY_NOTICE } from "../fixtures/web-app.ts";
+
+/**
+ * Deterministic ARIA structure assertions (issue #17 automated portion):
+ * landmarks, combobox/listbox contract, drawer naming, table semantics,
+ * live regions, and the exact strings the README and design bind.
+ */
+
+async function selectFixtureFlight(user: ReturnType<typeof userEvent.setup>) {
+  const input = screen.getByRole("combobox", { name: "Flight number or code" });
+  await user.type(input, "FIXTURE1");
+  await user.keyboard("{Enter}");
+  const listbox = await screen.findByRole("listbox", { name: "Choose an exact flight-plan match" });
+  expect(listbox).toBeTruthy();
+  await user.keyboard("{ArrowDown}{Enter}");
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("route options returned"));
+}
+
+describe("ARIA structure", () => {
+  it("exposes the expected landmarks, skip link, and map image", () => {
+    installApiStub();
+    render(<App />);
+
+    const skip = document.querySelector("a.skip-link");
+    expect(skip?.getAttribute("href")).toBe("#flight-search");
+    expect(document.getElementById("flight-search")).toBeTruthy();
+    // The skip link is the first focusable element in the document.
+    const focusables = Array.from(document.querySelectorAll<HTMLElement>("a[href], button, input, [tabindex]:not([tabindex='-1'])"));
+    expect(focusables[0]).toBe(skip);
+
+    expect(screen.getByRole("banner")).toBeTruthy();
+    expect(screen.getByRole("main")).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Route workspace controls" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: /world map/i })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Safety notice" })).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Flight number or code" })).toBeTruthy();
+    expect(screen.getByRole("status")).toBeTruthy();
+  });
+
+  it("implements the callsign combobox/listbox contract (design §15.6)", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const input = screen.getByRole("combobox", { name: "Flight number or code" });
+    expect(input.getAttribute("aria-autocomplete")).toBe("list");
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+
+    await user.type(input, "FIXTURE1");
+    await user.keyboard("{Enter}");
+    const listbox = await screen.findByRole("listbox", { name: "Choose an exact flight-plan match" });
+    expect(listbox.getAttribute("id")).toBe("flight-search-results");
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+    expect(input.getAttribute("aria-controls")).toBe("flight-search-results");
+    expect(screen.getAllByRole("option").length).toBe(2);
+
+    await user.keyboard("{ArrowDown}");
+    expect(input.getAttribute("aria-activedescendant")).toBe("flight-match-0");
+    expect(screen.getAllByRole("option")[0]?.getAttribute("aria-selected")).toBe("true");
+
+    await user.keyboard("{ArrowDown}");
+    expect(input.getAttribute("aria-activedescendant")).toBe("flight-match-1");
+    expect(screen.getAllByRole("option")[1]?.getAttribute("aria-selected")).toBe("true");
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox", { name: "Choose an exact flight-plan match" })).toBeNull();
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+    expect(input.getAttribute("aria-activedescendant")).toBeFalsy();
+  });
+
+  it("names the drawer per surface and syncs aria-pressed on the rail", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+
+    const rail = screen.getByRole("navigation", { name: "Route workspace controls" });
+    const routesTrigger = within(rail).getByRole("button", { name: "Routes" });
+    const dataTrigger = within(rail).getByRole("button", { name: "Data" });
+    await user.click(routesTrigger);
+    expect(routesTrigger.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("region", { name: "Route chooser" })).toBeTruthy();
+
+    await user.click(dataTrigger);
+    expect(routesTrigger.getAttribute("aria-pressed")).toBe("false");
+    expect(dataTrigger.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("region", { name: "Flight and route data" })).toBeTruthy();
+
+    await user.click(within(screen.getByRole("region", { name: "Flight and route data" })).getByRole("button", { name: "Edit copy" }));
+    expect(screen.getByRole("region", { name: "Local route editor" })).toBeTruthy();
+    expect(within(rail).getByRole("button", { name: "Edit copy" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("keeps route chooser groups, aria-current, and rank semantics", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+    await user.click(screen.getByRole("button", { name: "Routes" }));
+
+    expect(screen.getByRole("heading", { name: "Ranked routes" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Unranked routes (incomplete data)" })).toBeTruthy();
+    const selected = screen.getByRole("button", { name: /Recorded via MIDPT/ });
+    expect(selected.getAttribute("aria-current")).toBe("true");
+    expect(screen.getByRole("button", { name: /Recorded with unresolved gap/ }).getAttribute("aria-current")).toBeNull();
+  });
+
+  it("keeps the route-leg table semantic and scrollable with a name (design §15.6)", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+    await user.click(screen.getByRole("button", { name: "Data" }));
+
+    const heading = screen.getByRole("heading", { name: "Route data" });
+    const table = screen.getByRole("table");
+    expect(table.getAttribute("aria-labelledby")).toBe("route-legs-heading");
+    expect(heading.getAttribute("id")).toBe("details-heading");
+    const columns = screen.getAllByRole("columnheader");
+    expect(columns.map((cell) => cell.textContent)).toEqual(["Sequence", "From", "To", "Distance", "Status"]);
+    expect(screen.getAllByRole("rowheader").length).toBeGreaterThanOrEqual(2);
+    const region = screen.getByLabelText("Scrollable route-leg table");
+    expect(region.getAttribute("tabindex")).toBe("0");
+  });
+
+  it("implements the draft point combobox contract (design §15.6)", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+    await user.click(screen.getByRole("button", { name: "Edit copy" }));
+
+    const input = screen.getByRole("combobox", { name: "Add an exact reference point" });
+    expect(input.getAttribute("aria-autocomplete")).toBe("list");
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+
+    await user.type(input, "MIDPT");
+    await user.keyboard("{Enter}");
+    const listbox = await screen.findByRole("listbox", { name: "Resolved reference-point search results" });
+    expect(listbox.getAttribute("id")).toBe("draft-point-results");
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getAllByRole("option").length).toBe(1);
+
+    await user.keyboard("{ArrowDown}");
+    expect(input.getAttribute("aria-activedescendant")).toBe("draft-match-0");
+    await user.keyboard("{Enter}");
+
+    expect(screen.queryByRole("listbox", { name: "Resolved reference-point search results" })).toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove MIDPT" })).toBeTruthy());
+    expect(screen.getByText("Intermediate points")).toBeTruthy();
+  });
+
+  it("exposes the exact binding strings to assistive technology", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(screen.getByText(SAFETY_NOTICE)).toBeTruthy();
+    expect(screen.getByText(/Search for a recorded flight plan to begin/)).toBeTruthy();
+
+    await selectFixtureFlight(user);
+    await user.click(screen.getByRole("button", { name: "Routes" }));
+    // The criterion paragraph appends the standard dispatch caveat; the
+    // binding string itself must be present verbatim as its prefix.
+    expect(screen.getByText((content) => content.startsWith(RANK_CRITERION))).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Edit copy" }));
+    expect(screen.getByText(DRAFT_SAFETY_LABEL)).toBeTruthy();
+  });
+
+  it("labels the map endpoint chips as a section (main-tree App.tsx intent)", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+
+    const endpoints = screen.getByLabelText("Route endpoint locations");
+    expect(endpoints.tagName).toBe("SECTION");
+    expect(within(endpoints).getByText("Departure")).toBeTruthy();
+    expect(within(endpoints).getByText("Arrival")).toBeTruthy();
+  });
+});
