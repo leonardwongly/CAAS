@@ -40,14 +40,17 @@ The repository currently declares these root commands:
 
 ```bash
 pnpm run validate:config
+pnpm run validate:policy
 pnpm run typecheck
+pnpm run test:offline
+pnpm run container:smoke
 pnpm run validate
 pnpm run build
 pnpm run lint
 pnpm run test
 ```
 
-`validate` is the aggregate offline lane: configuration and policy validation, TypeScript checks, package tests, offline tests, and the Linux container smoke check. `build` produces the Vite UI and TypeScript outputs. The live lane remains separately authorized and is not part of generic offline validation.
+`validate` is the aggregate offline lane: configuration and policy validation, TypeScript checks, package tests, offline tests, and the Linux container smoke check. `test:offline` runs the cross-package offline suite (currently 43 tests across 8 files). `validate:policy` enforces `deploy/poc-policy.yaml` and the Bicep topology invariants. `container:smoke` checks the Dockerfile without building unless `RUN_CONTAINER_BUILD=1`. `build` produces the Vite UI and TypeScript outputs. The live lane remains separately authorized and is not part of generic offline validation.
 
 `lint` and `test` are currently recursive `--if-present` wrappers. Until package-level scripts exist, either command may complete without application work; a successful no-op is not lint or test evidence. Record the exact substantive suites and assertions that ran instead.
 

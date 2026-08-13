@@ -13,7 +13,7 @@ The retained PG-00 discovery proves only bounded read-only API observations. The
 
 ## Decision
 
-1. Section 0 of the existing system design is the binding POC authority. The implementation plan operationalizes it. Existing later sections remain unmodified historical material and must be explicitly reconciled in new documentation.
+1. Section 0 of the existing system design is the binding POC authority. The implementation plan operationalizes it. The former later sections (3-29) were extracted verbatim on 2026-08-13 into the [historical archive](../superpowers/historical/2026-08-11-flight-route-explorer-design-legacy-sections-3-29.md); they remain historical production-hardening analysis, are non-normative for the POC, and are explicitly reconciled by this ADR, the POC boundary document, and the capability/gate matrix.
 2. The POC is a private, single-user, real-data demonstration with no synthetic runtime/demo fallback, no staging environment, and no staging-to-production promotion.
 3. The Fastify server is the only CAAS client and must acquire all five families: Flight Plan, Airways, Fixes, Airports, and NAVAIDs. It validates and sanitizes a complete in-memory generation and swaps refreshes atomically.
 4. Airways is mandatory for fetch/schema/count conformance, but airway values/types remain hidden because occurrence/directed-leg semantics are unproven. No airway topology is inferred or claimed.
