@@ -6,6 +6,7 @@
   "scripts": {
     "build": "pnpm run typecheck",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --test --experimental-strip-types *.test.ts"
+    "test": "node --test --experimental-strip-types *.test.ts upstream-bounds/*.test.ts",
+    "test:upstream-bounds": "node --test --experimental-strip-types upstream-bounds/*.test.ts"
   }
 }
