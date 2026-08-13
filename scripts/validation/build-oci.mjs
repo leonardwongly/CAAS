@@ -55,6 +55,23 @@ function parseArgs(argv) {
 
 const { verify } = parseArgs(process.argv.slice(2));
 
+// The image subject must bind the committed tree, not a dirty working tree.
+// When OCI_BUILD_CONTEXT_TAR is set, the build context is a tar of the
+// committed HEAD tree (`git archive`), so uncommitted edits from other
+// workstreams never leak into the evidence-bound image.
+async function buildImage() {
+  if (process.env.OCI_BUILD_CONTEXT_TAR) {
+    const contextTar = resolve(root, "tmp/oci-build-context.tar");
+    const contextDir = resolve(root, "tmp/oci-build-context");
+    await rm(contextDir, { recursive: true, force: true });
+    await mkdir(contextDir, { recursive: true });
+    await execFileAsync("git", ["archive", "--format=tar", "-o", contextTar, "HEAD"], { cwd: root, maxBuffer: 32 * 1024 * 1024 });
+    await execFileAsync("tar", ["-xf", contextTar, "-C", contextDir], { cwd: root, maxBuffer: 32 * 1024 * 1024 });
+    return docker(["build", "--pull=false", "-f", dockerfilePath, "-t", tag, "--iidfile", iidFile, contextDir]);
+  }
+  return docker(["build", "--pull=false", "-f", dockerfilePath, "-t", tag, "--iidfile", iidFile, root]);
+}
+
 const dockerfile = await readFile(dockerfilePath, "utf8");
 const pinnedBasePattern = /^FROM node:22\.14\.0-bookworm-slim@sha256:[0-9a-f]{64} AS (dependencies|runtime)$/m;
 const pinnedBases = dockerfile.match(/@sha256:[0-9a-f]{64}/g) ?? [];
@@ -66,7 +83,7 @@ if (verify) {
 
 if (!verify) {
   await mkdir(resolve(root, "tmp"), { recursive: true });
-  await docker(["build", "--pull=false", "-f", dockerfilePath, "-t", tag, "--iidfile", iidFile, root]);
+  await buildImage();
 }
 
 const imageId = (await readFile(iidFile, "utf8")).trim();
@@ -118,7 +135,7 @@ const bundle = {
     networkAtBuildTime: "pnpm registry fetch inside the build; no live CAAS call and no cloud write",
     registryPush: "never performed by this script",
   },
-  buildMetadata: { builder: await (async () => { try { return (await docker(["version", "--format", "{{.Client.Version}}"])).stdout.trim(); } catch { return "unknown"; } })(), startedAt: nowIso, verifiedAt: verify ? nowIso : undefined },
+  buildMetadata: { builder: await (async () => { try { return (await docker(["version", "--format", "{{.Client.Version}}"])).stdout.trim(); } catch { return "unknown"; } })(), contextSource: process.env.OCI_BUILD_CONTEXT_TAR ? "git-archive@HEAD" : "working-tree", startedAt: nowIso, verifiedAt: verify ? nowIso : undefined },
 };
 
 // Honest image assertions: fail loudly instead of recording an unverified claim.

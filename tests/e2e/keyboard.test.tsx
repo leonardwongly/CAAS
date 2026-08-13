@@ -50,7 +50,7 @@ describe("keyboard-only review", () => {
 
     expect(screen.getByText("FIXTURE1")).toBeTruthy();
     expect(screen.getByText("KOR1 → KDS1")).toBeTruthy();
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("2 route options returned"));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("3 route options returned"));
   });
 
   it("closing the route chooser with its Close button returns focus to Routes", async () => {
@@ -121,7 +121,7 @@ describe("keyboard-only review", () => {
     await tabUntil(user, (element) => element.textContent === "Retry route options" && screen.getByRole("region", { name: "Route chooser" }).contains(element));
     await user.keyboard("{Enter}");
     await waitFor(() => expect(document.activeElement?.id).toBe("options-heading"));
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("2 route options returned"));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("3 route options returned"));
   });
 
   it("retrying a failed draft validation returns focus to the draft heading", async () => {

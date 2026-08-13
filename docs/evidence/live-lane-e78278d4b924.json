@@ -1,0 +1,134 @@
+{
+  "recordKind": "lane-results",
+  "lane": "live-five-family-lane",
+  "subject": {
+    "type": "commit",
+    "identifiers": {
+      "commit": "e78278d4b924"
+    },
+    "environment": "authorized-live-run"
+  },
+  "startedAt": "2026-08-13T16:33:31.054Z",
+  "endedAt": "2026-08-13T16:33:35.219Z",
+  "mode": "authorized-run",
+  "credentialHandling": "authorized key consumed by the real transport; never printed or recorded",
+  "checks": [
+    {
+      "checkId": "LIVE-LIVENESS",
+      "name": "liveness endpoint",
+      "procedure": "GET /api/v1/health/live returns 200.",
+      "startedAt": "2026-08-13T16:33:31.054Z",
+      "endedAt": "2026-08-13T16:33:35.213Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "liveness endpoint",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "58661eb352d5ba4588306c94853fd98ec1de9364d40e0e079d2ee375ecce1bf6"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LIVE-FIVE-FAMILY-ACQUISITION",
+      "name": "live five-family acquisition",
+      "procedure": "All five families acquired and validated from the real origin.",
+      "startedAt": "2026-08-13T16:33:31.054Z",
+      "endedAt": "2026-08-13T16:33:35.215Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "live five-family acquisition",
+        "value": false,
+        "units": "families",
+        "sampleCount": 4
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "58661eb352d5ba4588306c94853fd98ec1de9364d40e0e079d2ee375ecce1bf6"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LIVE-BROWSE-EXACT-ONCE",
+      "name": "live browse exact-once traversal",
+      "procedure": "Cursor traversal from first page to terminal cursor returns every flight exactly once.",
+      "startedAt": "2026-08-13T16:33:31.054Z",
+      "endedAt": "2026-08-13T16:33:35.218Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "live browse exact-once traversal",
+        "value": true,
+        "units": "flights",
+        "sampleCount": 92
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "58661eb352d5ba4588306c94853fd98ec1de9364d40e0e079d2ee375ecce1bf6"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LIVE-REFRESH-AUTH",
+      "name": "live refresh authorization",
+      "procedure": "Refresh without the runtime token is rejected.",
+      "startedAt": "2026-08-13T16:33:31.054Z",
+      "endedAt": "2026-08-13T16:33:35.219Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "live refresh authorization",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "58661eb352d5ba4588306c94853fd98ec1de9364d40e0e079d2ee375ecce1bf6"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LIVE-SECRET-EXCLUDED",
+      "name": "credential never surfaces",
+      "procedure": "The runtime key never appears in any API response.",
+      "startedAt": "2026-08-13T16:33:31.054Z",
+      "endedAt": "2026-08-13T16:33:35.219Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "credential never surfaces",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "58661eb352d5ba4588306c94853fd98ec1de9364d40e0e079d2ee375ecce1bf6"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    }
+  ],
+  "summary": {
+    "checks": 5,
+    "passed": 5,
+    "blocked": 0,
+    "failed": 0
+  },
+  "artifacts": [
+    {
+      "path": "scripts/validation/live-lane.mjs",
+      "sha256": "58661eb352d5ba4588306c94853fd98ec1de9364d40e0e079d2ee375ecce1bf6"
+    }
+  ]
+}

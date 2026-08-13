@@ -13,12 +13,17 @@ const testDirectories = [
   "packages/upstream-caas/test",
 ];
 
+// Vitest-owned browser/DOM lanes (a11y, e2e, responsive) need jsdom + React
+// transforms and run through `pnpm run test:a11y|test:e2e|test:responsive`,
+// not the node --test collector.
+const excludedDirectories = new Set(["a11y", "e2e", "responsive"]);
+
 async function collectTestFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const nested = await Promise.all(entries.map(async (entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) return collectTestFiles(path);
-    return entry.isFile() && entry.name.endsWith(".test.ts") ? [path] : [];
+    if (!entry.isDirectory()) return entry.isFile() && entry.name.endsWith(".test.ts") ? [join(directory, entry.name)] : [];
+    if (excludedDirectories.has(entry.name)) return [];
+    return collectTestFiles(join(directory, entry.name));
   }));
   return nested.flat();
 }

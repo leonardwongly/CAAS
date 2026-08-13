@@ -10,6 +10,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createApiServer } from "../../apps/api/src/index.ts";
 import { createCaasAdapter } from "../../packages/upstream-caas/src/index.ts";
+import { RANK_ONE_LABEL } from "../../packages/contracts/src/index.ts";
 import { CheckCollector, isoNow, reportAndExit, root, sha256Hex, shortSha } from "./lib-evidence.mjs";
 import { FIXTURE_API_KEY, FIXTURE_AIRWAY_VALUES, FIXTURE_REFRESH_SECRET, createMockTransport, fixtureBodies, fixtureFlightBodies } from "./fixtures.mjs";
 
@@ -77,42 +78,56 @@ async function runChecks() {
   const seen = [];
   let cursor;
   let pages = 0;
+  let browseGen;
   do {
     const query = cursor === undefined ? "/api/v1/routes?limit=1" : `/api/v1/routes?limit=1&cursor=${encodeURIComponent(cursor)}`;
     const page = await get(query);
     if (page.status !== 200) throw new Error(`browse page failed with ${page.status}`);
     seen.push(...page.json().data.map((item) => item.id));
     cursor = page.json().nextCursor;
+    if (browseGen === undefined) browseGen = page.json().generation;
     pages += 1;
   } while (cursor !== undefined);
   const unique = new Set(seen).size === seen.length;
   collector.pass("LANE-BROWSE-EXACT-ONCE", "browse-all exact-once traversal", "Cursor traversal from first page to terminal cursor returns every active-generation flight exactly once.", startedAt, isoNow(),
     seen.length === 6 && unique && pages === 6, "boolean", pages, artifactsFor());
 
-  // 6. Callsign search, case-insensitive and negative.
-  const search = await get("/api/v1/callsigns/search?query=fixture1");
+  // 6. Callsign search is POST-only (plan §2.4): the query travels in the JSON
+  // body, never in the URL. GET is rejected with 405 + Allow: POST, and query
+  // strings on POST are rejected with 400 INVALID_QUERY.
+  const methodNotAllowed = await get("/api/v1/callsigns/search");
+  const queryStringOnPost = await post("/api/v1/callsigns/search?query=fixture1", {});
+  collector.pass("LANE-SEARCH-POST-ONLY", "callsign search is POST-only", "GET is 405 with Allow: POST; the query is accepted only in the JSON body and any query string on POST is rejected 400 INVALID_QUERY.", startedAt, isoNow(),
+    methodNotAllowed.status === 405 && methodNotAllowed.headers.allow === "POST" && queryStringOnPost.status === 400 && queryStringOnPost.json().error?.code === "INVALID_QUERY", "boolean", 1, artifactsFor());
+
+  // 7. Callsign search, case-insensitive and negative.
+  const search = await post("/api/v1/callsigns/search", { query: "fixture1" });
+  const searchGen = search.json().generation;
   const searchData = search.json().data ?? [];
-  collector.pass("LANE-CALLSIGN-SEARCH", "callsign search", "Case-insensitive callsign search returns the exact flight.", startedAt, isoNow(),
+  collector.pass("LANE-CALLSIGN-SEARCH", "callsign search", "Case-insensitive callsign search over POST returns the exact flight.", startedAt, isoNow(),
     search.status === 200 && searchData.length === 1 && searchData[0].callsign === "FIXTURE1", "boolean", 1, artifactsFor());
-  const negative = await get("/api/v1/callsigns/search?query=NOPE");
+  const negative = await post("/api/v1/callsigns/search", { query: "NOPE" });
   collector.pass("LANE-SEARCH-NEGATIVE", "negative search", "A callsign with no match returns an empty page.", startedAt, isoNow(),
     negative.status === 200 && (negative.json().data ?? []).length === 0, "boolean", 1, artifactsFor());
 
-  // 7. Route options: exact resolution, tied ranks, dedup, incomplete unranked.
+  // 8. Route options: exact resolution, rankLabel envelope, rank-1/other-ranked/
+  // incomplete groups, dedup, incomplete unranked.
   const firstId = searchData[0].id;
   const options = await post("/api/v1/routes/options", { flightId: firstId });
+  const optionsGen = options.json().generation;
   const routeData = options.json().data ?? [];
   const complete = routeData.filter((route) => route.complete);
   const incomplete = routeData.filter((route) => !route.complete);
   const rankOne = complete.filter((route) => route.rank === 1);
+  const otherRanked = complete.filter((route) => route.rank !== undefined && route.rank > 1);
   const everyDtoBound = routeData.every((route) => route.provenance === "CAAS normalized live generation" && typeof route.safety === "string" && route.safety.includes("Demonstration only."));
-  collector.pass("LANE-RANK-TIES", "tied rank-1 presentation", "The complete candidates are ranked by modeled distance and the Rank 1 group is presented together; incomplete candidates are never ranked.", startedAt, isoNow(),
-    options.status === 200 && complete.length === 2 && rankOne.length === 1 && rankOne.every((route) => route.rank === 1) && incomplete.every((route) => route.rank === undefined) && everyDtoBound, "boolean", routeData.length, artifactsFor());
+  collector.pass("LANE-RANK-TIES", "rank-1/other-ranked/incomplete presentation", "Complete candidates are ranked by modeled distance, the rankLabel envelope is present with the bound first-place label, the rank-1 group is presented together, and incomplete candidates are never ranked.", startedAt, isoNow(),
+    options.status === 200 && options.json().rankLabel === RANK_ONE_LABEL && complete.length === 2 && rankOne.length === 1 && rankOne.every((route) => route.rank === 1) && otherRanked.length === 1 && otherRanked.every((route) => route.rank === 2) && incomplete.every((route) => route.rank === undefined) && everyDtoBound, "boolean", routeData.length, artifactsFor());
   // FIXTURE1, FIXTURE5, FIXTURE6 share the exact MIDPT signature -> one deduplicated candidate.
   const signatureGroupPresent = routeData.filter((route) => ["FIXTURE1", "FIXTURE5", "FIXTURE6"].includes(route.callsign)).length === 1;
   collector.pass("LANE-DEDUP-SIGNATURE", "exact-signature candidate dedup", "Candidates with identical normalized signatures are deduplicated with source provenance retained.", startedAt, isoNow(), signatureGroupPresent, "boolean", 1, artifactsFor());
   // FIXTURE3 (KLAX->KJFK via an unresolvable reference) is incomplete with an explicit gap.
-  const gapSearch = await get("/api/v1/callsigns/search?query=FIXTURE3");
+  const gapSearch = await post("/api/v1/callsigns/search", { query: "FIXTURE3" });
   const gapOptions = await post("/api/v1/routes/options", { flightId: gapSearch.json().data[0].id });
   const gapRoute = (gapOptions.json().data ?? []).find((route) => route.callsign === "FIXTURE3");
   collector.pass("LANE-GAP-PRESERVATION", "explicit gap preservation", "Unresolved references surface as explicit gaps; no distance or geometry is inferred.", startedAt, isoNow(),
@@ -123,12 +138,29 @@ async function runChecks() {
   collector.pass("LANE-AMBIGUITY", "duplicate-identifier ambiguity", "Duplicate reference identifiers are preserved as an explicit ambiguity group.", startedAt, isoNow(),
     lookup.status === 200 && lookup.json().status === "ambiguous" && (lookup.json().matches ?? []).length === 2, "boolean", 1, artifactsFor());
 
-  // 9. Draft create and complete compare.
-  const draft = await post("/api/v1/drafts", { origin: "KJFK", via: ["MIDPT"], destination: "KLAX" });
+  // 9. Draft create with explicit selections and complete comparison through
+  // POST /api/v1/routes/compare (plan §8 comparison.status complete|incomplete).
+  const draft = await post("/api/v1/drafts", { origin: "KJFK", via: ["MIDPT"], destination: "KLAX", selections: [] });
   const draftId = draft.json().id;
-  const comparison = await post("/api/v1/drafts/compare", { draftId });
-  collector.pass("LANE-DRAFT-COMPARE", "bounded local draft and server comparison", "A complete draft is stored and compared with server-computed distance.", startedAt, isoNow(),
-    draft.status === 201 && comparison.status === 200 && comparison.json().comparison?.status === "complete" && typeof comparison.json().route?.distanceNm === "number", "boolean", 1, artifactsFor());
+  const routeCompare = await post("/api/v1/routes/compare", { baselineId: rankOne[0].id, targetDraftId: draftId });
+  const routeComparison = routeCompare.json().comparison;
+  const draftCompare = await post("/api/v1/drafts/compare", { draftId });
+  collector.pass("LANE-DRAFT-COMPARE", "bounded local draft and server comparison", "A complete draft with explicit selections is stored, compared against a recorded baseline via POST /api/v1/routes/compare with a complete comparison status and server-computed distance delta, and the stored draft compares with server-computed distance.", startedAt, isoNow(),
+    draft.status === 201 && typeof draftId === "string" && routeCompare.status === 200 && routeComparison?.status === "complete" && typeof routeComparison.distanceDeltaNm === "number" && draftCompare.status === 200 && draftCompare.json().comparison?.status === "complete" && typeof draftCompare.json().route?.distanceNm === "number", "boolean", 1, artifactsFor());
+
+  // 10. Plan §6.2 tiered freshness summary on every generation payload.
+  const tierValid = (tier) => tier && ["fresh", "stale", "unusable"].includes(tier.state)
+    && typeof tier.retrievedAt === "string" && typeof tier.freshUntil === "string" && typeof tier.staleUntil === "string"
+    && Date.parse(tier.freshUntil) > Date.parse(tier.retrievedAt) && Date.parse(tier.staleUntil) > Date.parse(tier.freshUntil);
+  const generationTiered = (generation) => {
+    if (!generation || typeof generation.id !== "string" || typeof generation.retrievedAt !== "string" || !tierValid(generation.live) || !tierValid(generation.reference)) return false;
+    if (!["fresh", "stale", "unusable"].includes(generation.overall)) return false;
+    const severity = { fresh: 0, stale: 1, unusable: 2 };
+    return severity[generation.overall] === Math.max(severity[generation.live.state], severity[generation.reference.state]);
+  };
+  const generationPayloads = [browseGen, searchGen, optionsGen, routeCompare.json().generation];
+  collector.pass("LANE-GENERATION-TIERS", "tiered generation freshness summary", "Browse, search, route-options, and compare responses carry the plan §6.2 tiered generation summary: live and reference tiers with retrievedAt/freshUntil/staleUntil and an overall state equal to the more severe tier.", startedAt, isoNow(),
+    generationPayloads.length === 4 && generationPayloads.every(generationTiered), "boolean", generationPayloads.length, artifactsFor());
 
   // 10. Refresh authorization fails closed without the token.
   const unauthorizedRefresh = await post("/api/v1/refresh", undefined);
@@ -143,12 +175,14 @@ async function runChecks() {
   collector.pass("LANE-REFRESH-BOUND", "generation-bound cursors and IDs", "Refresh swaps the generation atomically; IDs bound to the prior generation fail closed.", startedAt, isoNow(),
     refreshed.status === 200 && typeof newGeneration === "string" && newGeneration !== oldGeneration && oldRouteAfter.status === 410, "boolean", 1, artifactsFor());
 
-  // 12. Failed refresh retains the last usable generation.
+  // 12. Failed refresh retains the last usable generation (503 REFRESH_FAILED
+  // with a retained.generation payload while the prior generation keeps serving).
   transport.state.bodies.displayAll = "not-json";
   const failedRefresh = await post("/api/v1/refresh", undefined, { "x-refresh-token": FIXTURE_REFRESH_SECRET });
+  const retainedGen = failedRefresh.json().retained?.generation;
   const stillServing = await get("/api/v1/routes?limit=1");
-  collector.pass("LANE-REFRESH-RETAINS", "failed refresh retains usable generation", "A failed refresh returns 503 while the last usable complete generation keeps serving.", startedAt, isoNow(),
-    failedRefresh.status === 503 && stillServing.status === 200, "boolean", 1, artifactsFor());
+  collector.pass("LANE-REFRESH-RETAINS", "failed refresh retains usable generation", "A failed refresh returns 503 REFRESH_FAILED naming the retained generation in a retained.generation payload while the last usable complete generation keeps serving.", startedAt, isoNow(),
+    failedRefresh.status === 503 && failedRefresh.json().error?.code === "REFRESH_FAILED" && typeof retainedGen?.id === "string" && retainedGen.overall !== "unusable" && stillServing.status === 200, "boolean", 1, artifactsFor());
 
   // 13. Airways are exercised but excluded from every output.
   const airwayValuesExcluded = !responses.some((response) => FIXTURE_AIRWAY_VALUES.some((value) => response.body.includes(value)));

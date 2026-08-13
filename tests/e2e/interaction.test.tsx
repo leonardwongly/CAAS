@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../../apps/web/src/App.tsx";
 import { installApiStub, type StubOptions } from "../fixtures/web-app.ts";
 
@@ -11,6 +11,11 @@ import { installApiStub, type StubOptions } from "../fixtures/web-app.ts";
  * asserted through the live region so the same strings a screen reader
  * would announce are verified exactly.
  */
+
+// window.confirm is not implemented by jsdom; restore any per-test spy on it.
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 async function selectFixtureFlight(user: ReturnType<typeof userEvent.setup>) {
   const input = screen.getByRole("combobox", { name: "Flight number or code" });
@@ -106,7 +111,25 @@ describe("interaction review", () => {
     await user.click(screen.getByRole("button", { name: "Clear session" }));
     expect((screen.getByRole("combobox", { name: "Flight number or code" }) as HTMLInputElement).value).toBe("");
     expect(screen.getByText("Recorded routes appear after selection")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe("Session cleared.");
+    expect(screen.getByRole("status").textContent).toBe("Session reset.");
+  });
+
+  it("the freshness strip reports the live generation and refresh resets the session", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+
+    // The merged generation strip announces the live tier through a chip and
+    // offers a refresh action (jsdom has no window.confirm; accept the prompt).
+    const chip = await screen.findByText((content) => content.startsWith("Live data fresh · retrieved"));
+    expect(chip).toBeTruthy();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "Refresh live data" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Live data refreshed."));
+
+    expect((screen.getByRole("combobox", { name: "Flight number or code" }) as HTMLInputElement).value).toBe("");
+    expect((screen.getByRole("button", { name: "Routes" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("Map Only hides the chrome and Restore controls returns with focus", async () => {

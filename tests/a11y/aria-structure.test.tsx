@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import App from "../../apps/web/src/App.tsx";
-import { DRAFT_SAFETY_LABEL, installApiStub, RANK_CRITERION, SAFETY_NOTICE } from "../fixtures/web-app.ts";
+import { COMPLETE_RANKED_GROUP_TITLE, DRAFT_SAFETY_LABEL, INCOMPLETE_GROUP_TITLE, installApiStub, RANK_CRITERION, RANK_ONE_LABEL, SAFETY_NOTICE } from "../fixtures/web-app.ts";
 
 /**
  * Deterministic ARIA structure assertions (issue #17 automated portion):
@@ -102,10 +102,17 @@ describe("ARIA structure", () => {
     await selectFixtureFlight(user);
     await user.click(screen.getByRole("button", { name: "Routes" }));
 
-    expect(screen.getByRole("heading", { name: "Ranked routes" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Unranked routes (incomplete data)" })).toBeTruthy();
+    // The merged chooser presents three groups: the service-issued rank-1
+    // label (or its fallback), complete-but-not-first candidates, and
+    // incomplete routes.
+    expect(screen.getByRole("heading", { name: RANK_ONE_LABEL })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: COMPLETE_RANKED_GROUP_TITLE })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: INCOMPLETE_GROUP_TITLE })).toBeTruthy();
     const selected = screen.getByRole("button", { name: /Recorded via MIDPT/ });
     expect(selected.getAttribute("aria-current")).toBe("true");
+    // The auto-selected sole Rank 1 candidate carries aria-current; every
+    // other candidate (ranked and unranked) must not.
+    expect(screen.getByRole("button", { name: /Recorded via alternate routing/ }).getAttribute("aria-current")).toBeNull();
     expect(screen.getByRole("button", { name: /Recorded with unresolved gap/ }).getAttribute("aria-current")).toBeNull();
   });
 

@@ -268,7 +268,7 @@ function App() {
       </header>}
 
       {(generation || refreshError) && (
-        <div className="generation-strip">
+        <div className="generation-strip" role="region" aria-label="Live data freshness">
           {generation && <span className={`status-chip freshness-chip freshness-${generation.live.state}`}>Live data {generation.live.state} · retrieved {new Date(generation.live.retrievedAt).toLocaleTimeString()}</span>}
           {refreshError && <span className="refresh-error" role="alert">{refreshError}</span>}
           <button className="quiet-button" type="button" onClick={() => void runRefresh()} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh live data"}</button>

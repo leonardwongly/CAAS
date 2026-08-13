@@ -108,11 +108,22 @@ export async function validateEvidenceBundle() {
   let gateCount = 0;
   let laneCount = 0;
   let skipped = 0;
+  let templateCount = 0;
 
   for (const name of files) {
     const filePath = resolve(evidenceDirectory, name);
     const file = `docs/evidence/${name}`;
     const record = JSON.parse(await readFile(filePath, "utf8"));
+    // Template records (explicit `template: true` marker or a .template.json
+    // filename) declare the shape of a future evidence artifact. They record no
+    // event, claim no result, and carry placeholder paths/timestamps by design;
+    // they are classified as pending templates and never structurally scored.
+    // A completed manifest must drop the marker and the filename suffix.
+    if (record.template === true || name.endsWith(".template.json")) {
+      skipped += 1;
+      templateCount += 1;
+      continue;
+    }
     if (record.recordKind === "discovery" || (record.gateId === undefined && record.checks === undefined)) {
       skipped += 1;
       continue;
@@ -145,12 +156,12 @@ export async function validateEvidenceBundle() {
   }
 
   if (gateCount === 0) errors.push("no gate manifest found in docs/evidence");
-  return { errors, gateCount, laneCount, skipped };
+  return { errors, gateCount, laneCount, skipped, templateCount };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  const { errors, gateCount, laneCount, skipped } = await validateEvidenceBundle();
-  console.log(`Evidence bundle validator: ${gateCount} gate manifest(s), ${laneCount} lane/measurement record(s), ${skipped} discovery/skipped record(s) examined.`);
+  const { errors, gateCount, laneCount, skipped, templateCount } = await validateEvidenceBundle();
+  console.log(`Evidence bundle validator: ${gateCount} gate manifest(s), ${laneCount} lane/measurement record(s), ${templateCount} template record(s), ${skipped - templateCount} discovery/skipped record(s) examined.`);
   if (errors.length > 0) {
     for (const error of errors) console.error(`evidence-bundle failed: ${error}`);
     process.exitCode = 1;

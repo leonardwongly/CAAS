@@ -1,20 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApiServer, GenerationAcquisitionError, GenerationStore } from "../../apps/api/src/index.ts";
-import type { CaasAdapter, ReferenceDatasetResult } from "../../packages/upstream-caas/src/index.ts";
+import { LIVE_UNUSABLE_MS, type CaasAdapter, type ReferenceDatasetResult } from "../../packages/upstream-caas/src/index.ts";
 import { sanitizedAdapter, sanitizedFlights } from "../fixtures/sanitized-caas.ts";
 
 // Issue #30 evidence: the freshness/generation lifecycle — active generation,
-// 30-minute expiry, atomic refresh, and the fail-closed invalidation of
+// tiered §6.2 freshness (live: fresh ≤ 5 min, unusable after 30 min), atomic
+// refresh, previous-generation retention, and the fail-closed invalidation of
 // cursors, point references, and draft tokens.
 //
-// ACTUAL-behavior note (documented gap, not fixed here): plan §5.1 / design
-// §0.2 require the active AND immediately previous generation to be retained
-// for 30 minutes to complete in-flight interactions. The current
-// GenerationStore retains only the active snapshot; on successful refresh the
-// prior generation is dropped immediately and its cursors/draft tokens fail
-// closed at once (409/410), not after a 30-minute window. Tests below capture
-// that actual behavior. All fixtures are sanitized; no live data is used.
+// Merged behavior (runtime-policies workstream, issue #35): GenerationStore
+// retains the active plus immediately previous generation and prunes the
+// previous one once unusable; tokens stay generation-scoped, so prior-generation
+// cursors and drafts still fail closed on refresh while the snapshot itself is
+// retained for in-flight request completion. All fixtures are sanitized; no
+// live data is used.
 
 function referencePoints(dataset: "fixes" | "airports" | "navaids", count: number): ReferenceDatasetResult {
   const points = Array.from({ length: count }, (_unused, index) => ({ dataset, identifier: `X${index}`, coordinate: { lat: 1, lon: 1 } }));
@@ -33,17 +33,19 @@ function failingAdapter(): CaasAdapter {
   };
 }
 
-test("a fresh generation is ready and its expiry follows the 30-minute window", async () => {
+test("a fresh generation is ready and its live unusable boundary is the 30-minute window", async () => {
   let clock = 1_700_000_000_000;
-  const store = new GenerationStore(sanitizedAdapter(), () => clock, 30 * 60 * 1000);
+  const store = new GenerationStore(sanitizedAdapter(), () => clock);
   const snapshot = await store.initialize();
   assert.equal(store.status, "ready");
   assert.equal(store.readiness().ready, true);
-  assert.equal(snapshot.summary.fresh, true);
-  assert.equal(Date.parse(snapshot.summary.expiresAt) - Date.parse(snapshot.summary.createdAt), 30 * 60 * 1000);
+  assert.equal(snapshot.unusableAtMs - snapshot.retrievedAtMs, LIVE_UNUSABLE_MS, "live generation is unusable 30 minutes after acquisition");
+  assert.equal(snapshot.unusableAtMs - snapshot.retrievedAtMs, 30 * 60 * 1000);
 
-  clock += 30 * 60 * 1000; // exactly at the expiry instant
-  assert.equal(store.readiness().ready, false, "readiness fails once the generation is no longer fresh");
+  clock += 30 * 60 * 1000; // exactly at the live unusable instant: still servable (stale, inclusive boundary)
+  assert.equal(store.readiness().ready, true, "the generation stays servable through the stale window");
+  clock += 1; // strictly beyond the unusable window
+  assert.equal(store.readiness().ready, false, "readiness fails closed once the generation is unusable");
   assert.equal(store.readiness().code, "GENERATION_STALE");
   assert.throws(() => store.requireSnapshot(), (error: unknown) => {
     assert.equal((error as { code?: string }).code, "GENERATION_STALE");
@@ -62,9 +64,9 @@ test("a failed refresh retains the prior generation and its cursors while still 
     },
   };
   let clock = 1_700_000_000_000;
-  const store = new GenerationStore(adapter, () => clock, 30 * 60 * 1000);
+  const store = new GenerationStore(adapter, () => clock);
   const first = await store.initialize();
-  const firstId = first.summary.id;
+  const firstId = first.id;
 
   state.failNext = true;
   await assert.rejects(() => store.refresh(), (error: unknown) => {
@@ -75,14 +77,14 @@ test("a failed refresh retains the prior generation and its cursors while still 
   assert.equal(store.status, "ready", "the store stays ready with the prior generation");
   assert.equal(store.failure, "UPSTREAM_UNAVAILABLE", "the failure code is recorded");
   assert.equal(store.readiness().ready, true);
-  assert.equal(store.active?.summary.id, firstId, "the prior generation is still the active one");
+  assert.equal(store.active?.id, firstId, "the prior generation is still the active one");
 
   state.failNext = false;
   const second = await store.refresh();
-  assert.notEqual(second.summary.id, firstId, "a later successful refresh replaces the generation");
+  assert.notEqual(second.id, firstId, "a later successful refresh replaces the generation");
 });
 
-test("a successful refresh drops the previous generation immediately (actual behavior; gap vs plan §5.1)", async () => {
+test("a successful refresh invalidates prior-generation cursors while retaining the previous snapshot", async () => {
   const state = { records: sanitizedFlights };
   const base = sanitizedAdapter(state.records);
   const adapter: CaasAdapter = { ...base, displayAll: async () => ({ records: state.records, evidence: { family: "displayAll", bytes: 128, records: state.records.length, acceptedRecords: state.records.length, rejectedRecords: 0, retried: false, durationMs: 0 } }) };
@@ -99,10 +101,9 @@ test("a successful refresh drops the previous generation immediately (actual beh
     const refreshedGeneration = (refreshed.json() as { generation: { id: string } }).generation.id;
     assert.notEqual(refreshedGeneration, firstGeneration);
 
-    // The prior generation is NOT retained for a 30-minute in-flight window:
-    // its cursor fails closed immediately. This is the actual behavior and the
-    // documented divergence from plan §5.1 ("active and immediately previous
-    // generation retained for 30 minutes to complete in-flight interactions").
+    // Tokens are generation-scoped: even though the previous snapshot is
+    // retained in memory (plan §5.1 active-plus-previous window), a cursor
+    // minted by the prior generation fails closed on reuse (409).
     const staleCursor = await server.app.inject({ method: "GET", url: `/api/v1/routes?limit=1&cursor=${encodeURIComponent(firstBody.nextCursor)}` });
     assert.equal(staleCursor.statusCode, 409);
     assert.equal((staleCursor.json() as { error: { code: string } }).error.code, "CURSOR_EXPIRED");
@@ -112,12 +113,12 @@ test("a successful refresh drops the previous generation immediately (actual beh
 });
 
 test("generations never persist across a store instance (no cross-restart reuse)", async () => {
-  const firstStore = new GenerationStore(sanitizedAdapter(), () => 1_700_000_000_000, 30 * 60 * 1000);
-  const secondStore = new GenerationStore(sanitizedAdapter(), () => 1_700_000_000_000, 30 * 60 * 1000);
+  const firstStore = new GenerationStore(sanitizedAdapter(), () => 1_700_000_000_000);
+  const secondStore = new GenerationStore(sanitizedAdapter(), () => 1_700_000_000_000);
   const [first, second] = await Promise.all([firstStore.initialize(), secondStore.initialize()]);
-  assert.notEqual(first.summary.id, second.summary.id, "every process/instance acquires a fresh generation UUID");
+  assert.notEqual(first.id, second.id, "every process/instance acquires a fresh generation UUID");
 
-  const draftId = firstStore.rememberDraft({ origin: "KOR1", via: ["MIDPT"], destination: "KDS1" }, first);
+  const draftId = firstStore.rememberDraft({ origin: "KOR1", via: ["MIDPT"], selections: [], destination: "KDS1" }, first);
   assert.throws(() => secondStore.getDraft(draftId, second), (error: unknown) => {
     assert.equal((error as { code?: string }).code, "DRAFT_EXPIRED", "tokens minted by another instance fail closed");
     return true;
@@ -128,9 +129,9 @@ test("draft tokens bind to their generation and are invalidated by refresh", asy
   const state = { records: sanitizedFlights };
   const base = sanitizedAdapter(state.records);
   const adapter: CaasAdapter = { ...base, displayAll: async () => ({ records: state.records, evidence: { family: "displayAll", bytes: 128, records: state.records.length, acceptedRecords: state.records.length, rejectedRecords: 0, retried: false, durationMs: 0 } }) };
-  const store = new GenerationStore(adapter, () => 1_700_000_000_000, 30 * 60 * 1000);
+  const store = new GenerationStore(adapter, () => 1_700_000_000_000);
   const first = await store.initialize();
-  const draftId = store.rememberDraft({ origin: "KOR1", via: ["MIDPT"], destination: "KDS1" }, first);
+  const draftId = store.rememberDraft({ origin: "KOR1", via: ["MIDPT"], selections: [], destination: "KDS1" }, first);
   const draft = store.getDraft(draftId, first);
   assert.equal(draft.origin, "KOR1");
 
@@ -142,10 +143,10 @@ test("draft tokens bind to their generation and are invalidated by refresh", asy
 });
 
 test("draft capacity is bounded and fails closed with 429", async () => {
-  const store = new GenerationStore(sanitizedAdapter(), () => 1_700_000_000_000, 30 * 60 * 1000);
+  const store = new GenerationStore(sanitizedAdapter(), () => 1_700_000_000_000);
   const snapshot = await store.initialize();
-  for (let index = 0; index < 512; index += 1) store.rememberDraft({ origin: "KOR1", via: [], destination: "KDS1" }, snapshot);
-  assert.throws(() => store.rememberDraft({ origin: "KOR1", via: [], destination: "KDS1" }, snapshot), (error: unknown) => {
+  for (let index = 0; index < 512; index += 1) store.rememberDraft({ origin: "KOR1", via: [], selections: [], destination: "KDS1" }, snapshot);
+  assert.throws(() => store.rememberDraft({ origin: "KOR1", via: [], selections: [], destination: "KDS1" }, snapshot), (error: unknown) => {
     assert.equal((error as { statusCode?: number }).statusCode, 429);
     assert.equal((error as { code?: string }).code, "DRAFT_CAPACITY_REACHED");
     return true;
@@ -159,7 +160,7 @@ test("acquisition fails closed beyond 700,000 aggregate records; the store colla
     airports: async () => referencePoints("airports", 300_000),
     navaids: async () => referencePoints("navaids", 100_001),
   };
-  const store = new GenerationStore(adapter, () => 1_700_000_000_000, 30 * 60 * 1000);
+  const store = new GenerationStore(adapter, () => 1_700_000_000_000);
   await assert.rejects(() => store.initialize(), (error: unknown) => {
     assert.ok(error instanceof GenerationAcquisitionError);
     // ACTUAL-behavior note (documented gap): acquireSnapshot computes and

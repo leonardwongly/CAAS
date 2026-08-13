@@ -12,6 +12,10 @@ import { installApiStub } from "../fixtures/web-app.ts";
  * (color-contrast, link-in-text-block, scrollable-region-focusable) return
  * "incomplete" in jsdom and are recorded, then re-checked in a real browser
  * (docs/testing/accessibility-evidence.md, issue #18).
+ *
+ * Generation data is enabled: the merged apps/web/src/App.tsx renders the
+ * generation strip inside a labelled `role="region"` landmark
+ * ("Live data freshness"), so every audited state includes it.
  */
 
 beforeAll(() => {

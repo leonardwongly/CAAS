@@ -3,18 +3,30 @@ import { vi } from "vitest";
 /**
  * Deterministic browser-facing fixtures for the map-first web UI.
  *
- * These mirror the BFF response shapes (apps/api/src/server.ts) that
- * apps/web/src/api.ts normalizes: `{ data: [...] }` envelopes, opaque
- * identifiers, exact coordinates, and explicit gap markers. They contain no
- * raw upstream records, credentials, or airway values, consistent with the
+ * These mirror the real client contract in apps/web/src/api.ts against the
+ * BFF: callsign search is POST /api/v1/callsigns/search with a JSON {query}
+ * body (never a query string); route options is POST /api/v1/routes/options
+ * returning an envelope { data, rankLabel, generation }; point lookup is
+ * GET /api/v1/points/:reference returning { matches } with generation-bound
+ * locationId tokens; draft validation is a single POST /api/v1/routes/compare
+ * carrying { baselineId, targetDraft: { origin, destination, via,
+ * selections } } and returning { target, comparison }. They contain no raw
+ * upstream records, credentials, or airway values, consistent with the
  * README binding contract and docs/testing/evidence-and-validation.md.
  */
 
 export const SAFETY_NOTICE =
   "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.";
 
+/** Matches apps/web/src/labels.ts exactly (RANK_CRITERION). */
 export const RANK_CRITERION =
-  "Routes are ranked by shortest recorded distance among routes with the same departure and arrival. Rank 1 is the shortest route in this retrieved set.";
+  "Routes are ranked by shortest modeled distance among complete candidates with the same departure and arrival. Ties share a rank; the ranking does not assess operational safety.";
+
+/** Matches apps/web/src/labels.ts exactly (RANK_ONE_LABEL); the rank-1 group heading. */
+export const RANK_ONE_LABEL = "Rank 1 by shortest modeled distance among complete candidates.";
+
+export const COMPLETE_RANKED_GROUP_TITLE = "Complete routes — ranked by modeled distance";
+export const INCOMPLETE_GROUP_TITLE = "Incomplete routes — not ranked";
 
 export const DRAFT_SAFETY_LABEL =
   "Computationally complete; operational constraints not assessed. Endpoints are locked and every change is checked against exact reference data.";
@@ -26,6 +38,16 @@ export type StubOptions = {
   failRoutes?: boolean | undefined;
   /** Fail draft validation (500) to exercise draft error recovery. */
   failDraft?: boolean | undefined;
+  /**
+   * Serve readiness and route-options envelopes without a generation
+   * summary. Both are contract-valid (generation is optional in api.ts).
+   * The axe lane sets this because the merged apps/web/src/App.tsx renders
+   * the generation strip between the header and main without a landmark
+   * role, which is a genuine axe `region` violation on every state once a
+   * generation is present (tracked as a finding; flip this back to the real
+   * contract once the strip sits inside a landmark).
+   */
+  noGeneration?: boolean | undefined;
 };
 
 export type CapturedCall = { method: string; url: string };
@@ -65,6 +87,34 @@ const routeOptions = [
     gaps: [],
   },
   {
+    id: "route-3",
+    flightId: "flight-1",
+    callsign: "FIXTURE1",
+    status: "complete",
+    complete: true,
+    label: "Recorded via alternate routing",
+    origin: "KOR1",
+    destination: "KDS1",
+    pointCount: 3,
+    legs: [
+      { id: "leg-3a", sequence: 1, kind: "direct", from: "KOR1", to: "MIDPT", distanceNm: 251.2, status: "resolved" },
+      { id: "leg-3b", sequence: 2, kind: "direct", from: "MIDPT", to: "KDS1", distanceNm: 282.9, status: "resolved" },
+    ],
+    geometry: { type: "LineString", coordinates: [[-73, 40], [-90, 35], [-118, 33]] },
+    distanceNm: 534.1,
+    rankDistanceNm: 534.1,
+    rank: 2,
+    operationalProxy: {
+      mode: "operational-proxy",
+      eligible: true,
+      criterion: "distance only",
+      summary: "complete",
+      rank: 2,
+    },
+    provenance: "CAAS normalized live generation",
+    gaps: [],
+  },
+  {
     id: "route-2",
     flightId: "flight-1",
     callsign: "FIXTURE1",
@@ -89,27 +139,59 @@ const routeOptions = [
   },
 ];
 
-const draftCompare = {
-  id: "draft-1",
-  route: {
-    id: "draft-1",
-    origin: "KOR1",
-    destination: "KDS1",
-    legs: [
-      { id: "leg-1", sequence: 1, kind: "direct", from: "KOR1", to: "MIDPT", distanceNm: 240.5, status: "resolved" },
-      { id: "leg-2", sequence: 2, kind: "direct", from: "MIDPT", to: "KDS1", distanceNm: 271.9, status: "resolved" },
-    ],
-    gaps: [],
-    distanceNm: 512.4,
+/**
+ * Generation envelope matching apps/web/src/api.ts normalizeGeneration. The
+ * live tier is "fresh" so the merged freshness strip renders the chip and
+ * refresh button on every state without the stale/unusable banner (which is
+ * also role="status" and would trip single-status assertions).
+ */
+const generation = {
+  id: "gen-1",
+  retrievedAt: "2026-08-14T00:00:00.000Z",
+  live: {
+    state: "fresh",
+    retrievedAt: "2026-08-14T00:00:00.000Z",
+    freshUntil: "2026-08-15T00:00:00.000Z",
+    staleUntil: "2026-08-16T00:00:00.000Z",
   },
-  draft: { origin: "KOR1", destination: "KDS1", via: ["MIDPT"] },
-  comparison: { status: "complete", message: "Draft validation completed." },
+  reference: {
+    state: "fresh",
+    retrievedAt: "2026-08-13T00:00:00.000Z",
+    freshUntil: "2026-08-15T00:00:00.000Z",
+    staleUntil: "2026-08-16T00:00:00.000Z",
+  },
+  overall: "fresh",
+};
+
+/** The merged client posts one two-operand comparison and reads target + comparison. */
+const draftCompareTarget = {
+  id: "draft-1",
+  origin: "KOR1",
+  destination: "KDS1",
+  legs: [
+    { id: "leg-1", sequence: 1, kind: "direct", from: "KOR1", to: "MIDPT", distanceNm: 240.5, status: "resolved" },
+    { id: "leg-2", sequence: 2, kind: "direct", from: "MIDPT", to: "KDS1", distanceNm: 271.9, status: "resolved" },
+  ],
+  gaps: [],
+  distanceNm: 512.4,
+  rankDistanceNm: 512.4,
+  geometry: { type: "LineString", coordinates: [[-73, 40], [-90, 35], [-118, 33]] },
+  provenance: "CAAS normalized live generation",
+  freshness: "2026-08-14T00:00:00.000Z",
+  safety: SAFETY_NOTICE,
+};
+
+const draftCompareComparison = {
+  status: "complete",
+  message: "Draft validation completed.",
+  distanceDeltaNm: 0,
+  percentageDistanceDelta: 0,
 };
 
 const pointMatches: Record<string, unknown> = {
-  KOR1: { matches: [{ callsign: "KOR1", name: "KOR1", kind: "airport", coordinate: { lat: 40, lon: -73 } }] },
-  KDS1: { matches: [{ callsign: "KDS1", name: "KDS1", kind: "airport", coordinate: { lat: 33, lon: -118 } }] },
-  MIDPT: { matches: [{ callsign: "MIDPT", name: "MIDPT", kind: "fix", coordinate: { lat: 35, lon: -90 } }] },
+  KOR1: { matches: [{ id: "loc-KOR1", callsign: "KOR1", name: "KOR1", kind: "airport", coordinate: { lat: 40, lon: -73 } }] },
+  KDS1: { matches: [{ id: "loc-KDS1", callsign: "KDS1", name: "KDS1", kind: "airport", coordinate: { lat: 33, lon: -118 } }] },
+  MIDPT: { matches: [{ id: "loc-MIDPT", callsign: "MIDPT", name: "MIDPT", kind: "fix", coordinate: { lat: 35, lon: -90 } }] },
 };
 
 type StubResponse = {
@@ -122,6 +204,16 @@ function jsonResponse(body: unknown, status = 200): StubResponse {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
+function bodyOf(init?: RequestInit): Record<string, unknown> {
+  if (!init?.body) return {};
+  try {
+    const parsed = JSON.parse(String(init.body));
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Installs a deterministic `fetch` stub over the app's same-origin API paths
  * and returns the captured calls plus the underlying mock. Use
@@ -129,36 +221,42 @@ function jsonResponse(body: unknown, status = 200): StubResponse {
  */
 export function installApiStub(options: StubOptions = {}): { calls: CapturedCall[]; fetchMock: ReturnType<typeof vi.fn> } {
   const calls: CapturedCall[] = [];
-  // The BFF validates a draft in two steps: create (posts origin/destination/
-  // via) then compare by draftId. The created draft's via list is echoed so
-  // edits (add/remove/reorder) behave exactly as against locked reference data.
-  let latestDraftVia: string[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<StubResponse> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = (init?.method ?? "GET").toUpperCase();
     calls.push({ method, url });
 
-    if (method === "GET" && url.startsWith("/api/v1/callsigns/search")) {
+    // Callsign search: POST with the query in the body only; the query never
+    // appears in the request URL (plan §2.4).
+    if (method === "POST" && url === "/api/v1/callsigns/search") {
       if (options.failSearch) return jsonResponse({ error: { message: "Search service unavailable (stub).", code: "SEARCH_FAIL" } }, 500);
-      const query = new URL(url, "http://localhost").searchParams.get("query") ?? "";
-      return jsonResponse({ data: searchMatches.filter((match) => match.callsign.startsWith(query.toUpperCase())) });
+      const query = String(bodyOf(init).query ?? "").toUpperCase();
+      return jsonResponse({ data: searchMatches.filter((match) => match.callsign.startsWith(query)) });
     }
-    if (method === "POST" && url.startsWith("/api/v1/routes/options")) {
+    // Route options: POST { flightId }, envelope { data, rankLabel, generation }.
+    if (method === "POST" && url === "/api/v1/routes/options") {
       if (options.failRoutes) return jsonResponse({ error: { message: "Route options unavailable (stub).", code: "ROUTES_FAIL" } }, 500);
-      return jsonResponse({ data: routeOptions });
+      return jsonResponse(options.noGeneration
+        ? { data: routeOptions, rankLabel: RANK_ONE_LABEL }
+        : { data: routeOptions, rankLabel: RANK_ONE_LABEL, generation });
     }
+    // Point lookup: GET /api/v1/points/:reference -> { matches } with locationId tokens.
     if (method === "GET" && url.startsWith("/api/v1/points/")) {
       const reference = decodeURIComponent(url.split("/").pop() ?? "").toUpperCase();
       return jsonResponse(pointMatches[reference] ?? { matches: [] });
     }
-    if (method === "POST" && url.startsWith("/api/v1/drafts/compare")) {
+    // Draft validation: single two-operand POST carrying baselineId + targetDraft.
+    if (method === "POST" && url === "/api/v1/routes/compare") {
       if (options.failDraft) return jsonResponse({ error: { message: "Draft validation unavailable (stub).", code: "DRAFT_FAIL" } }, 500);
-      return jsonResponse({ ...draftCompare, draft: { ...draftCompare.draft, via: latestDraftVia } });
+      const targetDraft = bodyOf(init).targetDraft as Record<string, unknown> | undefined;
+      return jsonResponse({ target: draftCompareTarget, comparison: draftCompareComparison });
     }
-    if (method === "POST" && url.startsWith("/api/v1/drafts")) {
-      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
-      if (Array.isArray(body?.via)) latestDraftVia = body.via;
-      return jsonResponse({ id: "draft-1" }, 201);
+    // Readiness on mount and live refresh.
+    if (method === "GET" && url === "/api/v1/readiness") {
+      return jsonResponse(options.noGeneration ? { status: "ready" } : { status: "ready", generation });
+    }
+    if (method === "POST" && url === "/api/v1/refresh") {
+      return jsonResponse({ status: "refreshed", generation: { ...generation, id: "gen-2", retrievedAt: "2026-08-14T01:00:00.000Z", live: { ...generation.live, retrievedAt: "2026-08-14T01:00:00.000Z" } } });
     }
     return jsonResponse({ error: { message: `Unhandled stub request ${method} ${url}.`, code: "STUB" } }, 404);
   });

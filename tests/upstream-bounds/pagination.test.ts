@@ -129,9 +129,13 @@ test("search matches case-insensitively and walks every match exactly once", asy
       let cursor: string | undefined;
       const hasNextCursor: boolean[] = [];
       do {
-        const url = `/api/v1/search?query=${encodeURIComponent(query)}&limit=2${cursor === undefined ? "" : `&cursor=${encodeURIComponent(cursor)}`}`;
-        const response = await server.app.inject({ method: "GET", url });
-        assert.equal(response.statusCode, 200, url);
+        // Search is POST-only with the query in the body (URL privacy, issue #37).
+        const response = await server.app.inject({
+          method: "POST",
+          url: "/api/v1/search",
+          payload: { query, limit: 2, ...(cursor === undefined ? {} : { cursor }) },
+        });
+        assert.equal(response.statusCode, 200, `search for "${query}"`);
         const body = response.json() as Page;
         callsigns.push(...body.data.map((item) => item.callsign));
         hasNextCursor.push(Object.hasOwn(body, "nextCursor"));
@@ -148,9 +152,9 @@ test("search matches case-insensitively and walks every match exactly once", asy
 test("a search cursor binds its query and fails closed with 409 when reused with another query", async () => {
   const server = await createApiServer({ adapter: sanitizedAdapter(flights(12)), refreshSecret: "offline-refresh-secret" });
   try {
-    const first = (await server.app.inject({ method: "GET", url: "/api/v1/search?query=FL000&limit=1" })).json() as Page;
+    const first = (await server.app.inject({ method: "POST", url: "/api/v1/search", payload: { query: "FL000", limit: 1 } })).json() as Page;
     assert.ok(first.nextCursor);
-    const mismatched = await server.app.inject({ method: "GET", url: `/api/v1/search?query=FL001&limit=1&cursor=${encodeURIComponent(first.nextCursor)}` });
+    const mismatched = await server.app.inject({ method: "POST", url: "/api/v1/search", payload: { query: "FL001", limit: 1, cursor: first.nextCursor } });
     assert.equal(mismatched.statusCode, 409);
     assert.equal((mismatched.json() as { error: { code: string } }).error.code, "CURSOR_EXPIRED");
   } finally {
