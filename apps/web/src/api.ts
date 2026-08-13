@@ -62,9 +62,17 @@ export type RouteOption = {
 };
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string, public readonly code?: string) {
+  // Plain field declarations (no TS parameter properties) so the module stays
+  // importable under Node's strip-only TypeScript mode for offline tests.
+  readonly status: number;
+  readonly code?: string | undefined;
+  readonly body?: Record<string, unknown> | undefined;
+  constructor(status: number, message: string, code?: string | undefined, body?: Record<string, unknown> | undefined) {
     super(message);
     this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.body = body;
   }
 }
 
@@ -260,36 +268,121 @@ async function request(path: string, options: RequestInit = {}): Promise<unknown
   if (!response.ok) {
     let detail = `Request failed (${response.status})`;
     let code: string | undefined;
+    let body: Record<string, unknown> | undefined;
     try {
-      const body = await response.json() as unknown;
+      body = await response.json() as Record<string, unknown>;
       if (isRecord(body) && isRecord(body.error)) {
         detail = typeof body.error.message === "string" ? body.error.message : detail;
         code = typeof body.error.code === "string" ? body.error.code : undefined;
       }
     } catch { /* Keep the status-only message. */ }
-    throw new ApiError(response.status, detail, code);
+    throw new ApiError(response.status, detail, code, body);
   }
   return response.json();
 }
 
 export async function searchCallsigns(query: string, signal?: AbortSignal): Promise<CallsignMatch[]> {
-  const payload = await request(`/api/v1/callsigns/search?query=${encodeURIComponent(query)}`, signal ? { signal } : {});
+  // Plan §2.4: the query travels in the POST body only; no callsign or flight
+  // identifier ever appears in the request URL.
+  const payload = await request("/api/v1/callsigns/search", {
+    method: "POST",
+    ...(signal ? { signal } : {}),
+    body: JSON.stringify({ query }),
+  });
   return unwrap(payload).flatMap((item) => {
     const match = normalizeMatch(item);
     return match ? [match] : [];
   });
 }
 
-export async function fetchRouteOptions(flightId: OpaqueId, signal?: AbortSignal): Promise<RouteOption[]> {
+export type GenerationTier = {
+  state: string;
+  retrievedAt: string;
+  freshUntil: string;
+  staleUntil: string;
+};
+
+export type GenerationSummary = {
+  id: string;
+  retrievedAt: string;
+  live: GenerationTier;
+  reference: GenerationTier;
+  overall: string;
+};
+
+function normalizeGeneration(value: unknown): GenerationSummary | undefined {
+  if (!isRecord(value)) return undefined;
+  const tier = (tierValue: unknown): GenerationTier | undefined => {
+    if (!isRecord(tierValue)) return undefined;
+    const state = stringValue(tierValue, "state");
+    const retrievedAt = stringValue(tierValue, "retrievedAt");
+    const freshUntil = stringValue(tierValue, "freshUntil");
+    const staleUntil = stringValue(tierValue, "staleUntil");
+    if (!state || !retrievedAt || !freshUntil || !staleUntil) return undefined;
+    return { state, retrievedAt, freshUntil, staleUntil };
+  };
+  const live = tier(value.live);
+  const reference = tier(value.reference);
+  const retrievedAt = stringValue(value, "retrievedAt");
+  const overall = stringValue(value, "overall");
+  const id = stringValue(value, "id");
+  if (!live || !reference || !retrievedAt || !overall || !id) return undefined;
+  return { id, retrievedAt, live, reference, overall };
+}
+
+export type RouteOptionsResult = {
+  options: RouteOption[];
+  rankLabel?: string | undefined;
+  generation?: GenerationSummary | undefined;
+};
+
+export async function fetchRouteOptions(flightId: OpaqueId, signal?: AbortSignal): Promise<RouteOptionsResult> {
   const payload = await request("/api/v1/routes/options", {
     method: "POST",
     ...(signal ? { signal } : {}),
     body: JSON.stringify({ flightId }),
   });
-  return unwrap(payload).flatMap((item, index) => {
-    const route = normalizeRoute(item, index);
-    return route ? [route] : [];
-  });
+  const generation = isRecord(payload) ? normalizeGeneration(payload.generation) : undefined;
+  return {
+    options: unwrap(payload).flatMap((item, index) => {
+      const route = normalizeRoute(item, index);
+      return route ? [route] : [];
+    }),
+    ...(isRecord(payload) && stringValue(payload, "rankLabel") ? { rankLabel: stringValue(payload, "rankLabel") } : {}),
+    ...(generation ? { generation } : {}),
+  };
+}
+
+export type Readiness = {
+  status: string;
+  generation?: GenerationSummary | undefined;
+  code?: string | undefined;
+  retryable?: boolean | undefined;
+};
+
+export async function fetchReadiness(signal?: AbortSignal): Promise<Readiness> {
+  const payload = await request("/api/v1/readiness", signal ? { signal } : {});
+  if (!isRecord(payload)) return { status: "unavailable" };
+  const generation = normalizeGeneration(payload.generation);
+  return {
+    status: stringValue(payload, "status") ?? "unavailable",
+    ...(generation ? { generation } : {}),
+    ...(stringValue(payload, "code") ? { code: stringValue(payload, "code") } : {}),
+    ...(typeof payload.retryable === "boolean" ? { retryable: payload.retryable } : {}),
+  };
+}
+
+export type RefreshResult = {
+  status: string;
+  generation: GenerationSummary;
+};
+
+export async function refreshLiveData(signal?: AbortSignal): Promise<RefreshResult> {
+  const payload = await request("/api/v1/refresh", { method: "POST", ...(signal ? { signal } : {}) });
+  if (!isRecord(payload)) throw new Error("The route service did not confirm the refresh.");
+  const generation = normalizeGeneration(payload.generation);
+  if (!generation) throw new Error("The route service did not return a generation summary.");
+  return { status: stringValue(payload, "status") ?? "refreshed", generation };
 }
 
 export async function fetchRouteData(routeId: OpaqueId, signal?: AbortSignal): Promise<RouteOption> {
@@ -313,14 +406,24 @@ export type DraftRoute = {
   safety?: string | undefined;
 };
 
+export type DraftSelection = { sequence: number; locationId: OpaqueId };
+
 export type DraftComparison = {
   id: OpaqueId;
-  draft: { origin: string; destination: string; via: string[] };
+  draft: { origin: string; destination: string; via: string[]; selections: DraftSelection[] };
   route: DraftRoute;
-  comparison: { status: "complete" | "gap" | string; message: string };
+  comparison: {
+    status: "complete" | "gap" | string;
+    message: string;
+    distanceDeltaNm?: number | undefined;
+    percentageDistanceDelta?: number | undefined;
+    unavailable?: string[] | undefined;
+  };
 };
 
 export type PointMatch = {
+  /** Server-issued generation-bound location token; never a client-supplied coordinate. */
+  locationId: OpaqueId;
   identifier: string;
   name: string;
   kind: string;
@@ -330,13 +433,15 @@ export type PointMatch = {
 
 function normalizePointMatch(value: unknown): PointMatch | undefined {
   if (!isRecord(value)) return undefined;
+  const locationId = stringValue(value, "id");
   const identifier = stringValue(value, "callsign", "code", "name");
   const coordinateValue = value.coordinate;
   const coordinate = isRecord(coordinateValue)
     ? { lat: finiteNumber(coordinateValue, "lat", "latitude"), lon: finiteNumber(coordinateValue, "lon", "lng", "longitude") }
     : undefined;
-  if (!identifier || !coordinate || coordinate.lat === undefined || coordinate.lon === undefined) return undefined;
+  if (!locationId || !identifier || !coordinate || coordinate.lat === undefined || coordinate.lon === undefined) return undefined;
   return {
+    locationId,
     identifier,
     name: stringValue(value, "name", "callsign") ?? identifier,
     kind: stringValue(value, "kind") ?? "reference point",
@@ -355,22 +460,22 @@ export async function lookupPoint(reference: string, signal?: AbortSignal): Prom
   });
 }
 
-export async function validateDraft(origin: string, destination: string, via: string[], signal?: AbortSignal): Promise<DraftComparison> {
-  const created = await request("/api/v1/drafts", {
+/**
+ * Validates a local draft as the target operand of the two-operand route
+ * comparison against a selected recorded baseline route. The server computes
+ * the directed modeled-distance difference at full precision; the client only
+ * ever formats it.
+ */
+export async function validateDraft(origin: string, destination: string, via: string[], selections: DraftSelection[], baselineId: OpaqueId, signal?: AbortSignal): Promise<DraftComparison> {
+  const payload = await request("/api/v1/routes/compare", {
     method: "POST",
     ...(signal ? { signal } : {}),
-    body: JSON.stringify({ origin, destination, via }),
+    body: JSON.stringify({ baselineId, targetDraft: { origin, destination, via, selections } }),
   });
-  if (!isRecord(created) || typeof created.id !== "string") throw new Error("The route service did not create a draft.");
-  const payload = await request("/api/v1/drafts/compare", {
-    method: "POST",
-    ...(signal ? { signal } : {}),
-    body: JSON.stringify({ draftId: created.id }),
-  });
-  if (!isRecord(payload) || !isRecord(payload.route) || !isRecord(payload.draft) || !isRecord(payload.comparison)) {
-    throw new Error("The route service did not return a valid draft comparison.");
+  if (!isRecord(payload) || !isRecord(payload.target) || !isRecord(payload.comparison)) {
+    throw new Error("The route service did not return a usable draft comparison.");
   }
-  const route = payload.route;
+  const route = payload.target;
   const legs = Array.isArray(route.legs) ? route.legs.flatMap((leg, index) => {
     const normalized = normalizeLeg(leg, index);
     return normalized ? [normalized] : [];
@@ -379,21 +484,17 @@ export async function validateDraft(origin: string, destination: string, via: st
     const normalized = normalizeGap(gap, index);
     return normalized ? [normalized] : [];
   }) : [];
-  const draft = payload.draft;
   const comparison = payload.comparison;
-  const draftOrigin = stringValue(draft, "origin");
-  const draftDestination = stringValue(draft, "destination");
-  const draftVia = Array.isArray(draft.via) ? draft.via.filter((value): value is string => typeof value === "string") : [];
-  const id = stringValue(route, "id") ?? stringValue(created, "id");
   const message = stringValue(comparison, "message") ?? "Draft validation completed.";
-  if (!draftOrigin || !draftDestination || !id) throw new Error("The route service did not return a complete draft identity.");
+  const id = stringValue(route, "id");
+  if (!id) throw new Error("The route service did not return a complete draft identity.");
   return {
     id,
-    draft: { origin: draftOrigin, destination: draftDestination, via: draftVia },
+    draft: { origin, destination, via: [...via], selections: selections.map((selection) => ({ sequence: selection.sequence, locationId: selection.locationId })) },
     route: {
       id,
-      origin: stringValue(route, "origin") ?? draftOrigin,
-      destination: stringValue(route, "destination") ?? draftDestination,
+      origin: stringValue(route, "origin") ?? origin,
+      destination: stringValue(route, "destination") ?? destination,
       legs,
       gaps,
       ...(finiteNumber(route, "distanceNm") !== undefined ? { distanceNm: finiteNumber(route, "distanceNm") } : {}),
@@ -403,6 +504,12 @@ export async function validateDraft(origin: string, destination: string, via: st
       ...(stringValue(route, "freshness") ? { freshness: stringValue(route, "freshness") } : {}),
       ...(stringValue(route, "safety") ? { safety: stringValue(route, "safety") } : {}),
     },
-    comparison: { status: stringValue(comparison, "status") ?? "gap", message },
+    comparison: {
+      status: stringValue(comparison, "status") ?? "gap",
+      message,
+      ...(finiteNumber(comparison, "distanceDeltaNm") !== undefined ? { distanceDeltaNm: finiteNumber(comparison, "distanceDeltaNm") } : {}),
+      ...(finiteNumber(comparison, "percentageDistanceDelta") !== undefined ? { percentageDistanceDelta: finiteNumber(comparison, "percentageDistanceDelta") } : {}),
+      ...(Array.isArray(comparison.unavailable) ? { unavailable: comparison.unavailable.filter((value): value is string => typeof value === "string") } : {}),
+    },
   };
 }

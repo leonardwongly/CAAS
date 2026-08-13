@@ -70,7 +70,7 @@ The older design sections intentionally remain historical production-hardening a
 | Network-enforced egress | Omitted as an accepted POC residual; strict application-level origin/path/method/redirect/proxy controls remain mandatory and production access is blocked without enforced egress. |
 | Multi-environment production topology | Separate future production gate, not a challenge path. |
 
-ADR-001 records these dispositions in more detail. Do not edit the existing design merely to remove its historical sections; use Section 0 and this reconciliation as the interpretation boundary.
+ADR-001 records these dispositions in more detail. The historical sections were extracted verbatim on 2026-08-13 into the [archived historical document](../superpowers/historical/2026-08-11-flight-route-explorer-design-legacy-sections-3-29.md). Use Section 0 and this reconciliation as the interpretation boundary; archived material is non-normative and must not be implemented or cited as POC instructions.
 
 ## Evidence status
 

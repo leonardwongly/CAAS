@@ -1,32 +1,65 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
+  fetchReadiness,
   fetchRouteOptions,
   lookupPoint,
+  refreshLiveData,
   searchCallsigns,
   validateDraft,
   type CallsignMatch,
   type Coordinate,
   type DraftComparison,
+  type DraftSelection,
+  type GenerationSummary,
   type PointMatch,
   type RouteLeg,
   type RouteOption,
 } from "./api";
+import {
+  COMPLETE_RANKED_GROUP_DESCRIPTION,
+  COMPLETE_RANKED_GROUP_TITLE,
+  INCOMPLETE_GROUP_DESCRIPTION,
+  INCOMPLETE_GROUP_TITLE,
+  OPERATIONAL_PROXY_EXPLANATION,
+  RANK_CRITERION,
+  RANK_ONE_GROUP_DESCRIPTION,
+  RANK_ONE_LABEL,
+  REFRESH_CONFIRM,
+  REFRESH_STALE_BANNER,
+  REFRESH_UNUSABLE_BANNER,
+  SAFETY_NOTICE,
+} from "./labels";
 
 type SearchState = { query: string; matches: CallsignMatch[]; loading: boolean; searched: boolean; error?: string | undefined };
 const emptySearch: SearchState = { query: "", matches: [], loading: false, searched: false };
-const RANK_CRITERION = "Routes are ranked by shortest recorded distance among routes with the same departure and arrival. Rank 1 is the shortest route in this retrieved set.";
-const OPERATIONAL_PROXY_EXPLANATION = "This comparison uses route distance as a stand-in for operational preference. It does not account for weather, fuel, clearances, or airline decisions.";
-const SAFETY_NOTICE = "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.";
 
 function formatDistance(value: number | undefined): string {
   return value === undefined ? "Not supplied" : `${value.toFixed(1)} NM`;
+}
+
+function formatRankDistance(value: number | undefined): string {
+  return value === undefined ? "Not supplied" : `${value.toFixed(6)} NM`;
 }
 
 function apiMessage(error: unknown): string {
   if (error instanceof ApiError && error.code === "TOO_MANY_CANDIDATES") return "Too many route options for this airport pair. Try a more specific flight.";
   if (error instanceof ApiError) return error.message;
   return error instanceof Error ? error.message : "The route service could not be reached.";
+}
+
+function refreshFailureMessage(error: unknown): string {
+  if (error instanceof ApiError && error.code === "REFRESH_FAILED" && error.body) {
+    const retained = error.body.retained;
+    const generation = retained && typeof retained === "object" && "generation" in retained
+      ? (retained as { generation?: { live?: { state?: string; retrievedAt?: string } } }).generation
+      : undefined;
+    const live = generation?.live;
+    if (live?.retrievedAt) {
+      return `Live data refresh failed. The prior generation (retrieved ${new Date(live.retrievedAt).toLocaleTimeString()}, ${live.state ?? "state unknown"}) is still serving requests.`;
+    }
+  }
+  return apiMessage(error);
 }
 
 function App() {
@@ -43,9 +76,21 @@ function App() {
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftError, setDraftError] = useState<string>();
   const [status, setStatus] = useState("");
+  const [generation, setGeneration] = useState<GenerationSummary>();
+  const [rankLabel, setRankLabel] = useState<string>();
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string>();
   const routeRequest = useRef(0);
   const draftRequest = useRef<AbortController | undefined>(undefined);
   const searchRequest = useRef<AbortController | undefined>(undefined);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchReadiness(controller.signal)
+      .then((readiness) => { if (!controller.signal.aborted && readiness.generation) setGeneration(readiness.generation); })
+      .catch((error) => { if (error instanceof DOMException && error.name === "AbortError") return; });
+    return () => controller.abort();
+  }, []);
 
   function updateQuery(query: string) {
     setSearch({ query, matches: [], loading: false, searched: false });
@@ -94,11 +139,19 @@ function App() {
     setRouteError(undefined);
     setSelectedRoute(undefined);
     fetchRouteOptions(selectedFlight.flightId, controller.signal)
-      .then((routes) => {
+      .then((result) => {
         if (requestId !== routeRequest.current) return;
+        const routes = result.options;
         setOptions(routes);
-        setSelectedRoute(routes[0]);
-        setStatus(`${routes.length} route option${routes.length === 1 ? "" : "s"} returned for ${selectedFlight.callsign}.`);
+        setRankLabel(result.rankLabel);
+        if (result.generation) setGeneration(result.generation);
+        const rankOne = routes.filter((route) => route.rank === 1);
+        if (rankOne.length === 1) setSelectedRoute(rankOne[0]);
+        else if (rankOne.length === 0) setSelectedRoute(routes[0] ?? undefined);
+        else setSelectedRoute(undefined);
+        setStatus(rankOne.length > 1
+          ? `${routes.length} route option${routes.length === 1 ? "" : "s"} returned for ${selectedFlight.callsign}. ${rankOne.length} candidates tie for Rank 1 — choose among them.`
+          : `${routes.length} route option${routes.length === 1 ? "" : "s"} returned for ${selectedFlight.callsign}.`);
       })
       .catch((error) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -112,8 +165,8 @@ function App() {
     return () => controller.abort();
   }, [selectedFlight, routeReload]);
 
-  async function updateDraft(via: string[]) {
-    if (!selectedRoute?.origin || !selectedRoute.destination) return;
+  async function updateDraft(via: string[], selections: DraftSelection[] = []) {
+    if (!selectedRoute?.origin || !selectedRoute.destination || !selectedRoute.flightId) return;
     draftRequest.current?.abort();
     const controller = new AbortController();
     draftRequest.current = controller;
@@ -121,7 +174,7 @@ function App() {
     setDraftError(undefined);
     setStatus("Validating the local draft against exact reference data.");
     try {
-      const result = await validateDraft(selectedRoute.origin, selectedRoute.destination, via, controller.signal);
+      const result = await validateDraft(selectedRoute.origin, selectedRoute.destination, via, selections, selectedRoute.flightId, controller.signal);
       if (draftRequest.current !== controller) return;
       setDraft(result);
       setStatus(result.comparison.status === "complete" ? "Local draft validated against exact reference data." : "Local draft has unresolved gaps and is not ranked.");
@@ -143,7 +196,29 @@ function App() {
     setSelectedRoute(undefined);
     setRouteLoading(false);
     setRouteError(undefined);
-    setStatus("Session cleared.");
+    setRankLabel(undefined);
+    setStatus("Session reset.");
+  }
+
+  async function runRefresh() {
+    if (refreshing) return;
+    const confirmed = window.confirm(REFRESH_CONFIRM);
+    if (!confirmed) return;
+    setRefreshing(true);
+    setRefreshError(undefined);
+    setStatus("Refreshing the live data generation. The current selection will be cleared.");
+    try {
+      const result = await refreshLiveData();
+      setGeneration(result.generation);
+      resetAll();
+      setStatus(`Live data refreshed. New generation retrieved at ${new Date(result.generation.retrievedAt).toLocaleTimeString()}; selection cleared.`);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setRefreshError(refreshFailureMessage(error));
+      setStatus("Live data refresh failed. The prior generation is still serving requests.");
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   return (
@@ -159,11 +234,22 @@ function App() {
         <button className="quiet-button toolbar-clear" type="button" onClick={() => { setPrimarySurface("none"); resetAll(); }}>Clear session</button>
       </header>
 
+      {(generation || refreshError) && (
+        <div className="generation-strip">
+          {generation && <span className={`status-chip freshness-chip freshness-${generation.live.state}`}>Live data {generation.live.state} · retrieved {new Date(generation.live.retrievedAt).toLocaleTimeString()}</span>}
+          {refreshError && <span className="refresh-error" role="alert">{refreshError}</span>}
+          <button className="quiet-button" type="button" onClick={() => void runRefresh()} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh live data"}</button>
+        </div>
+      )}
+      {generation && (generation.live.state === "stale" || generation.live.state === "unusable") && (
+        <div className={`notice freshness-banner ${generation.live.state === "unusable" ? "freshness-banner-unusable" : ""}`} role="status">{generation.live.state === "stale" ? REFRESH_STALE_BANNER : REFRESH_UNUSABLE_BANNER}</div>
+      )}
+
       <main className="map-workspace">
         <section className="map-panel map-first-panel" aria-labelledby="map-heading">
           <h2 className="sr-only" id="map-heading">Global route map</h2>
           <RouteMap route={selectedRoute} callsign={selectedFlight?.callsign} />
-          <div className="map-hud">{selectedRoute ? <><span className="eyebrow">ACTIVE RECORDED ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? `${formatDistance(selectedRoute.distanceNm)} · ${selectedRoute.rank !== undefined ? `Rank ${selectedRoute.rank}` : RANK_CRITERION}` : "Incomplete · not included in ranking"}</span></> : <><span className="eyebrow">GLOBAL MAP</span><strong>Recorded routes appear after selection</strong><span>Only exact, server-resolved geometry is shown.</span></>}</div>
+          <div className="map-hud">{selectedRoute ? <><span className="eyebrow">ACTIVE RECORDED ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? `${formatDistance(selectedRoute.distanceNm)} · ${selectedRoute.rank === 1 ? RANK_ONE_LABEL : selectedRoute.rank !== undefined ? `Rank ${selectedRoute.rank}` : RANK_CRITERION}` : "Incomplete · not included in ranking"}</span></> : <><span className="eyebrow">GLOBAL MAP</span><strong>Recorded routes appear after selection</strong><span>Only exact, server-resolved geometry is shown.</span></>}</div>
           <nav className="map-rail" aria-label="Route workspace controls">
             <button type="button" aria-pressed={primarySurface === "routes"} onClick={() => setPrimarySurface((surface) => surface === "routes" ? "none" : "routes")} disabled={!selectedFlight}>Routes</button>
             <button type="button" aria-pressed={primarySurface === "route-data"} onClick={() => setPrimarySurface((surface) => surface === "route-data" ? "none" : "route-data")} disabled={!selectedRoute}>Data</button>
@@ -171,7 +257,7 @@ function App() {
           </nav>
           {primarySurface !== "none" && <aside className="map-drawer" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : "Local route editor"}>
             <div className="drawer-header"><p className="eyebrow">{primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : "EDIT COPY"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") { draftRequest.current?.abort(); setDraftActive(false); setDraft(undefined); setDraftError(undefined); } setPrimarySurface("none"); }}>Close</button></div>
-            {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} onRetry={() => setRouteReload((current) => current + 1)} onSelect={(option) => { setSelectedRoute(option); setPrimarySurface("none"); setStatus(`Selected ${option.label ?? "route option"}.`); }} />}
+            {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} rankLabel={rankLabel} onRetry={() => setRouteReload((current) => current + 1)} onSelect={(option) => { setSelectedRoute(option); setPrimarySurface("none"); setStatus(`Selected ${option.label ?? "route option"}.`); }} />}
             {primarySurface === "route-data" && selectedRoute && <RouteDetails route={selectedRoute} onStartDraft={() => { setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} />}
             {primarySurface === "editor" && selectedRoute && draftActive && <DraftEditor draft={draft} baseline={selectedRoute} loading={draftLoading} error={draftError} onUpdate={(via) => void updateDraft(via)} onClose={() => { draftRequest.current?.abort(); setDraftActive(false); setDraft(undefined); setDraftError(undefined); setPrimarySurface("none"); }} />}
           </aside>}
@@ -220,20 +306,30 @@ function SearchBox({ selected, state, onFocus, onQuery, onSearch, onSelect }: { 
   );
 }
 
-function RouteOptions({ options, selected, loading, error, onRetry, onSelect }: { options: RouteOption[]; selected?: RouteOption | undefined; loading: boolean; error?: string | undefined; onRetry: () => void; onSelect: (route: RouteOption) => void }) {
+function rankOf(option: RouteOption): number | undefined {
+  return option.rank ?? option.operationalProxy?.rank;
+}
+
+function isCompleteCandidate(option: RouteOption): boolean {
+  return option.complete ?? option.operationalProxy?.eligible ?? false;
+}
+
+function RouteOptions({ options, selected, loading, error, rankLabel, onRetry, onSelect }: { options: RouteOption[]; selected?: RouteOption | undefined; loading: boolean; error?: string | undefined; rankLabel?: string | undefined; onRetry: () => void; onSelect: (route: RouteOption) => void }) {
   if (!loading && !error && options.length === 0) return <section className="empty-options"><span className="empty-icon">⌁</span><div><h2>Route options will appear here</h2><p>Select one flight plan above to request its recorded route options.</p></div></section>;
-  const ranked = options.filter((option) => option.operationalProxy?.eligible);
-  const unranked = options.filter((option) => !option.operationalProxy?.eligible);
-  return <section className="options-section" aria-labelledby="options-heading"><div className="section-title"><div><p className="eyebrow">COMPARE</p><h2 id="options-heading">Route options</h2></div>{options.length > 0 && <span className="count-label">{options.length} returned</span>}</div>{loading && <div className="loading-row"><span className="spinner dark" /> Asking for the selected flight’s options…</div>}{error && <div className="notice error-notice" role="alert"><strong>Could not load route options.</strong><span>{error}</span><button className="retry-button" type="button" onClick={onRetry}>Retry route options</button></div>}{!loading && !error && options.length === 0 && <p className="muted-copy">The service returned no route options. This is a visible gap, not an estimated route.</p>}{options.length > 0 && <p className="criterion-copy">{OPERATIONAL_PROXY_EXPLANATION}</p>}{ranked.length > 0 && <RouteGroup title="Ranked routes" description="All waypoints were found at known positions." count={`${ranked.length} ranked candidate${ranked.length === 1 ? "" : "s"}`} criterion={RANK_CRITERION} options={ranked} selected={selected} onSelect={onSelect} />}{unranked.length > 0 && <RouteGroup title="Unranked routes (incomplete data)" description="Some waypoints could not be located, so these routes cannot be compared fairly." count={`${unranked.length} unranked candidate${unranked.length === 1 ? "" : "s"}`} options={unranked} selected={selected} onSelect={onSelect} />}</section>;
+  const ranked = options.filter(isCompleteCandidate);
+  const rankOne = ranked.filter((option) => rankOf(option) === 1);
+  const otherRanked = ranked.filter((option) => (rankOf(option) ?? 0) > 1);
+  const unranked = options.filter((option) => !isCompleteCandidate(option));
+  return <section className="options-section" aria-labelledby="options-heading"><div className="section-title"><div><p className="eyebrow">COMPARE</p><h2 id="options-heading">Route options</h2></div>{options.length > 0 && <span className="count-label">{options.length} returned</span>}</div>{loading && <div className="loading-row"><span className="spinner dark" /> Asking for the selected flight’s options…</div>}{error && <div className="notice error-notice" role="alert"><strong>Could not load route options.</strong><span>{error}</span><button className="retry-button" type="button" onClick={onRetry}>Retry route options</button></div>}{!loading && !error && options.length === 0 && <p className="muted-copy">The service returned no route options. This is a visible gap, not an estimated route.</p>}{options.length > 0 && <p className="criterion-copy">{OPERATIONAL_PROXY_EXPLANATION}</p>}{rankOne.length > 0 && <RouteGroup title={rankLabel ?? RANK_ONE_LABEL} description={RANK_ONE_GROUP_DESCRIPTION} count={`${rankOne.length} tied first-place candidate${rankOne.length === 1 ? "" : "s"}`} options={rankOne} selected={selected} onSelect={onSelect} />}{otherRanked.length > 0 && <RouteGroup title={COMPLETE_RANKED_GROUP_TITLE} description={COMPLETE_RANKED_GROUP_DESCRIPTION} count={`${otherRanked.length} ranked candidate${otherRanked.length === 1 ? "" : "s"}`} criterion={RANK_CRITERION} options={otherRanked} selected={selected} onSelect={onSelect} />}{unranked.length > 0 && <RouteGroup title={INCOMPLETE_GROUP_TITLE} description={INCOMPLETE_GROUP_DESCRIPTION} count={`${unranked.length} unranked candidate${unranked.length === 1 ? "" : "s"}`} options={unranked} selected={selected} onSelect={onSelect} />}</section>;
 }
 
 function RouteGroup({ title, description, count, criterion, options, selected, onSelect }: { title: string; description: string; count: string; criterion?: string | undefined; options: RouteOption[]; selected?: RouteOption | undefined; onSelect: (route: RouteOption) => void }) {
-  return <div className="route-group"><div className="group-heading"><div><h3>{title}</h3><p className="criterion-copy">{description}</p>{criterion && <p className="criterion-copy">{criterion} It does not account for safety, clearance, legality, weather, fuel, or airline dispatch constraints.</p>}</div><span className="group-count">{count}</span></div><div className="option-grid">{options.map((option) => <button type="button" className={`route-card ${selected?.id === option.id ? "selected" : ""} ${option.operationalProxy?.eligible ? "is-complete" : "is-incomplete"}`} key={option.id} onClick={() => onSelect(option)} aria-current={selected?.id === option.id ? "true" : undefined}><span className="route-card-top"><strong>{option.label ?? "Route option"}</strong><span>{option.operationalProxy?.eligible && option.operationalProxy.rank !== undefined ? `Rank ${option.operationalProxy.rank}` : "Unranked"}</span></span><span className="route-card-distance">{formatDistance(option.distanceNm ?? option.rankDistanceNm)}</span><span className="route-card-meta">{option.pointCount} points · {option.legs.length} legs · {option.gaps.length} visible gaps</span><span className="route-card-meta">{option.operationalProxy?.eligible ? "All waypoints found. Included in ranking." : option.operationalProxy?.exclusion ?? "This route has unresolved waypoints and cannot be ranked."}</span></button>)}</div></div>;
+  return <div className="route-group"><div className="group-heading"><div><h3>{title}</h3><p className="criterion-copy">{description}</p>{criterion && <p className="criterion-copy">{criterion} It does not account for safety, clearance, legality, weather, fuel, or airline dispatch constraints.</p>}</div><span className="group-count">{count}</span></div><div className="option-grid">{options.map((option) => <button type="button" className={`route-card ${selected?.id === option.id ? "selected" : ""} ${option.operationalProxy?.eligible ? "is-complete" : "is-incomplete"}`} key={option.id} onClick={() => onSelect(option)} aria-current={selected?.id === option.id ? "true" : undefined}><span className="route-card-top"><strong>{option.label ?? "Route option"}</strong><span>{option.operationalProxy?.eligible && option.operationalProxy.rank !== undefined ? `Rank ${option.operationalProxy.rank}` : "Unranked"}</span></span><span className="route-card-distance">{formatDistance(option.distanceNm ?? option.rankDistanceNm)}</span><span className="route-card-meta">{option.pointCount} points · {option.legs.length} legs · {option.gaps.length} visible gaps · {option.provenance ?? "provenance not supplied"}</span><span className="route-card-meta">{option.operationalProxy?.eligible ? "All waypoints found. Included in ranking." : option.operationalProxy?.exclusion ?? "This route has unresolved waypoints and cannot be ranked."}</span></button>)}</div></div>;
 }
 
 function RouteDetails({ route, onStartDraft }: { route: RouteOption; onStartDraft: () => void }) {
   const proxy = route.operationalProxy;
-  return <section className="details-section" aria-labelledby="details-heading"><div className="section-title"><div><p className="eyebrow">INSPECT</p><h2 id="details-heading">Route data</h2></div><div className="detail-actions"><button className="edit-copy-button" type="button" onClick={onStartDraft}>Edit copy</button><span className="opaque-id" title="Opaque server flight ID">Flight ID {route.flightId}</span></div></div><div className="metric-grid"><Metric label="Route data" value={route.complete ? "All waypoints found" : "Some waypoints missing"} /><Metric label="Distance" value={formatDistance(route.distanceNm)} /><Metric label="Route rank" value={proxy?.eligible && proxy.rank !== undefined ? `Rank ${proxy.rank}` : "Not ranked"} /><Metric label="Points" value={String(route.pointCount)} note="Server-reported count" /></div><div className="detail-columns"><div className="table-wrap"><h3 id="route-legs-heading">Structured route detail</h3><RouteTable legs={route.legs} /></div><div className="evidence-stack"><Evidence label="How route ranking works" value={proxy?.eligible ? RANK_CRITERION : proxy?.exclusion ?? "This route has unresolved waypoints and cannot be ranked."} tone={proxy?.eligible ? "blue" : "red"} /><Evidence label="Provenance" value={route.provenance ?? "Not supplied by the route service."} tone="blue" /><Evidence label="Safety boundary" value={SAFETY_NOTICE} tone="amber" /><Evidence label={`Visible gaps${route.gaps.length ? ` · ${route.gaps.length}` : ""}`} value={route.gaps.length ? route.gaps.map((gap) => `Route position ${gap.sequence + 1}: ${gap.reason}`).join(" ") : "No gaps reported by the route service."} tone={route.gaps.length ? "red" : "green"} /></div></div></section>;
+  return <section className="details-section" aria-labelledby="details-heading"><div className="section-title"><div><p className="eyebrow">INSPECT</p><h2 id="details-heading">Route data</h2></div><div className="detail-actions"><button className="edit-copy-button" type="button" onClick={onStartDraft}>Edit copy</button><span className="opaque-id" title="Opaque server flight ID">Flight ID {route.flightId}</span></div></div><div className="metric-grid"><Metric label="Route data" value={route.complete ? "All waypoints found" : "Some waypoints missing"} /><Metric label="Distance" value={formatDistance(route.distanceNm)} /><Metric label="Ranked distance" value={formatRankDistance(route.rankDistanceNm)} note="Full-precision modeled distance used for ranking" /><Metric label="Route rank" value={proxy?.eligible && proxy.rank !== undefined ? `Rank ${proxy.rank}` : "Not ranked"} /><Metric label="Points" value={String(route.pointCount)} note="Server-reported count" /></div><div className="detail-columns"><div className="table-wrap"><h3 id="route-legs-heading">Structured route detail</h3><RouteTable legs={route.legs} /></div><div className="evidence-stack"><Evidence label="How route ranking works" value={proxy?.eligible ? (proxy.rank === 1 ? RANK_ONE_LABEL : RANK_CRITERION) : proxy?.exclusion ?? "This route has unresolved waypoints and cannot be ranked."} tone={proxy?.eligible ? "blue" : "red"} /><Evidence label="Provenance" value={route.provenance ?? "Not supplied by the route service."} tone="blue" /><Evidence label="Safety boundary" value={SAFETY_NOTICE} tone="amber" /><Evidence label={`Visible gaps${route.gaps.length ? ` · ${route.gaps.length}` : ""}`} value={route.gaps.length ? route.gaps.map((gap) => `Route position ${gap.sequence + 1}: ${gap.reason}`).join(" ") : "No gaps reported by the route service."} tone={route.gaps.length ? "red" : "green"} /></div></div></section>;
 }
 
 function Metric({ label, value, note }: { label: string; value: string; note?: string }) { return <div className="metric"><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div>; }
@@ -246,13 +342,31 @@ function RouteTable({ legs }: { legs: RouteLeg[] }) {
   })}</tbody></table></div> : <p className="muted-copy">No leg data was supplied for this route. Nothing has been inferred.</p>;
 }
 
-function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { draft?: DraftComparison | undefined; baseline: RouteOption; loading: boolean; error?: string | undefined; onUpdate: (via: string[]) => void; onClose: () => void }) {
+function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { draft?: DraftComparison | undefined; baseline: RouteOption; loading: boolean; error?: string | undefined; onUpdate: (via: string[], selections: DraftSelection[]) => void; onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<PointMatch[]>([]);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string>();
   const via = draft?.draft.via ?? [];
-  const delta = draft?.route.distanceNm !== undefined && baseline.distanceNm !== undefined ? draft.route.distanceNm - baseline.distanceNm : undefined;
+  const selections = draft?.draft.selections ?? [];
+  const delta = draft?.comparison.distanceDeltaNm;
+  const percentage = draft?.comparison.percentageDistanceDelta;
+  const selectedAt = (sequence: number) => selections.some((selection) => selection.sequence === sequence);
+
+  function remapMove(index: number, direction: -1 | 1): DraftSelection[] {
+    const target = index + direction;
+    return selections.map((selection) => selection.sequence === index
+      ? { sequence: target, locationId: selection.locationId }
+      : selection.sequence === target
+        ? { sequence: index, locationId: selection.locationId }
+        : selection);
+  }
+
+  function remapRemove(index: number): DraftSelection[] {
+    return selections.flatMap((selection) => selection.sequence === index
+      ? []
+      : [selection.sequence > index ? { sequence: selection.sequence - 1, locationId: selection.locationId } : selection]);
+  }
 
   async function findReference() {
     const value = query.trim();
@@ -262,10 +376,8 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
     setMatches([]);
     try {
       const found = await lookupPoint(value);
-      const uniquelyResolved = found.filter((match) => !match.duplicateGroup);
-      setMatches(uniquelyResolved);
+      setMatches(found);
       if (!found.length) setLookupError("No exact reference point was returned. Free-form points cannot be added.");
-      else if (!uniquelyResolved.length) setLookupError("This reference has multiple exact coordinates. It cannot be added until the service supports an explicit coordinate selection.");
     } catch (lookupFailure) {
       setLookupError(apiMessage(lookupFailure));
     } finally {
@@ -278,11 +390,11 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
     <p className="draft-safety">Computationally complete; operational constraints not assessed. Endpoints are locked and every change is checked against exact reference data.</p>
     <div className="draft-endpoints"><span><strong>From</strong> {baseline.origin ?? "Selected origin"}</span><span><strong>To</strong> {baseline.destination ?? "Selected destination"}</span></div>
     <div className="draft-search"><label htmlFor="draft-point-search">Add an exact reference point</label><div className="search-input-row"><input id="draft-point-search" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void findReference(); } else if (event.key === "Escape") { setMatches([]); setLookupError(undefined); } }} placeholder="Search an exact fix, NAVAID, or airport" /><button className="search-button" type="button" onClick={() => void findReference()} disabled={lookupLoading || !query.trim()} aria-label="Find exact reference point">{lookupLoading ? <span className="spinner" /> : "Find"}</button></div>{lookupError && <p className="field-error" role="alert">{lookupError}</p>}<div className="sr-status" aria-live="polite">{lookupLoading ? "Looking up exact reference points." : matches.length ? `${matches.length} exact reference point${matches.length === 1 ? "" : "s"} available.` : ""}</div>
-      {matches.length > 0 && <div className="reference-picker" role="group" aria-label="Resolved reference-point search results">{matches.map((match) => <button type="button" key={`${match.identifier}-${match.coordinate.lat}-${match.coordinate.lon}`} onClick={() => { onUpdate([...via, match.identifier]); setQuery(""); setMatches([]); }}><span><strong>{match.identifier}</strong><small>{match.kind} · {match.coordinate.lat.toFixed(4)}, {match.coordinate.lon.toFixed(4)}</small></span><span>{match.duplicateGroup ? "Choose exact location" : "Add"}</span></button>)}</div>}
+      {matches.length > 0 && <div className="reference-picker" role="group" aria-label="Resolved reference-point search results">{matches.map((match) => <button type="button" key={`${match.locationId}-${match.identifier}`} onClick={() => { onUpdate([...via, match.identifier], match.locationId ? [...selections, { sequence: via.length, locationId: match.locationId }] : selections); setQuery(""); setMatches([]); }}><span><strong>{match.identifier}</strong><small>{match.kind} · {match.coordinate.lat.toFixed(4)}, {match.coordinate.lon.toFixed(4)}{match.duplicateGroup ? " · multiple exact coordinates" : ""}</small></span><span>{match.duplicateGroup ? "Choose exact location" : "Add"}</span></button>)}</div>}
     </div>
-    <div className="draft-points"><div className="group-heading"><h3>Intermediate points</h3><button className="text-button" type="button" onClick={() => onUpdate([])} disabled={!via.length || loading}>Reset to endpoint-only draft</button></div>{via.length ? <ol role="list">{via.map((point, index) => <li key={`${point}-${index}`}><span><strong>{point}</strong><small>Manual-direct segments are not airways.</small></span><span className="draft-row-actions"><button type="button" onClick={() => onUpdate(via.map((value, position) => position === index - 1 ? point : position === index ? via[index - 1]! : value))} disabled={loading || index === 0} aria-label={`Move ${point} up`}>Move up</button><button type="button" onClick={() => onUpdate(via.map((value, position) => position === index + 1 ? point : position === index ? via[index + 1]! : value))} disabled={loading || index === via.length - 1} aria-label={`Move ${point} down`}>Move down</button><button type="button" onClick={() => onUpdate(via.filter((_, position) => position !== index))} disabled={loading} aria-label={`Remove ${point}`}>Remove</button></span></li>)}</ol> : <p className="muted-copy">No intermediate points. This draft uses a direct modeled endpoint-to-endpoint segment.</p>}</div>
-    {loading && <div className="loading-row"><span className="spinner dark" /> Validating the local draft…</div>}{error && <div className="notice error-notice" role="alert"><span>{error}</span><button className="retry-button" type="button" onClick={() => onUpdate(via)} disabled={loading}>Retry draft validation</button></div>}
-    {draft && <div className="draft-result"><Metric label="Draft status" value={draft.comparison.status === "complete" ? "Complete" : "Incomplete"} /><Metric label="Modeled distance" value={formatDistance(draft.route.distanceNm)} /><Metric label="Change from selected route" value={delta === undefined ? "Unavailable" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} NM`} /><Metric label="Draft gaps" value={String(draft.route.gaps.length)} note={draft.comparison.message} /></div>}
+    <div className="draft-points"><div className="group-heading"><h3>Intermediate points</h3><button className="text-button" type="button" onClick={() => onUpdate([], [])} disabled={!via.length || loading}>Reset to endpoint-only draft</button></div>{via.length ? <ol role="list">{via.map((point, index) => <li key={`${point}-${index}`}><span><strong>{point}</strong><small>{selectedAt(index) ? "Exact coordinate selected from the ambiguous group." : "Manual-direct segments are not airways."}</small></span><span className="draft-row-actions"><button type="button" onClick={() => onUpdate(via.map((value, position) => position === index - 1 ? point : position === index ? via[index - 1]! : value), remapMove(index, -1))} disabled={loading || index === 0} aria-label={`Move ${point} up`}>Move up</button><button type="button" onClick={() => onUpdate(via.map((value, position) => position === index + 1 ? point : position === index ? via[index + 1]! : value), remapMove(index, 1))} disabled={loading || index === via.length - 1} aria-label={`Move ${point} down`}>Move down</button><button type="button" onClick={() => onUpdate(via.filter((_, position) => position !== index), remapRemove(index))} disabled={loading} aria-label={`Remove ${point}`}>Remove</button></span></li>)}</ol> : <p className="muted-copy">No intermediate points. This draft uses a direct modeled endpoint-to-endpoint segment.</p>}</div>
+    {loading && <div className="loading-row"><span className="spinner dark" /> Validating the local draft…</div>}{error && <div className="notice error-notice" role="alert"><span>{error}</span><button className="retry-button" type="button" onClick={() => onUpdate(via, selections)} disabled={loading}>Retry draft validation</button></div>}
+    {draft && <div className="draft-result"><Metric label="Draft status" value={draft.comparison.status === "complete" ? "Complete" : "Incomplete"} /><Metric label="Modeled distance" value={formatDistance(draft.route.distanceNm)} /><Metric label="Change from selected route" value={delta === undefined ? "Unavailable" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} NM`} note={percentage !== undefined ? `Directed baseline → target · ${percentage >= 0 ? "+" : ""}${percentage.toFixed(1)}%` : "Directed baseline → target"} /><Metric label="Draft gaps" value={String(draft.route.gaps.length)} note={draft.comparison.message} /></div>}
   </section>;
 }
 
@@ -327,7 +439,7 @@ function RouteMap({ route, callsign }: { route?: RouteOption | undefined; callsi
       {arrivalPoint && <MapMarker point={arrivalPoint} label={arrival} tone="destination" />}
       {projection?.gapBoundaries.map((point, index) => <g key={`gap-${index}`} className="gap-boundary"><circle cx={point.x} cy={point.y} r="7" /><text x={point.x + 12} y={point.y + 4}>Gap</text></g>)}
     </svg>
-    {route && <div className="map-endpoints" aria-label="Route endpoint locations"><div className="map-endpoint departure"><b>Departure</b><span>{departureLabel}</span></div><div className="map-endpoint arrival"><b>Arrival</b><span>{arrivalLabel}</span></div></div>}
+    {route && <section className="map-endpoints" aria-label="Route endpoint locations"><div className="map-endpoint departure"><b>Departure</b><span>{departureLabel}</span></div><div className="map-endpoint arrival"><b>Arrival</b><span>{arrivalLabel}</span></div></section>}
     {!hasLine && <div className="map-empty"><span>◎</span><strong>{route ? "No resolved geometry returned" : "Select a flight plan"}</strong><p>{route ? "The world map does not infer a line across missing route data." : "The map will use only coordinates and route segments returned by the server."}</p></div>}
     <div className="map-attribution">Geographic reference only · no external map tiles or API keys</div>
   </div>;

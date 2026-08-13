@@ -4,7 +4,7 @@
 
 Flight Route Explorer is intended to be a private, single-user, non-operational decision-support demonstration. It visualizes recorded flight routes, resolves reference points exactly where possible, computes modeled great-circle distance, and lets a user compare a recorded route with a local draft. It does not file, dispatch, approve, clear, navigate, or recommend a route.
 
-The binding POC rules are in [Section 0 of the system design](docs/superpowers/specs/2026-08-11-flight-route-explorer-design.md#0-normative-poc-reconciliation---2026-08-12). The existing design and plan are not modified by this documentation set. [Documentation index](docs/index.md) remains the repository entry point.
+The binding POC rules are in [Section 0 of the system design](docs/superpowers/specs/2026-08-11-flight-route-explorer-design.md#0-normative-poc-reconciliation---2026-08-12); the former Sections 3-29 are preserved as a non-binding [historical archive](docs/superpowers/historical/2026-08-11-flight-route-explorer-design-legacy-sections-3-29.md). [Documentation index](docs/index.md) remains the repository entry point.
 
 ## Read this in order
 

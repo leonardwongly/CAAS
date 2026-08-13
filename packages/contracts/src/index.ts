@@ -119,12 +119,39 @@ export const RouteQuerySchema = z.object({
 }).strict();
 export type RouteQuery = z.output<typeof RouteQuerySchema>;
 
+/**
+ * A generation-bound explicit coordinate selection for one ambiguous draft waypoint.
+ * `sequence` is the zero-based position within `RouteDraft.via`; `locationId` is a
+ * server-issued scoped location token (never a client-supplied coordinate). The
+ * server pairs the selection with the waypoint reference and rejects selections
+ * that do not identify one of the waypoint's exact matches.
+ */
+export const RouteDraftSelectionSchema = z.object({
+  sequence: z.number().int().min(0).max(MAX_ROUTE_LEGS - 1),
+  locationId: z.string().trim().min(1).max(512),
+}).strict();
+export type RouteDraftSelection = z.output<typeof RouteDraftSelectionSchema>;
+
 export const RouteDraftSchema = z.object({
   origin: z.string().trim().max(MAX_REFERENCE_LENGTH).default(""),
   destination: z.string().trim().max(MAX_REFERENCE_LENGTH).default(""),
   via: z.array(z.string().trim().min(1).max(MAX_REFERENCE_LENGTH)).max(MAX_ROUTE_LEGS - 1).default([]),
+  selections: z.array(RouteDraftSelectionSchema).max(MAX_ROUTE_LEGS - 1).default([]),
 }).strict();
 export type RouteDraft = z.output<typeof RouteDraftSchema>;
+
+/**
+ * Persistent safety copy carried on every recorded route, draft route, and
+ * comparison operand response. It must appear verbatim in API responses and UI.
+ */
+export const PERSISTENT_SAFETY_COPY =
+  "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.";
+
+/** The only qualified first-place label; bound to complete recorded candidates with the shortest modeled distance. */
+export const RANK_ONE_LABEL = "Rank 1 by shortest modeled distance among complete candidates.";
+
+/** Safety copy on route drafts that are computationally complete but not operationally assessed. */
+export const DRAFT_SAFETY_COPY = "Computationally complete; operational constraints not assessed.";
 
 export const CoordinateInputSchema = z.preprocess((value) => {
   if (Array.isArray(value)) {

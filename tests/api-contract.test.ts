@@ -16,11 +16,16 @@ test("exposes stable DTOs with provenance, safety, visible gaps, and no raw upst
   const server = await createApiServer({ adapter: sanitizedAdapter() });
   t.after(() => server.app.close());
 
-  const search = await server.app.inject({ method: "GET", url: "/api/v1/callsigns/search?query=FIXTURE1" });
+  const search = await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "FIXTURE1" } });
   assert.equal(search.statusCode, 200);
-  const searchBody = search.json() as { data: Array<Record<string, unknown>>; generation: { id: string; fresh: boolean } };
+  const searchBody = search.json() as { data: Array<Record<string, unknown>>; generation: { id: string; retrievedAt: string; overall: string; live: { state: string; retrievedAt: string; freshUntil: string; staleUntil: string }; reference: { state: string; retrievedAt: string; freshUntil: string; staleUntil: string } } };
   assert.equal(searchBody.data.length, 1);
-  assert.equal(searchBody.generation.fresh, true);
+  assert.equal(searchBody.generation.overall, "fresh");
+  assert.equal(searchBody.generation.live.state, "fresh");
+  assert.equal(searchBody.generation.reference.state, "fresh");
+  assert.equal(searchBody.generation.live.retrievedAt, searchBody.generation.retrievedAt);
+  assert.ok(Date.parse(searchBody.generation.live.freshUntil) > Date.parse(searchBody.generation.retrievedAt));
+  assert.ok(Date.parse(searchBody.generation.live.staleUntil) > Date.parse(searchBody.generation.live.freshUntil));
   const flightId = String(searchBody.data[0]?.id);
   const options = await server.app.inject({ method: "POST", url: "/api/v1/routes/options", payload: { flightId } });
   assert.equal(options.statusCode, 200);

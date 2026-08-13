@@ -1,6 +1,6 @@
 # Flight Route Explorer - Implementation Plan
 
-Status: Local-first POC plan independently reviewed with no unresolved P0/P1; live API and read-only Azure capability discovery confirmed; `PG-00` remains blocked only by an explicitly authorized exact-hash commit and later implementation authorization
+Status: Local-first POC plan independently reviewed with no unresolved P0/P1; live API and read-only Azure capability discovery confirmed; the local-first POC implementation now exists, while Azure resources, deployment, CI execution, and UAT remain un-evidenced and unauthorized; `PG-00` remains blocked only by an explicitly authorized exact-hash commit and later implementation authorization
 
 Version: 1.4-rc4
 
@@ -694,8 +694,8 @@ multiplicity 160 versus the 500 ambiguity hard total.
 | Cost and budget context | The conservative seven-day estimate is USD 34.66 with contingency and no free grants, below the USD 50 governance ceiling. The subscription has zero budgets. Azure is provisioned no earlier than 48 hours before the demo; alerts and all resources are created only in authorized Phase 4; teardown targets 24 hours after the demo. Alerts/tags do not enforce spend cutoff or deletion, so seven days is an operator-enforced maximum requiring explicit action. |
 | Entra bootstrap inputs | Tenant and allowed-user identity are confirmed outside Git by the hashes above. App/client ID, redirect URI, Key Vault secret reference/expiry, and secret are intentionally deferred until the late Phase 4 bootstrap DAG obtains the real ingress-disabled app FQDN. They are `PG-04`, not `PG-00`, evidence. |
 | Stable acceptance and traceability | POC acceptance IDs are recorded in Section 8.3 and the design reconciliation. Independent exact-hash review reports no unresolved P0/P1. |
-| Exact-hash Git record | Open. The documents remain uncommitted unless the user explicitly authorizes a commit. |
-| Implementation authorization | Open. This discovery/update request is not durable implementation authorization. |
+| Exact-hash Git record | The documents are committed: the design/plan content at `341acd9`/`1d109f6`, the POC completion at `96bd1a9`, and the 2026-08-13 documentation-reconciliation edits on the `docs/reconcile-poc-documentation` branch. Whether the existing commits constitute the explicitly authorized exact-hash record required by design Section 0.7 remains the user's determination; documentation work does not grant that authority. |
+| Implementation authorization | Open. This documentation-reconciliation request is not durable implementation authorization; a later explicit implementation request remains required per design Section 0.7. |
 
 ### 8.3 POC acceptance additions
 
@@ -1266,4 +1266,9 @@ Before any completion claim:
 For the current planning objective, completion means the system design and ADRs
 are reconciled with this plan at exact hashes, real discovery closes the API and
 airway decisions, an independent review passes, and the user explicitly
-approves implementation. It does not mean the POC exists yet.
+approves implementation. The reconciliation, discovery, and independent-review
+conditions are met, and the local-first POC implementation now exists beneath
+this plan. The user's explicit implementation authorization remains the
+outstanding design Section 0.7 blocker, and no gate beyond the local
+implementation is claimed as evidenced; the evidence requirements in this
+section and Section 18 still define what each later gate requires.

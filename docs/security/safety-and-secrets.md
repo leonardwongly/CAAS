@@ -50,6 +50,8 @@ Airways is fetched and validated for contract conformance, but its unproven valu
 
 The POC uses a dependency-free SVG route diagram. The browser makes no external map, tile-provider, or map-provider API request, so it discloses no map viewport, client IP, or route geometry to such a provider. Do not put callsigns, flight identifiers, coordinates, route state, or tokens in URLs. Render only normalized BFF fields; when exact geometry is absent or interrupted, preserve an unavailable state or visible gap rather than fabricating a substitute.
 
+Plan §2.4 conformance: callsign search is POST-only and carries its query in the request body. The search endpoints accept no URL query string (a query string is rejected with `400 INVALID_QUERY`), and GET requests to the search paths fail with `405` and an `Allow: POST` header, so no live flight identifier, callsign, coordinate, token, or query state can appear in a URL or in browser history on search or selection.
+
 Any later external-map decision requires a separate privacy, CSP, attribution, caching, failure-mode, and data-use review before implementation.
 
 ## Evidence and authorization

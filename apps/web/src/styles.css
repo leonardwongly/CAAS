@@ -224,3 +224,15 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
   .metric:nth-child(2), .draft-result .metric:nth-child(2) { border-right: 0; }
   .metric:nth-child(-n + 2), .draft-result .metric:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
 }
+
+/* Runtime policies: live-generation freshness chip, refresh control, and stale/unusable banner. */
+.generation-strip { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin: -4px 0 12px; }
+.generation-strip .status-chip { margin: 0; }
+.freshness-chip { border-radius: 99px; font-size: .68rem; }
+.freshness-fresh { color: var(--mint); border-color: rgba(93, 224, 187, .28); }
+.freshness-stale { color: var(--amber); border-color: rgba(242, 186, 107, .35); }
+.freshness-unusable { color: var(--red); border-color: rgba(241, 127, 134, .4); }
+.refresh-error { color: var(--red); font-size: .72rem; }
+.freshness-banner { background: rgba(242, 186, 107, .08); border: 1px solid rgba(242, 186, 107, .3); color: var(--amber); }
+.freshness-banner-unusable { background: rgba(241, 127, 134, .09); border: 1px solid rgba(241, 127, 134, .3); color: var(--red); }
+.generation-strip .quiet-button { padding: 7px 12px; white-space: nowrap; }

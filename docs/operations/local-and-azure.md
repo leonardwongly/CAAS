@@ -2,7 +2,7 @@
 
 ## Current status
 
-The repository has a pinned `pnpm` workspace, a runnable Fastify service, React/Vite build, five-family live adapter, Linux container, offline validation scripts, static CI validation, Bicep templates, and a policy file. It does not evidence CI execution, Azure deployment, or operational runbook execution. The commands below separate local implementation checks from future authorized gates.
+The repository has a pinned `pnpm` workspace, a runnable Fastify service, React/Vite build, five-family live adapter, Linux container, offline validation scripts, a static CI validation workflow, Bicep templates, and a policy file. It does not evidence CI execution, Azure deployment, or operational runbook execution. The commands below separate local implementation checks from future authorized gates.
 
 ## Safe local setup
 
@@ -20,7 +20,7 @@ pnpm run validate
 
 `apikey` belongs only in the untracked local `.env` or an authorized runtime secret injection. Never put it in a URL, command argument, source file, Docker build argument, image layer, browser bundle, log, or retained artifact. The current `.env.example` is a placeholder contract, not a usable credential.
 
-The root scripts currently declare `build`, `clean`, `dev`, `lint`, `test`, `typecheck`, `validate:config`, and `validate`. Recursive commands may have no package-level work until implementation exists. A command that exits successfully against empty package shells is not an application test result.
+The root scripts currently declare `build`, `clean`, `dev`, `lint`, `test`, `test:offline`, `typecheck`, `validate:config`, `validate:policy`, `container:smoke`, and `validate`. `test:offline` runs the cross-package offline suite (43 tests across 8 files); `validate:policy` enforces `deploy/poc-policy.yaml` and the Bicep topology invariants; `container:smoke` checks the Dockerfile without building unless `RUN_CONTAINER_BUILD=1`. `lint` and `test` are recursive `--if-present` wrappers: until a package defines them, either may complete without application work, and a successful no-op is not an application test result.
 
 ## Planned local release sequence
 

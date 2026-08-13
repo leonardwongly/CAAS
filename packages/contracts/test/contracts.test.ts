@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CoordinateSchema, LocationSchema, MAX_ROUTE_LEGS, MAX_ROUTE_POINTS, RouteCandidateSchema, RouteDraftSchema, RoutePathSchema, RouteQuerySchema, parseCoordinate, parseReference, safeParseCoordinate } from "../src/index.ts";
+import { CoordinateSchema, DRAFT_SAFETY_COPY, LocationSchema, MAX_ROUTE_LEGS, MAX_ROUTE_POINTS, PERSISTENT_SAFETY_COPY, RANK_ONE_LABEL, RouteCandidateSchema, RouteDraftSchema, RouteDraftSelectionSchema, RoutePathSchema, RouteQuerySchema, parseCoordinate, parseReference, safeParseCoordinate } from "../src/index.ts";
 
 test("coordinate parsing normalizes object and GeoJSON positions and rejects out-of-bounds values", () => {
   assert.deepEqual(parseCoordinate({ latitude: "51.4700", longitude: "-0.4543" }), { lat: 51.47, lon: -0.4543 });
@@ -47,6 +47,29 @@ test("all route schemas share the 256-point endpoint-inclusive bound", () => {
   assert.equal(RouteDraftSchema.safeParse({ origin: "A", destination: "B", via: ["   "] }).success, false);
   assert.deepEqual(RouteDraftSchema.parse({ origin: "A", destination: "B", via: [" V "] }).via, ["V"]);
   assert.equal(RouteDraftSchema.safeParse({ origin: "A", destination: "B", via: Array.from({ length: 255 }, () => "V") }).success, false);
+});
+
+test("explicit draft selections are generation-bound tokens bounded to waypoint sequences", () => {
+  const selection = { sequence: 0, locationId: "token.body.signature" };
+  assert.deepEqual(RouteDraftSelectionSchema.parse({ sequence: 0, locationId: "  token  " }), { sequence: 0, locationId: "token" });
+  assert.equal(RouteDraftSelectionSchema.safeParse(selection).success, true);
+  assert.equal(RouteDraftSelectionSchema.safeParse({ ...selection, sequence: -1 }).success, false);
+  assert.equal(RouteDraftSelectionSchema.safeParse({ ...selection, sequence: 0.5 }).success, false);
+  assert.equal(RouteDraftSelectionSchema.safeParse({ ...selection, sequence: MAX_ROUTE_LEGS }).success, false);
+  assert.equal(RouteDraftSelectionSchema.safeParse({ ...selection, locationId: "" }).success, false);
+  assert.equal(RouteDraftSelectionSchema.safeParse({ ...selection, locationId: "x".repeat(513) }).success, false);
+  assert.equal(RouteDraftSelectionSchema.safeParse({ sequence: 0, locationId: "t", extra: true }).success, false);
+  // A draft may carry up to MAX_ROUTE_LEGS - 1 selections, one per waypoint position.
+  const maxSelections = Array.from({ length: MAX_ROUTE_LEGS - 1 }, (_, sequence) => ({ sequence, locationId: "t" }));
+  assert.equal(RouteDraftSchema.safeParse({ origin: "A", destination: "B", via: Array.from({ length: MAX_ROUTE_LEGS - 1 }, () => "V"), selections: maxSelections }).success, true);
+  assert.equal(RouteDraftSchema.safeParse({ origin: "A", destination: "B", via: ["V"], selections: [...maxSelections, { sequence: MAX_ROUTE_LEGS - 1, locationId: "t" }] }).success, false);
+});
+
+test("safety and rank labels are exact and immutable contract constants", () => {
+  assert.equal(PERSISTENT_SAFETY_COPY, "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.");
+  assert.equal(RANK_ONE_LABEL, "Rank 1 by shortest modeled distance among complete candidates.");
+  assert.equal(DRAFT_SAFETY_COPY, "Computationally complete; operational constraints not assessed.");
+  assert.notEqual(PERSISTENT_SAFETY_COPY, DRAFT_SAFETY_COPY);
 });
 test("references and locations are normalized with bounded fields", () => {
   assert.deepEqual(parseReference(" kjfk "), { value: "KJFK", kind: "unknown" });

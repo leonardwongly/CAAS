@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createApiServer, type CaasAdapter } from "../src/index.ts";
-import { createCaasAdapter, type DatasetEvidence, type ReferenceDatasetResult } from "@flight-route-explorer/upstream-caas";
+import { LIVE_FRESH_MS, LIVE_UNUSABLE_MS, REFERENCE_FRESH_MS, REFERENCE_UNUSABLE_MS, createCaasAdapter, type DatasetEvidence, type ReferenceDatasetResult } from "@flight-route-explorer/upstream-caas";
 import type { FlightPlanRecord } from "@flight-route-explorer/upstream-caas";
 
 const coordinate = (lat: number, lon: number) => Object.freeze({ lat, lon });
@@ -56,16 +56,16 @@ test("searches real flight plans by callsign and serves selected-flight routes",
 
   assert.equal((await server.app.inject({ method: "GET", url: "/api/v1/health/live" })).statusCode, 200);
   assert.equal((await server.app.inject({ method: "GET", url: "/api/v1/health/startup" })).statusCode, 200);
-  const search = await server.app.inject({ method: "GET", url: "/api/v1/callsigns/search?query=duplicate1&limit=1" });
+  const search = await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "duplicate1", limit: 1 } });
   assert.equal(search.statusCode, 200);
   const searchBody = search.json() as { data: Array<Record<string, string>>; nextCursor?: string };
   assert.equal(searchBody.data.length, 1);
   assert.ok(searchBody.nextCursor);
   assert.notEqual(searchBody.data[0]?.id, "raw-a");
-  assert.equal((await server.app.inject({ method: "GET", url: "/api/v1/callsigns/search?query=KJFK" })).json().data.length, 0);
+  assert.equal((await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "KJFK" } })).json().data.length, 0);
 
   const firstId = searchBody.data[0]!.id;
-  const secondPage = await server.app.inject({ method: "GET", url: `/api/v1/callsigns/search?query=DUPLICATE1&limit=1&cursor=${encodeURIComponent(searchBody.nextCursor!)}` });
+  const secondPage = await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "DUPLICATE1", limit: 1, cursor: searchBody.nextCursor } });
   assert.equal(secondPage.statusCode, 200);
   const secondId = (secondPage.json() as { data: Array<{ id: string }> }).data[0]!.id;
   assert.notEqual(firstId, secondId);
@@ -101,7 +101,7 @@ test("returns same-endpoint alternatives, preserves tied ranks, and leaves incom
   };
   const server = await createApiServer({ adapter, refreshSecret: "test-refresh" });
   t.after(() => server.app.close());
-  const find = async (callsign: string) => (await server.app.inject({ method: "GET", url: `/api/v1/callsigns/search?query=${callsign}` })).json().data[0].id as string;
+  const find = async (callsign: string) => (await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: callsign } })).json().data[0].id as string;
   const selectedId = await find("TIESELECTED");
 
   const options = await server.app.inject({ method: "POST", url: "/api/v1/routes/options", payload: { flightId: selectedId } });
@@ -139,7 +139,7 @@ test("returns same-endpoint alternatives, preserves tied ranks, and leaves incom
 test("prefers embedded points, preserves structured gaps, and never bridges segments", async (t) => {
   const server = await createApiServer({ adapter: fixtureAdapter(), refreshSecret: "test-refresh" });
   t.after(() => server.app.close());
-  const find = async (callsign: string) => (await server.app.inject({ method: "GET", url: `/api/v1/callsigns/search?query=${callsign}` })).json().data[0].id as string;
+  const find = async (callsign: string) => (await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: callsign } })).json().data[0].id as string;
 
   const embedded = await server.app.inject({ method: "POST", url: "/api/v1/routes/options", payload: { flightId: await find("TESTEMBED") } });
   assert.equal(embedded.statusCode, 200);
@@ -179,11 +179,11 @@ test("binds cursors and flight IDs to generation, query, limit, expiry, and refr
   };
   const server = await createApiServer({ adapter, refreshSecret: "offline-refresh-secret" });
   t.after(() => server.app.close());
-  const firstPage = await server.app.inject({ method: "GET", url: "/api/v1/callsigns/search?query=TEST&limit=1" });
+  const firstPage = await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "TEST", limit: 1 } });
   const firstBody = firstPage.json() as { nextCursor?: string; data: Array<{ id: string }> };
   assert.ok(firstBody.nextCursor);
-  assert.equal((await server.app.inject({ method: "GET", url: `/api/v1/callsigns/search?query=TEST&limit=1&cursor=${encodeURIComponent(firstBody.nextCursor!)}` })).statusCode, 200);
-  assert.equal((await server.app.inject({ method: "GET", url: `/api/v1/callsigns/search?query=TEST&limit=2&cursor=${encodeURIComponent(firstBody.nextCursor!)}` })).statusCode, 409);
+  assert.equal((await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "TEST", limit: 1, cursor: firstBody.nextCursor } })).statusCode, 200);
+  assert.equal((await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "TEST", limit: 2, cursor: firstBody.nextCursor } })).statusCode, 409);
   assert.equal((await server.app.inject({ method: "POST", url: "/api/v1/refresh" })).statusCode, 401);
   refresh = true;
   assert.equal((await server.app.inject({ method: "POST", url: "/api/v1/refresh", headers: { "x-refresh-token": "offline-refresh-secret" } })).statusCode, 200);
@@ -202,7 +202,7 @@ test("rejects same-endpoint route populations above the hard candidate cap", asy
   const server = await createApiServer({ adapter: fixtureAdapter(records), refreshSecret: "test-refresh" });
   t.after(() => server.app.close());
 
-  const search = await server.app.inject({ method: "GET", url: "/api/v1/callsigns/search?query=CAP000" });
+  const search = await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "CAP000" } });
   const flightId = (search.json() as { data: Array<{ id: string }> }).data[0]!.id;
   const options = await server.app.inject({ method: "POST", url: "/api/v1/routes/options", payload: { flightId } });
   assert.equal(options.statusCode, 409);
@@ -232,7 +232,7 @@ test("accepts a transport-injected adapter without exposing credentials or airwa
   };
   const server = await createApiServer({ adapter: createCaasAdapter({ transport }), refreshSecret: "test-refresh" });
   t.after(() => server.app.close());
-  const response = await server.app.inject({ method: "GET", url: "/api/v1/callsigns/search?query=TRANSPORT1" });
+  const response = await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "TRANSPORT1" } });
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.includes("fixture-secret"), false);
   assert.equal(response.body.includes("airway-secret"), false);
@@ -309,7 +309,7 @@ test("hardens route drafts to resolved airports and withholds incomplete distanc
   assert.equal((incomplete.route.legs as Array<Record<string, unknown>>).every((leg) => leg.distanceNm === undefined), true);
 });
 
-test("invalidates draft tokens after refresh and at the exact generation expiry", async (t) => {
+test("invalidates draft tokens after refresh and fails closed at the live unusable boundary", async (t) => {
   let clock = 10_000;
   let activeRecords: readonly FlightPlanRecord[] = defaultRecords();
   const replacementRecords: FlightPlanRecord[] = [{ ...defaultRecords()[0]!, id: "replacement-raw-id", callsign: "REPLACED" }];
@@ -318,7 +318,7 @@ test("invalidates draft tokens after refresh and at the exact generation expiry"
     ...base,
     displayAll: async () => ({ records: activeRecords, evidence: evidence("displayAll", activeRecords.length) }),
   };
-  const server = await createApiServer({ adapter, now: () => clock, generationTtlMs: 1_000, refreshSecret: "test-refresh" });
+  const server = await createApiServer({ adapter, now: () => clock, refreshSecret: "test-refresh" });
   t.after(() => server.app.close());
 
   const created = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { origin: "KJFK", destination: "KLAX", via: [] } });
@@ -337,8 +337,138 @@ test("invalidates draft tokens after refresh and at the exact generation expiry"
   const current = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { origin: "KJFK", destination: "KLAX", via: [] } });
   assert.equal(current.statusCode, 201);
   const currentDraftId = (current.json() as { id: string }).id;
-  clock += 1_000;
+  // After the 5-minute live freshness window the generation is stale but still servable.
+  clock += LIVE_FRESH_MS + 1;
+  const stale = await server.app.inject({ method: "POST", url: "/api/v1/drafts/compare", payload: { draftId: currentDraftId } });
+  assert.equal(stale.statusCode, 200);
+  assert.equal((stale.json() as { generation: { overall: string } }).generation.overall, "stale");
+  // Past the 30-minute live unusable boundary the generation fails closed.
+  clock += LIVE_UNUSABLE_MS + 1;
   const atExpiry = await server.app.inject({ method: "POST", url: "/api/v1/drafts/compare", payload: { draftId: currentDraftId } });
   assert.equal(atExpiry.statusCode, 503);
   assert.equal((atExpiry.json() as { error: { code: string } }).error.code, "GENERATION_STALE");
+});
+
+test("surfaces tiered freshness with exact plan §6.2 windows and fails closed when unusable", async (t) => {
+  let clock = 5_000;
+  const server = await createApiServer({ adapter: fixtureAdapter(), now: () => clock, refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  const search = async () => server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "TEST123" } });
+
+  const fresh = await search();
+  assert.equal(fresh.statusCode, 200);
+  const freshGeneration = (fresh.json() as { generation: { id: string; retrievedAt: string; overall: string; live: { state: string; retrievedAt: string; freshUntil: string; staleUntil: string }; reference: { state: string; retrievedAt: string; freshUntil: string; staleUntil: string } } }).generation;
+  assert.equal(freshGeneration.overall, "fresh");
+  assert.equal(freshGeneration.live.state, "fresh");
+  assert.equal(freshGeneration.reference.state, "fresh");
+  assert.equal(freshGeneration.retrievedAt, new Date(5_000).toISOString());
+  assert.equal(freshGeneration.live.retrievedAt, freshGeneration.retrievedAt);
+  assert.equal(freshGeneration.live.freshUntil, new Date(5_000 + LIVE_FRESH_MS).toISOString());
+  assert.equal(freshGeneration.live.staleUntil, new Date(5_000 + LIVE_UNUSABLE_MS).toISOString());
+  assert.equal(freshGeneration.reference.freshUntil, new Date(5_000 + REFERENCE_FRESH_MS).toISOString());
+  assert.equal(freshGeneration.reference.staleUntil, new Date(5_000 + REFERENCE_UNUSABLE_MS).toISOString());
+
+  clock += LIVE_FRESH_MS + 1;
+  const stale = await search();
+  assert.equal(stale.statusCode, 200);
+  assert.equal((stale.json() as { generation: { overall: string; live: { state: string } } }).generation.overall, "stale");
+  assert.equal((stale.json() as { generation: { live: { state: string } } }).generation.live.state, "stale");
+  const staleReady = await server.app.inject({ method: "GET", url: "/api/v1/readiness" });
+  assert.equal(staleReady.statusCode, 200);
+  assert.equal((staleReady.json() as { generation: { overall: string } }).generation.overall, "stale");
+
+  clock += LIVE_UNUSABLE_MS + 1;
+  const unusable = await search();
+  assert.equal(unusable.statusCode, 503);
+  assert.equal((unusable.json() as { error: { code: string; retryable: boolean } }).error.code, "GENERATION_STALE");
+  assert.equal((await server.app.inject({ method: "GET", url: "/api/v1/readiness" })).statusCode, 503);
+});
+
+test("fails closed with REQUEST_DEADLINE_EXCEEDED when a warm request outlives the deadline", async (t) => {
+  const slowAdapter: CaasAdapter = {
+    displayAll: async () => { await new Promise((resolve) => setTimeout(resolve, 250)); return { records: defaultRecords(), evidence: evidence("displayAll", defaultRecords().length) }; },
+    airways: async () => { throw new Error("not reached"); },
+    fixes: async () => { throw new Error("not reached"); },
+    airports: async () => { throw new Error("not reached"); },
+    navaids: async () => { throw new Error("not reached"); },
+  };
+  const startedAt = Date.now();
+  const server = await createApiServer({ adapter: slowAdapter, initialize: false, warmRequestDeadlineMs: 25, refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  const response = await server.app.inject({ method: "POST", url: "/api/v1/refresh", headers: { "x-refresh-token": "test-refresh" } });
+  assert.equal(response.statusCode, 503);
+  assert.equal((response.json() as { error: { code: string; retryable: boolean } }).error.code, "REQUEST_DEADLINE_EXCEEDED");
+  assert.equal((response.json() as { error: { retryable: boolean } }).error.retryable, true);
+  assert.ok(Date.now() - startedAt < 150, "the deadline must fail closed promptly");
+});
+
+test("serves warm requests normally when upstream stays within the deadline", async (t) => {
+  const server = await createApiServer({ adapter: fixtureAdapter(), warmRequestDeadlineMs: 25, refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  const response = await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "TEST123" } });
+  assert.equal(response.statusCode, 200);
+});
+
+test("keeps serving the retained generation with retrieval time after a failed refresh", async (t) => {
+  let failing = false;
+  const base = fixtureAdapter();
+  const adapter: CaasAdapter = {
+    ...base,
+    displayAll: async () => {
+      if (failing) throw new Error("upstream unavailable");
+      return { records: defaultRecords(), evidence: evidence("displayAll", defaultRecords().length) };
+    },
+  };
+  const server = await createApiServer({ adapter, refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  const initial = await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "TEST123" } });
+  assert.equal(initial.statusCode, 200);
+  const initialGeneration = (initial.json() as { generation: { id: string; live: { state: string; retrievedAt: string } } }).generation;
+  assert.equal(initialGeneration.live.state, "fresh");
+
+  failing = true;
+  const refresh = await server.app.inject({ method: "POST", url: "/api/v1/refresh", headers: { "x-refresh-token": "test-refresh" } });
+  assert.equal(refresh.statusCode, 503);
+  const refreshBody = refresh.json() as { error: { code: string }; retained: { generation: { id: string; live: { state: string; retrievedAt: string } } } };
+  assert.equal(refreshBody.error.code, "REFRESH_FAILED");
+  assert.equal(refreshBody.retained.generation.id, initialGeneration.id);
+  assert.equal(refreshBody.retained.generation.live.state, "fresh");
+  assert.equal(refreshBody.retained.generation.live.retrievedAt, initialGeneration.live.retrievedAt);
+
+  const after = await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "TEST123" } });
+  assert.equal(after.statusCode, 200);
+});
+
+test("retains at most one previous generation and prunes it once unusable", async (t) => {
+  let clock = 0;
+  const server = await createApiServer({ adapter: fixtureAdapter(), now: () => clock, refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  const first = server.store.active!.id;
+  clock += 1_000;
+  await server.app.inject({ method: "POST", url: "/api/v1/refresh", headers: { "x-refresh-token": "test-refresh" } });
+  const second = server.store.active!.id;
+  assert.equal(server.store.previous?.id, first);
+  clock += 1_000;
+  await server.app.inject({ method: "POST", url: "/api/v1/refresh", headers: { "x-refresh-token": "test-refresh" } });
+  assert.equal(server.store.previous?.id, second);
+  // Past the live unusable boundary both the active and retained generations fail closed.
+  clock = LIVE_UNUSABLE_MS + 3_000;
+  assert.equal((await server.app.inject({ method: "GET", url: "/api/v1/readiness" })).statusCode, 503);
+  assert.equal(server.store.previous, undefined);
+});
+
+test("keeps callsign search state out of URLs: POST-only with no query string", async (t) => {
+  const server = await createApiServer({ adapter: fixtureAdapter(), refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  for (const url of ["/api/v1/callsigns/search", "/api/v1/search", "/api/v1/flights/search"]) {
+    const rejected = await server.app.inject({ method: "GET", url: `${url}?query=TEST123` });
+    assert.equal(rejected.statusCode, 405);
+    assert.equal(rejected.headers.allow, "POST");
+    assert.equal((rejected.json() as { error: { code: string } }).error.code, "METHOD_NOT_ALLOWED");
+    const urlLeak = await server.app.inject({ method: "POST", url: `${url}?query=TEST123`, payload: { query: "TEST123" } });
+    assert.equal(urlLeak.statusCode, 400);
+    assert.equal((urlLeak.json() as { error: { code: string } }).error.code, "INVALID_QUERY");
+    const body = await server.app.inject({ method: "POST", url, payload: { query: "TEST123" } });
+    assert.equal(body.statusCode, 200);
+  }
 });

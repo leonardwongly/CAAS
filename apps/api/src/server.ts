@@ -4,12 +4,16 @@ import { readFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import {
   LocationSchema,
+  PERSISTENT_SAFETY_COPY,
+  RANK_ONE_LABEL,
   RouteDraftSchema,
   type Coordinate,
   type Location,
   type RouteDraft,
+  type RouteDraftSelection,
 } from "@flight-route-explorer/contracts";
 import {
+  compareDistanceOperands,
   haversineDistanceNm,
   rankDistanceNm,
   resolveExactReference,
@@ -18,26 +22,33 @@ import {
 } from "@flight-route-explorer/route-engine";
 import {
   createCaasAdapter,
+  LIVE_FRESH_MS,
+  LIVE_UNUSABLE_MS,
+  REFERENCE_FRESH_MS,
+  REFERENCE_UNUSABLE_MS,
+  liveFreshnessState,
+  referenceFreshnessState,
+  worseGenerationState,
   type AirwayEvidence,
   type CaasAdapter,
   type CaasTransport,
   type DatasetEvidence,
   type DisplayAllResult,
   type FlightPlanRecord,
+  type GenerationState,
   type ReferenceDatasetResult,
   type ReferencePoint,
 } from "@flight-route-explorer/upstream-caas";
 
 const DEFAULT_PORT = 8080;
 const DEFAULT_HOST = "0.0.0.0";
-const DEFAULT_GENERATION_TTL_MS = 30 * 60 * 1000;
+const DEFAULT_WARM_DEADLINE_MS = 5 * 1000;
 const MAX_LIMIT = 100;
 const MAX_SAME_ENDPOINT_CANDIDATES = 500;
 const MAX_DRAFT_ENTRIES = 512;
 const MAX_SEARCH_LENGTH = 64;
 const MAX_ERROR_MESSAGE = 160;
 const PUBLIC_PROVENANCE = "CAAS normalized live generation";
-const PUBLIC_SAFETY = "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.";
 const OPERATIONAL_PROXY_SUMMARY = "Shortest complete normalized observed route among same-endpoint candidates returned by this fresh generation.";
 
 type RouteGapReason = "invalid-reference" | "not-found" | "ambiguous" | "missing";
@@ -46,7 +57,7 @@ export interface ApiServerOptions {
   readonly adapter?: CaasAdapter;
   readonly transport?: CaasTransport;
   readonly now?: () => number;
-  readonly generationTtlMs?: number;
+  readonly warmRequestDeadlineMs?: number;
   readonly initialize?: boolean;
   readonly assetDirectory?: string;
   readonly refreshSecret?: string;
@@ -58,11 +69,25 @@ export interface StartServerOptions extends ApiServerOptions {
   readonly host?: string;
 }
 
+/**
+ * Plan §6.2 tiered freshness surfaced on every generation payload. The live tier
+ * covers the flight-plan family (fresh <= 5 minutes, unusable after 30 minutes);
+ * the reference tier covers airways/fixes/airports/navaids (fresh <= 24 hours,
+ * unusable after 7 days). `overall` is the more severe tier state.
+ */
+export interface GenerationTier {
+  readonly state: GenerationState;
+  readonly retrievedAt: string;
+  readonly freshUntil: string;
+  readonly staleUntil: string;
+}
+
 export interface GenerationSummary {
   readonly id: string;
-  readonly createdAt: string;
-  readonly expiresAt: string;
-  readonly fresh: boolean;
+  readonly retrievedAt: string;
+  readonly live: GenerationTier;
+  readonly reference: GenerationTier;
+  readonly overall: GenerationState;
 }
 
 interface SafeFlight {
@@ -71,7 +96,9 @@ interface SafeFlight {
 }
 
 interface Snapshot {
-  readonly summary: GenerationSummary;
+  readonly id: string;
+  readonly retrievedAtMs: number;
+  readonly unusableAtMs: number;
   readonly tokenSecret: Buffer;
   readonly flights: readonly SafeFlight[];
   readonly locations: readonly Location[];
@@ -158,13 +185,15 @@ export class ApiHttpError extends Error {
   readonly statusCode: number;
   readonly code: string;
   readonly retryable: boolean;
+  readonly details: Readonly<Record<string, unknown>> | undefined;
 
-  constructor(statusCode: number, code: string, message: string, retryable = false) {
+  constructor(statusCode: number, code: string, message: string, retryable = false, details?: Readonly<Record<string, unknown>>) {
     super(message);
     this.name = "ApiHttpError";
     this.statusCode = statusCode;
     this.code = code;
     this.retryable = retryable;
+    this.details = details;
   }
 }
 
@@ -203,9 +232,9 @@ function base64(value: string | Buffer): string {
 
 function scopedToken(snapshot: Snapshot, type: string, values: Record<string, unknown> = {}): string {
   const body = base64(JSON.stringify({
-    g: snapshot.summary.id,
+    g: snapshot.id,
     t: type,
-    e: Date.parse(snapshot.summary.expiresAt),
+    e: snapshot.unusableAtMs,
     n: randomToken(),
     ...values,
   }));
@@ -330,7 +359,6 @@ function buildSnapshot(
   airway: AirwayEvidence,
   references: readonly ReferenceDatasetResult[],
   now: number,
-  ttlMs: number,
 ): Snapshot {
   const id = randomUUID();
   const locations = familyLocations(references);
@@ -340,10 +368,14 @@ function buildSnapshot(
   });
   const frozenTokenEntries = [...tokenEntries.entries()].map(([key, value]) => [key, Object.freeze([...value])] as const);
   const flights = Object.freeze(display.records.map((record, index) => Object.freeze({ record: freezeFlightRecord(record), index })));
-  const summary = Object.freeze({ id, createdAt: new Date(now).toISOString(), expiresAt: new Date(now + ttlMs).toISOString(), fresh: true });
+  // Generation-bound tokens expire at the earliest unusable boundary (the live tier).
+  const retrievedAtMs = now;
+  const unusableAtMs = now + LIVE_UNUSABLE_MS;
   const evidence = Object.freeze([publicEvidence(display.evidence), ...references.map((result) => publicEvidence(result.evidence))]);
   return Object.freeze({
-    summary,
+    id,
+    retrievedAtMs,
+    unusableAtMs,
     tokenSecret: randomBytes(32),
     flights,
     locations: Object.freeze(locations),
@@ -355,7 +387,7 @@ function buildSnapshot(
   });
 }
 
-async function acquireSnapshot(adapter: CaasAdapter, now: () => number, ttlMs: number, signal?: AbortSignal): Promise<Snapshot> {
+async function acquireSnapshot(adapter: CaasAdapter, now: () => number, signal?: AbortSignal): Promise<Snapshot> {
   // Keep the five-family acquisition bounded and upstream-friendly. The generation
   // is still published atomically because buildSnapshot runs only after every
   // family has completed and validated.
@@ -369,41 +401,55 @@ async function acquireSnapshot(adapter: CaasAdapter, now: () => number, ttlMs: n
   if (totalReferenceRecords > 700_000) {
     throw new GenerationAcquisitionError("REFERENCE_RECORD_LIMIT");
   }
-  return buildSnapshot(display, airway, references, now(), ttlMs);
-}
-
-function isFresh(snapshot: Snapshot, now: number): boolean {
-  return Date.parse(snapshot.summary.expiresAt) > now;
+  return buildSnapshot(display, airway, references, now());
 }
 
 function generationSummary(snapshot: Snapshot, now: number): GenerationSummary {
-  return Object.freeze({ ...snapshot.summary, fresh: isFresh(snapshot, now) });
+  const retrievedAt = new Date(snapshot.retrievedAtMs).toISOString();
+  const elapsedMs = Math.max(0, now - snapshot.retrievedAtMs);
+  const live = liveFreshnessState(elapsedMs);
+  const reference = referenceFreshnessState(elapsedMs);
+  const overall = worseGenerationState(live, reference);
+  const tier = (state: GenerationState, freshMs: number, unusableMs: number): GenerationTier => Object.freeze({
+    state,
+    retrievedAt,
+    freshUntil: new Date(snapshot.retrievedAtMs + freshMs).toISOString(),
+    staleUntil: new Date(snapshot.retrievedAtMs + unusableMs).toISOString(),
+  });
+  return Object.freeze({
+    id: snapshot.id,
+    retrievedAt,
+    live: tier(live, LIVE_FRESH_MS, LIVE_UNUSABLE_MS),
+    reference: tier(reference, REFERENCE_FRESH_MS, REFERENCE_UNUSABLE_MS),
+    overall,
+  });
 }
 
 export class GenerationStore {
   private activeSnapshot: Snapshot | undefined;
+  private previousSnapshot: Snapshot | undefined;
   private state: "cold" | "loading" | "ready" | "failed" = "cold";
   private failureCode: string | undefined;
   private readonly drafts = new Map<string, DraftEntry>();
   private readonly adapter: CaasAdapter;
   private readonly now: () => number;
-  private readonly ttlMs: number;
 
-  constructor(adapter: CaasAdapter, now: () => number = Date.now, ttlMs: number = DEFAULT_GENERATION_TTL_MS) {
+  constructor(adapter: CaasAdapter, now: () => number = Date.now) {
     this.adapter = adapter;
     this.now = now;
-    this.ttlMs = ttlMs;
   }
 
   get status(): "cold" | "loading" | "ready" | "failed" { return this.state; }
   get failure(): string | undefined { return this.failureCode; }
   get active(): Snapshot | undefined { return this.activeSnapshot; }
+  /** The immediately previous generation, retained only within plan §6.2 freshness limits. */
+  get previous(): Snapshot | undefined { return this.previousSnapshot; }
 
   async initialize(): Promise<Snapshot> {
     if (this.activeSnapshot && this.state === "ready") return this.activeSnapshot;
     this.state = "loading";
     try {
-      const snapshot = await acquireSnapshot(this.adapter, this.now, this.ttlMs);
+      const snapshot = await acquireSnapshot(this.adapter, this.now);
       this.activeSnapshot = snapshot;
       this.state = "ready";
       this.failureCode = undefined;
@@ -415,26 +461,57 @@ export class GenerationStore {
     }
   }
 
-  async refresh(): Promise<Snapshot> {
+  /**
+   * Plan §6.2 stale-generation state machine. A successful refresh atomically
+   * swaps in the newly validated generation and retains the previous active
+   * generation only while it is still servable (at most 30 minutes). A failed
+   * refresh keeps the prior generation only within those freshness limits.
+   * Nothing persists across restart: the store is per-process and tokens from
+   * another server fail HMAC.
+   */
+  async refresh(signal?: AbortSignal): Promise<Snapshot> {
     this.state = "loading";
     try {
-      const snapshot = await acquireSnapshot(this.adapter, this.now, this.ttlMs);
+      const snapshot = await acquireSnapshot(this.adapter, this.now, signal);
+      const current = this.activeSnapshot;
+      this.previousSnapshot = current !== undefined && this.isServable(current) ? current : undefined;
       this.activeSnapshot = snapshot;
       this.state = "ready";
       this.failureCode = undefined;
-      for (const [draftId, entry] of this.drafts) if (entry.snapshotId !== snapshot.summary.id) this.drafts.delete(draftId);
+      for (const [draftId, entry] of this.drafts) if (entry.snapshotId !== snapshot.id) this.drafts.delete(draftId);
       return snapshot;
     } catch {
       this.state = this.activeSnapshot ? "ready" : "failed";
       this.failureCode = "UPSTREAM_UNAVAILABLE";
+      this.prunePrevious();
       throw new GenerationAcquisitionError();
     }
   }
 
+  /** The retained (still active) generation after a failed refresh, if any. */
+  retainedGeneration(): GenerationSummary | undefined {
+    return this.activeSnapshot ? generationSummary(this.activeSnapshot, this.now()) : undefined;
+  }
+
   readiness(): { ready: boolean; code?: string; snapshot?: Snapshot } {
+    this.prunePrevious();
     if (!this.activeSnapshot) return { ready: false, code: this.failureCode ?? "NOT_INITIALIZED" };
-    if (!isFresh(this.activeSnapshot, this.now())) return { ready: false, code: "GENERATION_STALE", snapshot: this.activeSnapshot };
+    if (!this.isServable(this.activeSnapshot)) return { ready: false, code: "GENERATION_STALE", snapshot: this.activeSnapshot };
     return { ready: true, snapshot: this.activeSnapshot };
+  }
+
+  private isServable(snapshot: Snapshot): boolean {
+    const elapsedMs = Math.max(0, this.now() - snapshot.retrievedAtMs);
+    return worseGenerationState(liveFreshnessState(elapsedMs), referenceFreshnessState(elapsedMs)) !== "unusable";
+  }
+
+  private prunePrevious(): void {
+    const previous = this.previousSnapshot;
+    if (previous === undefined) return;
+    const elapsedMs = Math.max(0, this.now() - previous.retrievedAtMs);
+    if (worseGenerationState(liveFreshnessState(elapsedMs), referenceFreshnessState(elapsedMs)) === "unusable") {
+      this.previousSnapshot = undefined;
+    }
   }
 
   requireSnapshot(): Snapshot {
@@ -448,17 +525,17 @@ export class GenerationStore {
       throw new ApiHttpError(429, "DRAFT_CAPACITY_REACHED", "The active data generation has reached its draft capacity. Refresh or retry after the generation changes.", true);
     }
     const id = scopedToken(snapshot, "draft");
-    this.drafts.set(id, Object.freeze({ snapshotId: snapshot.summary.id, draft: Object.freeze({ ...draft }) }));
+    this.drafts.set(id, Object.freeze({ snapshotId: snapshot.id, draft: Object.freeze({ ...draft }) }));
     return id;
   }
 
   getDraft(id: string, snapshot: Snapshot): RouteDraft {
     const decoded = readScoped(id, snapshot);
-    if (!decoded || decoded.g !== snapshot.summary.id || decoded.t !== "draft" || typeof decoded.e !== "number" || decoded.e <= this.now() || typeof decoded.n !== "string") {
+    if (!decoded || decoded.g !== snapshot.id || decoded.t !== "draft" || typeof decoded.e !== "number" || decoded.e <= this.now() || typeof decoded.n !== "string") {
       throw new ApiHttpError(410, "DRAFT_EXPIRED", "The draft is no longer available.");
     }
     const entry = this.drafts.get(id);
-    if (!entry || entry.snapshotId !== snapshot.summary.id) throw new ApiHttpError(410, "DRAFT_EXPIRED", "The draft is no longer available.");
+    if (!entry || entry.snapshotId !== snapshot.id) throw new ApiHttpError(410, "DRAFT_EXPIRED", "The draft is no longer available.");
     return entry.draft;
   }
 }
@@ -479,7 +556,7 @@ function resolveAirportEndpoint(snapshot: Snapshot, value: unknown, field: strin
 
 function decodeScoped(value: unknown, snapshot: Snapshot, type: string, now = Date.now): number {
   const decoded = readScoped(value, snapshot);
-  if (!decoded || decoded.g !== snapshot.summary.id || decoded.t !== type || typeof decoded.e !== "number" || decoded.e < now() || typeof decoded.n !== "string" || typeof decoded.i !== "number" || !Number.isInteger(decoded.i) || decoded.i < 0) {
+  if (!decoded || decoded.g !== snapshot.id || decoded.t !== type || typeof decoded.e !== "number" || decoded.e < now() || typeof decoded.n !== "string" || typeof decoded.i !== "number" || !Number.isInteger(decoded.i) || decoded.i < 0) {
     throw new ApiHttpError(410, "GENERATION_EXPIRED", "The requested item belongs to an older data generation.");
   }
   return decoded.i;
@@ -497,6 +574,60 @@ function publicLocation(snapshot: Snapshot, index: number, duplicateIndexes: rea
     coordinate: location.coordinate,
     ...(group ? { duplicateGroup: group } : {}),
   };
+}
+
+function selectionMap(draft: RouteDraft): ReadonlyMap<number, RouteDraftSelection> {
+  const bySequence = new Map<number, RouteDraftSelection>();
+  for (const selection of draft.selections) {
+    if (bySequence.has(selection.sequence)) throw new ApiHttpError(400, "INVALID_DRAFT", "A draft waypoint may have only one explicit coordinate selection.");
+    if (selection.sequence >= draft.via.length) throw new ApiHttpError(400, "INVALID_DRAFT", "An explicit coordinate selection must reference an existing draft waypoint.");
+    bySequence.set(selection.sequence, selection);
+  }
+  return bySequence;
+}
+
+function decodeSelectionToken(value: unknown): ScopedToken | undefined {
+  if (typeof value !== "string") return undefined;
+  const parts = value.split(".");
+  if (parts.length !== 2 || !/^[A-Za-z0-9_-]+$/.test(parts[0]!) || !/^[A-Za-z0-9_-]+$/.test(parts[1]!)) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(parts[0]!, "base64url").toString("utf8")) as unknown;
+    return parsed && typeof parsed === "object" ? parsed as ScopedToken : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function verifySelectionSignature(value: string, snapshot: Snapshot): boolean {
+  const parts = value.split(".");
+  const expected = createHmac("sha256", snapshot.tokenSecret).update(parts[0]!).digest("base64url");
+  const actual = Buffer.from(parts[1]!);
+  const expectedBuffer = Buffer.from(expected);
+  return actual.length === expectedBuffer.length && timingSafeEqual(actual, expectedBuffer);
+}
+
+function selectedLocation(snapshot: Snapshot, selection: RouteDraftSelection, reference: string, now: () => number): Location {
+  // Decode the body first so a genuine selection from an older generation can be
+  // told apart from a forged one: the token secret rotates with every snapshot,
+  // so an old-generation token no longer verifies. Both paths fail closed.
+  const decoded = decodeSelectionToken(selection.locationId);
+  if (!decoded) throw new ApiHttpError(400, "TOKEN_INVALID", "The explicit coordinate selection is not a valid service-issued selection.");
+  if (decoded.g !== snapshot.id || typeof decoded.e !== "number" || decoded.e < now() || typeof decoded.n !== "string") {
+    throw new ApiHttpError(410, "GENERATION_EXPIRED", "The explicit coordinate selection belongs to an older data generation.");
+  }
+  if (decoded.t !== "location" || typeof decoded.i !== "number" || !Number.isInteger(decoded.i) || decoded.i < 0) {
+    throw new ApiHttpError(400, "TOKEN_INVALID", "The explicit coordinate selection is not a service-issued location selection.");
+  }
+  if (!verifySelectionSignature(selection.locationId, snapshot)) {
+    throw new ApiHttpError(400, "TOKEN_INVALID", "The explicit coordinate selection signature is invalid.");
+  }
+  const location = snapshot.locations[decoded.i];
+  if (!location) throw new ApiHttpError(404, "POINT_NOT_FOUND", "The selected point was not found.");
+  // Pair the selection with its waypoint reference: a selection is only usable at the
+  // exact waypoint it was issued for. It is never interpreted as a nearby or inferred choice.
+  const resolved = resolveExactReference({ value: reference }, [location]);
+  if (resolved.status !== "resolved") throw new ApiHttpError(409, "SELECTION_MISMATCH", "The explicit coordinate selection does not match the referenced draft waypoint.");
+  return location;
 }
 
 function displayReference(location: Location): string {
@@ -632,7 +763,7 @@ function operationalProxy(projection: RouteProjection, rank?: number): Record<st
   });
 }
 
-function routeDto(snapshot: Snapshot, projection: RouteProjection, rank?: number): Record<string, unknown> {
+function routeDto(snapshot: Snapshot, projection: RouteProjection, rank?: number, includeOperationalProxy = true): Record<string, unknown> {
   const geometry = projection.complete && projection.segments[0] && projection.segments[0].length >= 2 ? toGeoJsonLineString(projection.segments[0]) : undefined;
   return {
     id: projection.id,
@@ -646,12 +777,12 @@ function routeDto(snapshot: Snapshot, projection: RouteProjection, rank?: number
     complete: projection.complete,
     legs: projection.legs,
     ...(projection.distanceNm === undefined ? {} : { distanceNm: projection.distanceNm, rankDistanceNm: projection.rankDistanceNm, ...(rank === undefined ? {} : { rank }) }),
-    operationalProxy: operationalProxy(projection, rank),
+    ...(includeOperationalProxy ? { operationalProxy: operationalProxy(projection, rank) } : {}),
     ...(geometry ? { geometry } : {}),
     ...(projection.segments.length > 0 ? { segments: projection.segments.map((points) => toGeoJsonLineString(points)) } : {}),
     provenance: PUBLIC_PROVENANCE,
-    freshness: snapshot.summary.createdAt,
-    safety: PUBLIC_SAFETY,
+    freshness: new Date(snapshot.retrievedAtMs).toISOString(),
+    safety: PERSISTENT_SAFETY_COPY,
     gaps: projection.gaps,
   };
 }
@@ -691,26 +822,132 @@ function waypointDifference(baseline: readonly PublicWaypoint[], target: readonl
   return differences;
 }
 
-function compareProjections(snapshot: Snapshot, baseline: RouteProjection, target: RouteProjection, now: () => number): Record<string, unknown> {
+interface DraftProjection {
+  readonly origin: Location;
+  readonly destination: Location;
+  readonly legs: readonly PublicLeg[];
+  readonly waypoints: readonly PublicWaypoint[];
+  readonly segments: readonly (readonly Coordinate[])[];
+  readonly gaps: readonly PublicGap[];
+  readonly complete: boolean;
+  readonly distanceNm: number | undefined;
+  readonly rankDistanceNm: number | undefined;
+  readonly pointCount: number;
+}
+
+/**
+ * Resolves a local draft against the active generation. Ambiguous waypoints fail
+ * closed (gap reason "ambiguous") unless an explicit selection token was supplied
+ * and binds to one of the waypoint's exact matches. Selections are never treated
+ * as nearby or inferred choices.
+ */
+function resolveDraftProjection(snapshot: Snapshot, draft: RouteDraft, now: () => number): DraftProjection {
+  const origin = resolveAirportEndpoint(snapshot, draft.origin, "origin");
+  const destination = resolveAirportEndpoint(snapshot, draft.destination, "destination");
+  const selections = selectionMap(draft);
+  const references = [displayReference(origin), ...draft.via, displayReference(destination)];
+  const points: Array<{ label: string; location?: Location }> = [];
+  const gaps: PublicGap[] = [];
+  const waypoints: PublicWaypoint[] = [];
+  for (const [sequence, reference] of references.entries()) {
+    const endpoint = sequence === 0 ? origin : sequence === references.length - 1 ? destination : undefined;
+    let resolution: ResolutionResult;
+    if (endpoint) {
+      resolution = { status: "resolved", reference: { value: endpoint.id, kind: endpoint.kind }, match: endpoint };
+    } else {
+      const selection = selections.get(sequence - 1);
+      resolution = selection
+        ? { status: "resolved", reference: { value: reference, kind: "unknown" }, match: selectedLocation(snapshot, selection, reference, now) }
+        : resolveExactReference({ value: reference }, snapshot.locations);
+    }
+    if (resolution.status === "resolved") {
+      points.push({ label: displayReference(resolution.match), location: resolution.match });
+      waypoints.push(Object.freeze({ sequence, status: "resolved" as const, label: displayReference(resolution.match) }));
+    } else {
+      points.push({ label: `Point ${sequence + 1}` });
+      gaps.push({ status: "gap", sequence, reason: resolution.status === "ambiguous" ? "ambiguous" : "not-found" });
+      waypoints.push(Object.freeze({ sequence, status: "gap" as const, reason: resolution.status === "ambiguous" ? "ambiguous" as const : "not-found" as const }));
+    }
+  }
+  const legs: PublicLeg[] = [];
+  const segments: Coordinate[][] = [];
+  let chain: Array<{ label: string; coordinate: Coordinate }> = [];
+  const flush = () => {
+    if (chain.length >= 2) {
+      segments.push(chain.map((point) => point.coordinate));
+      for (let index = 1; index < chain.length; index += 1) {
+        const from = chain[index - 1]!;
+        const to = chain[index]!;
+        legs.push({ id: scopedToken(snapshot, "draft-leg", { o: legs.length }), sequence: legs.length, kind: "segment", status: "resolved", from: from.label, to: to.label, distanceNm: haversineDistanceNm(from.coordinate, to.coordinate) });
+      }
+    }
+    chain = [];
+  };
+  points.forEach((point, index) => { if (point.location) chain.push({ label: point.label, coordinate: point.location.coordinate }); else { flush(); legs.push({ id: scopedToken(snapshot, "draft-gap-leg", { o: legs.length }), sequence: index, kind: "gap", status: "gap", reason: gaps.find((gap) => gap.sequence === index)?.reason ?? "not-found" }); } });
+  flush();
+  const complete = gaps.length === 0 && legs.length === references.length - 1;
+  const distanceNm = complete ? legs.reduce((sum, leg) => sum + (leg.distanceNm ?? 0), 0) : undefined;
+  const pointCount = points.length;
+  return Object.freeze({
+    origin,
+    destination,
+    legs: Object.freeze(legs),
+    waypoints: Object.freeze(waypoints),
+    segments: Object.freeze(segments.map((segment) => Object.freeze(segment))),
+    gaps: Object.freeze(gaps),
+    complete,
+    distanceNm,
+    rankDistanceNm: distanceNm === undefined ? undefined : rankDistanceNm(distanceNm),
+    pointCount,
+  });
+}
+
+function draftRouteDto(snapshot: Snapshot, projection: DraftProjection, id: string): Record<string, unknown> {
+  const routeLegs: PublicLeg[] = projection.complete
+    ? [...projection.legs]
+    : projection.legs.map((leg) => {
+      const { distanceNm: _distanceNm, ...withoutDistance } = leg;
+      return withoutDistance;
+    });
+  return {
+    id,
+    origin: displayReference(projection.origin),
+    destination: displayReference(projection.destination),
+    legs: routeLegs,
+    gaps: projection.gaps,
+    ...(projection.distanceNm === undefined ? {} : { distanceNm: projection.distanceNm, rankDistanceNm: projection.rankDistanceNm }),
+    ...(projection.complete && projection.segments.length === 1 ? { geometry: toGeoJsonLineString(projection.segments[0]!) } : {}),
+    provenance: PUBLIC_PROVENANCE,
+    freshness: new Date(snapshot.retrievedAtMs).toISOString(),
+    safety: PERSISTENT_SAFETY_COPY,
+  };
+}
+
+function compareProjections(
+  snapshot: Snapshot,
+  baseline: RouteProjection,
+  target: DraftProjection,
+  now: () => number,
+  targetId = "local-draft",
+): Record<string, unknown> {
   if (baseline.origin.id !== target.origin.id || baseline.destination.id !== target.destination.id) {
     throw new ApiHttpError(409, "ENDPOINT_MISMATCH", "Both routes must resolve to the same airport endpoints in the active generation.");
   }
   const waypointDifferences = waypointDifference(baseline.waypoints, target.waypoints);
   const removedWaypointCount = waypointDifferences.filter((difference) => difference.kind === "removed").length;
   const addedWaypointCount = waypointDifferences.length - removedWaypointCount;
-  const complete = baseline.complete && target.complete && baseline.distanceNm !== undefined && target.distanceNm !== undefined;
+  const distance = compareDistanceOperands(baseline.distanceNm, target.distanceNm);
   return {
-    baseline: routeDto(snapshot, baseline),
-    target: routeDto(snapshot, target),
+    baseline: routeDto(snapshot, baseline, undefined, false),
+    target: draftRouteDto(snapshot, target, targetId),
     comparison: {
-      status: complete ? "complete" : "gap",
-      message: complete
+      status: distance.status,
+      message: distance.status === "complete"
         ? "Directional modeled-distance difference from baseline to target. This is not an operational recommendation."
         : "Modeled-distance difference is unavailable because one or both normalized route geometries are incomplete or unresolved.",
-      ...(complete ? {
-        distanceDeltaNm: target.distanceNm! - baseline.distanceNm!,
-        percentageDistanceDelta: baseline.distanceNm === 0 ? undefined : ((target.distanceNm! - baseline.distanceNm!) / baseline.distanceNm!) * 100,
-      } : {}),
+      ...(distance.distanceDeltaNm !== undefined ? { distanceDeltaNm: distance.distanceDeltaNm } : {}),
+      ...(distance.percentageDistanceDelta !== undefined ? { percentageDistanceDelta: distance.percentageDistanceDelta } : {}),
+      ...(distance.unavailable.length > 0 ? { unavailable: [...distance.unavailable] } : {}),
       addedWaypointCount,
       removedWaypointCount,
       waypointDifferences,
@@ -721,8 +958,7 @@ function compareProjections(snapshot: Snapshot, baseline: RouteProjection, targe
 
 function parseLimit(value: unknown): number {
   if (value === undefined) return 50;
-  if (typeof value !== "string" || !/^\d+$/.test(value)) throw new ApiHttpError(400, "INVALID_LIMIT", "The limit must be an integer from 1 to 100.");
-  const parsed = Number(value);
+  const parsed = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : Number.NaN;
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_LIMIT) throw new ApiHttpError(400, "INVALID_LIMIT", "The limit must be an integer from 1 to 100.");
   return parsed;
 }
@@ -753,7 +989,7 @@ function requiredString(value: unknown, code: string, message: string, max = MAX
 
 function cursorOffset(value: unknown, snapshot: Snapshot, query: string, limit: number, type: string, now = Date.now): number {
   const decoded = readScoped(value, snapshot);
-  if (!decoded || decoded.g !== snapshot.summary.id || decoded.t !== type || decoded.q !== query || decoded.l !== limit || typeof decoded.e !== "number" || decoded.e < now() || typeof decoded.n !== "string" || typeof decoded.o !== "number" || !Number.isInteger(decoded.o) || decoded.o < 0) {
+  if (!decoded || decoded.g !== snapshot.id || decoded.t !== type || decoded.q !== query || decoded.l !== limit || typeof decoded.e !== "number" || decoded.e < now() || typeof decoded.n !== "string" || typeof decoded.o !== "number" || !Number.isInteger(decoded.o) || decoded.o < 0) {
     throw new ApiHttpError(409, "CURSOR_EXPIRED", "The cursor is invalid, expired, or belongs to another query, limit, or data generation.");
   }
   return decoded.o;
@@ -808,10 +1044,47 @@ function registerStaticAssets(app: FastifyInstance, directory: string | undefine
   });
 }
 
+function deadlineMessage(deadlineMs: number): string {
+  const seconds = deadlineMs / 1000;
+  return `The request exceeded the ${Number.isInteger(seconds) ? `${seconds}-second` : `${deadlineMs}ms`} service deadline.`;
+}
+
+/**
+ * Plan §6.2 hard server deadline on warm API requests (5 seconds by default).
+ * The handler races a bounded timeout and fails closed with a 503
+ * REQUEST_DEADLINE_EXCEEDED if the deadline passes before a response is sent.
+ * The timeout aborts the handler's upstream work via an AbortSignal so hung
+ * upstream fetches stop promptly instead of lingering. Late handler completion
+ * is consumed by the race and never produces a second response.
+ */
+function withWarmDeadline(
+  handler: (request: FastifyRequest, reply: FastifyReply, signal?: AbortSignal) => Promise<unknown>,
+  deadlineMs: number,
+): (request: FastifyRequest, reply: FastifyReply) => Promise<unknown> {
+  return async (request, reply) => {
+    const controller = new AbortController();
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        if (!reply.sent) reject(new ApiHttpError(503, "REQUEST_DEADLINE_EXCEEDED", deadlineMessage(deadlineMs), true));
+      }, deadlineMs);
+    });
+    try {
+      return await Promise.race([handler(request, reply, controller.signal), deadline]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      controller.abort();
+    }
+  };
+}
+
 export async function createApiServer(options: ApiServerOptions = {}): Promise<{ app: FastifyInstance; store: GenerationStore }> {
   const now = options.now ?? Date.now;
   const adapter = options.adapter ?? createCaasAdapter(options.transport ? { transport: options.transport } : {});
-  const store = new GenerationStore(adapter, now, options.generationTtlMs ?? DEFAULT_GENERATION_TTL_MS);
+  const deadlineMs = options.warmRequestDeadlineMs ?? DEFAULT_WARM_DEADLINE_MS;
+  const warm = (handler: (request: FastifyRequest, reply: FastifyReply, signal?: AbortSignal) => Promise<unknown>) => withWarmDeadline(handler, deadlineMs);
+  const store = new GenerationStore(adapter, now);
   const app = Fastify({ logger: options.logger ?? false, maxParamLength: 2048, bodyLimit: 64 * 1024 });
   app.addHook("onSend", async (_request, reply, payload) => {
     reply
@@ -825,7 +1098,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   });
 
   app.setErrorHandler((error, _request, reply) => {
-    if (error instanceof ApiHttpError) return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message.slice(0, MAX_ERROR_MESSAGE), retryable: error.retryable } });
+    if (error instanceof ApiHttpError) return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message.slice(0, MAX_ERROR_MESSAGE), retryable: error.retryable }, ...(error.details ? { ...error.details } : {}) });
     if (error instanceof SyntaxError) return reply.code(400).send({ error: { code: "INVALID_JSON", message: "The request body is not valid JSON." } });
     return reply.code(500).send({ error: { code: "INTERNAL_ERROR", message: "The route service encountered an internal error." } });
   });
@@ -850,27 +1123,33 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.get("/api/v1/livez", health);
   app.get("/api/v1/liveness", health);
   app.get("/api/v1/health/live", health);
-  app.get("/ready", readiness);
-  app.get("/readyz", readiness);
-  app.get("/health/ready", readiness);
-  app.get("/api/v1/readiness", readiness);
-  app.get("/api/v1/ready", readiness);
-  app.get("/api/v1/readyz", readiness);
-  app.get("/api/v1/health/ready", readiness);
-  app.get("/startup", startup);
-  app.get("/startupz", startup);
-  app.get("/health/startup", startup);
-  app.get("/api/v1/startup", startup);
-  app.get("/api/v1/startupz", startup);
-  app.get("/api/v1/health/startup", startup);
+  app.get("/ready", warm(readiness));
+  app.get("/readyz", warm(readiness));
+  app.get("/health/ready", warm(readiness));
+  app.get("/api/v1/readiness", warm(readiness));
+  app.get("/api/v1/ready", warm(readiness));
+  app.get("/api/v1/readyz", warm(readiness));
+  app.get("/api/v1/health/ready", warm(readiness));
+  app.get("/startup", warm(startup));
+  app.get("/startupz", warm(startup));
+  app.get("/health/startup", warm(startup));
+  app.get("/api/v1/startup", warm(startup));
+  app.get("/api/v1/startupz", warm(startup));
+  app.get("/api/v1/health/startup", warm(startup));
 
+  // Plan §2.4 callsign search is POST-only: the query travels in the request body,
+  // never in the URL, so no live flight identifiers, callsigns, coordinates, tokens,
+  // or query state can leak through URLs or server logs.
   const searchCallsigns = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
-    const query = queryObject(request, ["query", "limit", "cursor"]);
-    const value = requiredString(query.query, "INVALID_QUERY", "Search query must contain 1 to 64 characters.");
+    if (request.query && typeof request.query === "object" && !Array.isArray(request.query) && Object.keys(request.query as Record<string, unknown>).length > 0) {
+      throw new ApiHttpError(400, "INVALID_QUERY", "Callsign search accepts its query in the request body only.");
+    }
+    const body = bodyObject(request, ["query", "limit", "cursor"]);
+    const value = requiredString(body.query, "INVALID_QUERY", "Search query must contain 1 to 64 characters.");
     const normalizedQuery = token(value);
-    const limit = parseLimit(query.limit);
-    const offset = query.cursor === undefined ? 0 : cursorOffset(query.cursor, snapshot, normalizedQuery, limit, "flight-cursor", now);
+    const limit = parseLimit(body.limit);
+    const offset = body.cursor === undefined ? 0 : cursorOffset(body.cursor, snapshot, normalizedQuery, limit, "flight-cursor", now);
     const matches = snapshot.flights.filter((flight) => token(flight.record.callsign).includes(normalizedQuery));
     const data = matches.slice(offset, offset + limit).map((flight) => {
       const id = flightId(snapshot, flight.index);
@@ -886,9 +1165,14 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     const nextOffset = offset + data.length;
     return reply.send({ data, generation: generationSummary(snapshot, now()), ...(nextOffset < matches.length ? { nextCursor: scopedToken(snapshot, "flight-cursor", { o: nextOffset, q: normalizedQuery, l: limit }) } : {}) });
   };
-  app.get("/api/v1/callsigns/search", searchCallsigns);
-  app.get("/api/v1/search", searchCallsigns);
-  app.get("/api/v1/flights/search", searchCallsigns);
+  const searchMethodNotAllowed = async (_request: FastifyRequest, reply: FastifyReply) =>
+    reply.header("allow", "POST").code(405).send({ error: { code: "METHOD_NOT_ALLOWED", message: "Callsign search is available over POST only." } });
+  app.post("/api/v1/callsigns/search", warm(searchCallsigns));
+  app.post("/api/v1/search", warm(searchCallsigns));
+  app.post("/api/v1/flights/search", warm(searchCallsigns));
+  app.get("/api/v1/callsigns/search", searchMethodNotAllowed);
+  app.get("/api/v1/search", searchMethodNotAllowed);
+  app.get("/api/v1/flights/search", searchMethodNotAllowed);
 
   const browse = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
@@ -910,10 +1194,10 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     const nextOffset = offset + items.length;
     return reply.send({ data: items, generation: generationSummary(snapshot, now()), ...(nextOffset < snapshot.flights.length ? { nextCursor: scopedToken(snapshot, "browse-cursor", { o: nextOffset, q: context, l: limit }) } : {}) });
   };
-  app.get("/api/v1/routes", browse);
-  app.get("/api/v1/routes/browse", browse);
-  app.get("/api/v1/browse", browse);
-  app.get("/api/v1/flights", browse);
+  app.get("/api/v1/routes", warm(browse));
+  app.get("/api/v1/routes/browse", warm(browse));
+  app.get("/api/v1/browse", warm(browse));
+  app.get("/api/v1/flights", warm(browse));
 
   const routeOptions = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
@@ -984,10 +1268,15 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
         left.projection.signature.localeCompare(right.projection.signature) ||
         left.projection.id.localeCompare(right.projection.id);
     });
-    return reply.send({ data: ordered.map((candidate) => routeDto(snapshot, candidate.projection, candidate.projection.complete ? rankOf(candidate) : undefined)), generation: generationSummary(snapshot, now()) });
+    const hasRankOne = ordered.some((candidate) => rankOf(candidate) === 1);
+    return reply.send({
+      data: ordered.map((candidate) => routeDto(snapshot, candidate.projection, candidate.projection.complete ? rankOf(candidate) : undefined)),
+      ...(hasRankOne ? { rankLabel: RANK_ONE_LABEL } : {}),
+      generation: generationSummary(snapshot, now()),
+    });
   };
-  app.post("/api/v1/routes/options", routeOptions);
-  app.post("/api/v1/route-options", routeOptions);
+  app.post("/api/v1/routes/options", warm(routeOptions));
+  app.post("/api/v1/route-options", warm(routeOptions));
 
   const routeDetail = async (request: FastifyRequest, reply: FastifyReply) => {
     queryObject(request, []);
@@ -1001,11 +1290,11 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     const destination = resolveAirportEndpoint(snapshot, flight.record.destination, "destination");
     return reply.send({ data: routeDto(snapshot, routeProjection(snapshot, flight, origin, destination)), generation: generationSummary(snapshot, now()) });
   };
-  app.get("/api/v1/routes/:routeId", routeDetail);
-  app.get("/api/v1/detail/:routeId", routeDetail);
-  app.get("/api/v1/flight/:routeId", routeDetail);
-  app.get("/api/v1/flights/:routeId", routeDetail);
-  app.get("/api/v1/flights/:routeId/routes", routeDetail);
+  app.get("/api/v1/routes/:routeId", warm(routeDetail));
+  app.get("/api/v1/detail/:routeId", warm(routeDetail));
+  app.get("/api/v1/flight/:routeId", warm(routeDetail));
+  app.get("/api/v1/flights/:routeId", warm(routeDetail));
+  app.get("/api/v1/flights/:routeId/routes", warm(routeDetail));
 
   const exactLookup = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
@@ -1025,30 +1314,35 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     }
     return reply.code(404).send({ status: "gap", error: { code: "POINT_NOT_FOUND", message: "The point reference was not found." }, generation: generationSummary(snapshot, now()) });
   };
-  app.get("/api/v1/points/:reference", exactLookup);
-  app.get("/api/v1/points/lookup", exactLookup);
-  app.post("/api/v1/points/lookup", exactLookup);
-  app.post("/api/v1/points", exactLookup);
+  app.get("/api/v1/points/:reference", warm(exactLookup));
+  app.get("/api/v1/points/lookup", warm(exactLookup));
+  app.post("/api/v1/points/lookup", warm(exactLookup));
+  app.post("/api/v1/points", warm(exactLookup));
 
-  const refresh = async (request: FastifyRequest, reply: FastifyReply) => {
+  const refresh = async (request: FastifyRequest, reply: FastifyReply, signal?: AbortSignal) => {
     queryObject(request, []);
     assertEmptyBody(request);
     ensureRefreshAuthorization(request, runtimeRefreshSecret(options));
     try {
-      const snapshot = await store.refresh();
+      const snapshot = await store.refresh(signal);
       return reply.send({ status: "refreshed", generation: generationSummary(snapshot, now()) });
-    } catch { throw new ApiHttpError(503, "REFRESH_FAILED", "A new live data generation could not be acquired.", true); }
+    } catch {
+      // Plan §6.2: a failed refresh keeps serving the prior generation when it is
+      // still within freshness limits, and the 503 names it with its retrieval time.
+      const retained = store.retainedGeneration();
+      throw new ApiHttpError(503, "REFRESH_FAILED", "A new live data generation could not be acquired.", true, retained ? { retained: { generation: retained } } : undefined);
+    }
   };
-  app.post("/api/v1/refresh", refresh);
-  app.post("/api/v1/admin/refresh", refresh);
+  app.post("/api/v1/refresh", warm(refresh));
+  app.post("/api/v1/admin/refresh", warm(refresh));
 
-  app.post("/api/v1/drafts", async (request, reply) => {
+  app.post("/api/v1/drafts", warm(async (request, reply) => {
     const snapshot = store.requireSnapshot();
-    const parsed = RouteDraftSchema.safeParse(bodyObject(request, ["origin", "destination", "via"]));
+    const parsed = RouteDraftSchema.safeParse(bodyObject(request, ["origin", "destination", "via", "selections"]));
     if (!parsed.success || !parsed.data.origin || !parsed.data.destination) throw new ApiHttpError(400, "INVALID_DRAFT", "A route draft requires non-empty origin and destination endpoints.");
     const draftId = store.rememberDraft(parsed.data, snapshot);
     return reply.code(201).send({ id: draftId, generation: generationSummary(snapshot, now()), draft: parsed.data });
-  });
+  }));
 
   const draftCompare = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
@@ -1064,43 +1358,41 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
       draft = parsedDraft.data;
     }
     if (!draft) throw new ApiHttpError(400, "INVALID_DRAFT", "A draft ID or valid draft is required.");
-    const origin = resolveAirportEndpoint(snapshot, draft.origin, "origin");
-    const destination = resolveAirportEndpoint(snapshot, draft.destination, "destination");
-    const references = [displayReference(origin), ...draft.via, displayReference(destination)];
-    const points: Array<{ label: string; location?: Location }> = [];
-    const gaps: PublicGap[] = [];
-    for (const [sequence, reference] of references.entries()) {
-      const endpoint = sequence === 0 ? origin : sequence === references.length - 1 ? destination : undefined;
-      const resolution = endpoint ? { status: "resolved" as const, match: endpoint } : resolveExactReference({ value: reference }, snapshot.locations);
-      if (resolution.status === "resolved") points.push({ label: displayReference(resolution.match), location: resolution.match });
-      else { points.push({ label: `Point ${sequence + 1}` }); gaps.push({ status: "gap", sequence, reason: resolution.status === "ambiguous" ? "ambiguous" : "not-found" }); }
-    }
-    const legs: PublicLeg[] = [];
-    const segments: Coordinate[][] = [];
-    let chain: Array<{ label: string; coordinate: Coordinate }> = [];
-    const flush = () => {
-      if (chain.length >= 2) {
-        segments.push(chain.map((point) => point.coordinate));
-        for (let index = 1; index < chain.length; index += 1) {
-          const from = chain[index - 1]!; const to = chain[index]!;
-          legs.push({ id: scopedToken(snapshot, "draft-leg", { o: legs.length }), sequence: legs.length, kind: "segment", status: "resolved", from: from.label, to: to.label, distanceNm: haversineDistanceNm(from.coordinate, to.coordinate) });
-        }
-      }
-      chain = [];
-    };
-    points.forEach((point, index) => { if (point.location) chain.push({ label: point.label, coordinate: point.location.coordinate }); else { flush(); legs.push({ id: scopedToken(snapshot, "draft-gap-leg", { o: legs.length }), sequence: index, kind: "gap", status: "gap", reason: gaps.find((gap) => gap.sequence === index)?.reason ?? "not-found" }); } });
-    flush();
-    const complete = gaps.length === 0 && legs.length === references.length - 1;
-    const routeLegs: PublicLeg[] = complete ? legs : legs.map((leg) => {
-      const { distanceNm: _distanceNm, ...withoutDistance } = leg;
-      return withoutDistance;
-    });
-    const distanceNm = complete ? legs.reduce((sum, leg) => sum + (leg.distanceNm ?? 0), 0) : undefined;
-    const route = { id: draftId ?? randomToken(), origin: displayReference(origin), destination: displayReference(destination), legs: routeLegs, gaps, ...(distanceNm === undefined ? {} : { distanceNm, rankDistanceNm: rankDistanceNm(distanceNm) }), ...(complete && segments.length === 1 ? { geometry: toGeoJsonLineString(segments[0]!) } : {}), provenance: PUBLIC_PROVENANCE, freshness: snapshot.summary.createdAt, safety: PUBLIC_SAFETY };
-    return reply.send({ draft, route, comparison: { status: complete ? "complete" : "gap", message: complete ? "Draft distances are derived from resolved reference points." : "No distance or geometry is inferred across unresolved draft points." }, generation: generationSummary(snapshot, now()) });
+    const projection = resolveDraftProjection(snapshot, draft, now);
+    const route = draftRouteDto(snapshot, projection, draftId ?? randomToken());
+    return reply.send({ draft, route, comparison: { status: projection.complete ? "complete" : "gap", message: projection.complete ? "Draft distances are derived from resolved reference points." : "No distance or geometry is inferred across unresolved draft points." }, generation: generationSummary(snapshot, now()) });
   };
-  app.post("/api/v1/drafts/compare", draftCompare);
-  app.post("/api/v1/compare", draftCompare);
+  app.post("/api/v1/drafts/compare", warm(draftCompare));
+  app.post("/api/v1/compare", warm(draftCompare));
+
+  const compareRoutes = async (request: FastifyRequest, reply: FastifyReply) => {
+    const snapshot = store.requireSnapshot();
+    const body = bodyObject(request, ["baselineId", "targetDraftId", "targetDraft"]);
+    const baselineId = requiredString(body.baselineId, "INVALID_BASELINE", "A selected recorded route ID is required.", 2048);
+    const targetDraftId = body.targetDraftId === undefined ? undefined : requiredString(body.targetDraftId, "INVALID_DRAFT", "A valid draft ID is required.", 512);
+    if (targetDraftId !== undefined && body.targetDraft !== undefined) throw new ApiHttpError(400, "INVALID_COMPARE", "Provide either targetDraftId or targetDraft, not both.");
+    if (targetDraftId === undefined && body.targetDraft === undefined) throw new ApiHttpError(400, "INVALID_COMPARE", "A target draft ID or draft is required.");
+    const flightIndex = decodeScoped(baselineId, snapshot, "flight", now);
+    const flight = snapshot.flightByIndex.get(flightIndex);
+    if (!flight || !flight.record.departure || !flight.record.destination) throw new ApiHttpError(404, "ROUTE_NOT_FOUND", "The baseline recorded route was not found.");
+    const origin = resolveAirportEndpoint(snapshot, flight.record.departure, "origin");
+    const destination = resolveAirportEndpoint(snapshot, flight.record.destination, "destination");
+    const baseline = routeProjection(snapshot, flight, origin, destination, baselineId);
+    let draft: RouteDraft;
+    let draftId: string;
+    if (targetDraftId !== undefined) {
+      draft = store.getDraft(targetDraftId, snapshot);
+      draftId = targetDraftId;
+    } else {
+      const parsed = RouteDraftSchema.safeParse(body.targetDraft);
+      if (!parsed.success || !parsed.data.origin || !parsed.data.destination) throw new ApiHttpError(400, "INVALID_DRAFT", "A route draft requires non-empty origin and destination endpoints.");
+      draft = parsed.data;
+      draftId = randomToken();
+    }
+    const target = resolveDraftProjection(snapshot, draft, now);
+    return reply.send(compareProjections(snapshot, baseline, target, now, draftId));
+  };
+  app.post("/api/v1/routes/compare", warm(compareRoutes));
 
   if (options.assetDirectory || (process.env.NODE_ENV === "production" && process.env.WEB_ASSET_DIR)) registerStaticAssets(app, options.assetDirectory ?? process.env.WEB_ASSET_DIR);
   if (options.initialize !== false) await store.initialize();
