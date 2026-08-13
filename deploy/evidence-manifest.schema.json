@@ -1,0 +1,225 @@
+{
+  "title": "Flight Route Explorer gate evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "gateId",
+    "policy",
+    "subject",
+    "checks",
+    "blockingIssues",
+    "gateResult",
+    "failureFallback"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "gateId": {
+      "type": "string",
+      "pattern": "^PG-(00|01|02|03|04|05|PROD|LIFE)$"
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policyVersion",
+        "policySha256",
+        "evaluationMode"
+      ],
+      "properties": {
+        "policyVersion": { "type": "string", "minLength": 1 },
+        "policySha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "validatorVersion": { "type": "string", "minLength": 1 },
+        "validatorSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "evaluationMode": {
+          "enum": ["human-reviewed-pg00", "semantic-validator"]
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "identifiers", "environment"],
+      "properties": {
+        "type": {
+          "enum": ["documents", "commit", "oci", "azure-deployment", "lifecycle"]
+        },
+        "identifiers": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "environment": { "type": "string", "minLength": 1 }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "checkId",
+          "mandatory",
+          "procedure",
+          "startedAt",
+          "endedAt",
+          "threshold",
+          "measurement",
+          "artifacts",
+          "result",
+          "failureFallback"
+        ],
+        "properties": {
+          "checkId": {
+            "type": "string",
+            "pattern": "^[A-Z0-9][A-Z0-9._-]+$"
+          },
+          "mandatory": { "const": true },
+          "procedure": { "type": "string", "minLength": 1 },
+          "startedAt": { "type": "string", "format": "date-time" },
+          "endedAt": { "type": "string", "format": "date-time" },
+          "threshold": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rule", "operator", "expected"],
+            "properties": {
+              "rule": { "type": "string", "minLength": 1 },
+              "operator": {
+                "enum": [
+                  "equals",
+                  "less-than-or-equal",
+                  "greater-than-or-equal",
+                  "all-less-than-or-equal",
+                  "set-equals",
+                  "hash-equals",
+                  "manual-approval"
+                ]
+              },
+              "expected": {
+                "type": ["boolean", "number", "integer", "string", "array"]
+              },
+              "units": { "type": ["string", "null"] }
+            }
+          },
+          "measurement": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["summary", "value", "sampleCount"],
+            "properties": {
+              "summary": { "type": "string", "minLength": 1 },
+              "value": {
+                "type": ["boolean", "number", "integer", "string", "array"]
+              },
+              "units": { "type": ["string", "null"] },
+              "sampleCount": { "type": "integer", "minimum": 1 }
+            }
+          },
+          "artifacts": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "sha256"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1 },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            }
+          },
+          "result": { "enum": ["pass", "fail", "blocked"] },
+          "exception": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["reason", "expiresAt", "gateBlocking"],
+            "properties": {
+              "reason": { "type": "string", "minLength": 1 },
+              "expiresAt": { "type": "string", "format": "date-time" },
+              "gateBlocking": { "type": "boolean" }
+            }
+          },
+          "failureFallback": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "blockingIssues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "priority", "status"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "priority": { "enum": ["P0", "P1"] },
+          "status": { "enum": ["open", "resolved"] }
+        }
+      }
+    },
+    "gateResult": { "enum": ["pass", "fail", "blocked"] },
+    "failureFallback": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "gateResult": { "const": "pass" } },
+        "required": ["gateResult"]
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "items": {
+              "properties": { "result": { "const": "pass" } },
+              "required": ["result"],
+              "not": {
+                "properties": {
+                  "exception": {
+                    "properties": { "gateBlocking": { "const": true } },
+                    "required": ["gateBlocking"]
+                  }
+                },
+                "required": ["exception"]
+              }
+            }
+          },
+          "blockingIssues": {
+            "not": {
+              "contains": {
+                "properties": { "status": { "const": "open" } },
+                "required": ["status"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "not": {
+          "properties": { "gateId": { "const": "PG-00" } },
+          "required": ["gateId"]
+        }
+      },
+      "then": {
+        "properties": {
+          "policy": {
+            "required": ["validatorVersion", "validatorSha256"],
+            "properties": {
+              "evaluationMode": { "const": "semantic-validator" }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

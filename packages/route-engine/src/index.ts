@@ -144,11 +144,15 @@ export function haversineDistanceNm(aInput: unknown, bInput: unknown): number {
   const a = toCoordinate(aInput);
   const b = toCoordinate(bInput);
   const latitudeDelta = degreesToRadians(b.lat - a.lat);
-  const longitudeDelta = degreesToRadians(b.lon - a.lon);
-  const aTerm = Math.sin(latitudeDelta / 2) ** 2 +
+  const rawLongitudeDelta = degreesToRadians(b.lon - a.lon);
+  // Use the shortest longitudinal arc, including routes crossing the antimeridian.
+  const longitudeDelta = ((rawLongitudeDelta + Math.PI) % (2 * Math.PI) + (2 * Math.PI)) % (2 * Math.PI) - Math.PI;
+  const unboundedATerm = Math.sin(latitudeDelta / 2) ** 2 +
     Math.cos(degreesToRadians(a.lat)) * Math.cos(degreesToRadians(b.lat)) *
     Math.sin(longitudeDelta / 2) ** 2;
-  const centralAngle = 2 * Math.atan2(Math.sqrt(aTerm), Math.sqrt(Math.max(0, 1 - aTerm)));
+  // Floating-point noise can move a near-antipodal value fractionally outside [0, 1].
+  const aTerm = Math.min(1, Math.max(0, unboundedATerm));
+  const centralAngle = 2 * Math.atan2(Math.sqrt(aTerm), Math.sqrt(1 - aTerm));
   return EARTH_RADIUS_NM * centralAngle;
 }
 

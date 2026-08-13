@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "evidenceId": "PG-00-LIVE-DISCOVERY-2026-08-12",
+  "classification": "secret-free aggregate evidence; no raw record or credential",
+  "startedAt": "2026-08-12T09:30:06Z",
+  "authorization": "bounded read-only discovery",
+  "credentialEnvironmentVariable": "apikey",
+  "hashLocatorRule": "first 16 lowercase hexadecimal characters of response-body SHA-256; locator only, not an upstream version",
+  "replayProcedure": {
+    "method": "GET",
+    "httpsOnly": true,
+    "followRedirects": false,
+    "proxyEnvironmentIgnored": true,
+    "perRequestTimeoutSeconds": 30,
+    "credentialHandling": "Read apikey from the local process environment; never print it, place it in a URL, command argument, source file, or retained output.",
+    "bodyHandling": "Stream each bounded response through SHA-256 and the declared parser; retain only media/status, bytes, counts, timings, hash locator, and aggregate validation findings; discard response bytes.",
+    "validation": [
+      "Require HTTP 200 and the observed media type for each path family.",
+      "Parse Flight Plan as a bounded JSON collection.",
+      "Parse Airways, Fixes, Airports, and NAVAIDs as bounded JSON arrays despite text/plain declarations.",
+      "Validate every Fix, Airport, and NAVAID item with IDENTIFIER (latitude,longitude) and coordinate-range checks.",
+      "Record exact identifier multiplicity and route-resolution aggregates without retaining identifiers.",
+      "Treat airway occurrence/directed-leg semantics as unproven unless an authoritative relation is established; do not infer it from adjacency or list membership."
+    ]
+  },
+  "datasets": [
+    {
+      "name": "Flight Plan",
+      "path": "/flight-manager/displayAll",
+      "status": 200,
+      "mediaType": "application/json; charset=utf-8",
+      "bytes": 222298,
+      "records": 115,
+      "sha256Prefix": "f4085e3c5227de9f",
+      "laterProbeMilliseconds": 255
+    },
+    {
+      "name": "Airways",
+      "path": "/geopoints/list/airways",
+      "status": 200,
+      "mediaType": "text/plain; charset=utf-8",
+      "bytes": 66243,
+      "records": 9319,
+      "sha256Prefix": "df7bd82032bad47b",
+      "laterProbeMilliseconds": 263
+    },
+    {
+      "name": "Fixes",
+      "path": "/geopoints/list/fixes",
+      "status": 200,
+      "mediaType": "text/plain; charset=utf-8",
+      "bytes": 5655307,
+      "records": 247419,
+      "sha256Prefix": "704056054cc0d476",
+      "laterProbeMilliseconds": 1143
+    },
+    {
+      "name": "Airports",
+      "path": "/geopoints/list/airports",
+      "status": 200,
+      "mediaType": "text/plain; charset=utf-8",
+      "bytes": 288573,
+      "records": 13175,
+      "sha256Prefix": "28610a6ba7dcd4dc",
+      "laterProbeMilliseconds": 149
+    },
+    {
+      "name": "NAVAIDs",
+      "path": "/geopoints/list/navaids",
+      "status": 200,
+      "mediaType": "text/plain; charset=utf-8",
+      "bytes": 206841,
+      "records": 10195,
+      "sha256Prefix": "e67f9537016aae0f",
+      "laterProbeMilliseconds": 302
+    }
+  ],
+  "aggregates": {
+    "referenceRecords": 270789,
+    "referenceRecordsPassingParserAndCoordinateRange": 270789,
+    "fixes": {
+      "uniqueIdentifiers": 210905,
+      "duplicateIdentifierGroups": 12230,
+      "maximumMultiplicity": 160
+    },
+    "airports": {
+      "uniqueIdentifiers": 13175,
+      "duplicateIdentifierGroups": 0,
+      "departuresResolved": 115,
+      "departuresObserved": 115,
+      "destinationsResolved": 114,
+      "destinationsObserved": 115
+    },
+    "navaids": {
+      "uniqueIdentifiers": 5726,
+      "duplicateIdentifierGroups": 1791,
+      "maximumMultiplicity": 32
+    },
+    "callsigns": {
+      "groups": 89,
+      "duplicateGroups": 24,
+      "maximumMultiplicity": 4
+    },
+    "endpointPairs": {
+      "groups": 67,
+      "repeatedGroups": 32,
+      "maximumCandidates": 7
+    },
+    "structuredRoutes": {
+      "flights": 59,
+      "elements": 927,
+      "maximumElementsPerFlight": 39,
+      "uniqueMonotonicSequences": 59
+    },
+    "designatedRouteOccurrences": {
+      "total": 891,
+      "fixMatches": 577,
+      "navaidMatches": 243,
+      "navaidOnlyMatches": 234,
+      "multiDatasetMatches": 9,
+      "unresolved": 80,
+      "directCoordinateElements": 13,
+      "elementsWithoutPositionObject": 23
+    },
+    "airways": {
+      "types": {
+        "DIRECT": 128,
+        "NAMED": 776,
+        "SID": 10,
+        "STAR": 13
+      },
+      "routeElementsWithValue": 889,
+      "valuesPresentInAirwayList": 653,
+      "valuesAbsentFromAirwayList": 236,
+      "occurrenceOrDirectedLegSemantics": "unproven; values excluded from product output"
+    },
+    "paginationMetadataObserved": false,
+    "rateLimitOrRetryHeadersObservedOnFlightResponse": false,
+    "deliberateThrottleOrFailureProbePerformed": false
+  }
+}

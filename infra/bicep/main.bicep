@@ -105,7 +105,7 @@ resource budget 'Microsoft.Consumption/budgets@2023-05-01' = if (deployResources
       forecasted25: {
         enabled: true
         operator: 'GreaterThan'
-        threshold: 25
+        threshold: 50
         contactEmails: []
         contactRoles: []
         contactGroups: []
@@ -113,7 +113,7 @@ resource budget 'Microsoft.Consumption/budgets@2023-05-01' = if (deployResources
       forecasted37: {
         enabled: true
         operator: 'GreaterThan'
-        threshold: 375 / 10
+        threshold: 75
         contactEmails: []
         contactRoles: []
         contactGroups: []
@@ -121,7 +121,7 @@ resource budget 'Microsoft.Consumption/budgets@2023-05-01' = if (deployResources
       forecasted45: {
         enabled: true
         operator: 'GreaterThan'
-        threshold: 45
+        threshold: 90
         contactEmails: []
         contactRoles: []
         contactGroups: []

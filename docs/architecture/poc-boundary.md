@@ -18,7 +18,7 @@ React/Vite browser <--> same-origin Fastify BFF
                               +--> immutable complete generation
                               +--> route resolution/ranking/diff
                               +--> stable DTOs and errors
-                              +--> configurable map tile provider (browser direct)
+                              +--> dependency-free SVG route diagram (no external tiles)
 ```
 
 The Fastify server is the only CAAS client. It acquires Flight Plan, Airways, Fixes, Airports, and NAVAIDs data, validates every response, discards unknown/unneeded fields, and builds a complete generation. The implemented UI uses a dependency-free SVG route diagram rather than external map tiles; this is a deliberate local-first POC variance from the design's configurable Leaflet/OpenStreetMap option. A generation is admitted only when every mandatory family is usable. A refresh builds a separate candidate and atomically swaps it after complete validation; a failed refresh retains a still-usable prior generation only within the defined freshness and memory limits. Restart loses the generation and requires a fresh real acquisition.
@@ -28,7 +28,7 @@ The target package boundary is:
 - `apps/api`: BFF, request validation, generation lifecycle, upstream adapter composition.
 - `apps/web`: presentation, map/table parity, keyboard and focus behavior.
 - `packages/contracts`: stable DTOs, runtime schemas, error codes, token shapes.
-- `packages/route-engine`: exact resolution, geometry, Haversine distance, ranking, draft and ordered-diff rules.
+- `packages/route-engine`: exact resolution, geometry, Haversine distance, ranking, local-draft validation, and server-computed delta rules.
 - `packages/upstream-caas`: HTTPS origin/path/method allow-list, bounded parsing, sanitization, response evidence aggregates.
 
 The final POC may package these responsibilities in one non-root Linux image. Packaging does not merge the source or trust boundaries. There is no application database, Blob snapshot store, scheduled publisher/validator Job, queue, Service Bus, controller, attestor, mutable pointer, or application data rollback.
@@ -37,7 +37,7 @@ The final POC may package these responsibilities in one non-root Linux image. Pa
 
 Flight Plan records support callsign search, duplicate disambiguation, selection, and recorded-route display. Fixes and NAVAIDs resolve intermediate identifiers; Airports resolve endpoints. Resolution is exact and ambiguity-preserving. A missing or multiply matched point is an explicit gap/diagnostic, not a nearest-neighbor choice. A continuous line must never cross a gap.
 
-Distance uses full-precision Haversine legs and totals with Earth radius `3440.065 NM`. Only ranking equality uses `rankDistanceNm = round(total, 0.000001 NM)`. Complete same-endpoint recorded routes and computationally complete local drafts can compete. Equal rank distances share rank; point count and canonical signature are deterministic display tie-breakers only. Incomplete candidates stay visible but unranked.
+Distance uses full-precision Haversine legs and totals with Earth radius `3440.065 NM`. Only ranking equality uses `rankDistanceNm = round(total, 0.000001 NM)`. Complete same-endpoint recorded routes alone compete. Equal rank distances share rank; point count and canonical signature are deterministic display tie-breakers only. A locally edited draft is separately server-validated and may expose a delta only when both computations are complete. Incomplete candidates stay visible but unranked.
 
 The only qualified first-place label is **“Rank 1 by shortest modeled distance among complete candidates.”** This is a mathematical comparison of modeled coordinates. It is not operational validity, safety, clearance, legality, dispatch fitness, or a recommendation.
 

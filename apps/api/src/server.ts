@@ -32,10 +32,13 @@ const DEFAULT_PORT = 8080;
 const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_GENERATION_TTL_MS = 30 * 60 * 1000;
 const MAX_LIMIT = 100;
+const MAX_SAME_ENDPOINT_CANDIDATES = 500;
+const MAX_DRAFT_ENTRIES = 512;
 const MAX_SEARCH_LENGTH = 64;
 const MAX_ERROR_MESSAGE = 160;
-const PUBLIC_PROVENANCE = "CAAS normalized snapshot";
-const PUBLIC_SAFETY = "For planning display only; verify operational data before use.";
+const PUBLIC_PROVENANCE = "CAAS normalized live generation";
+const PUBLIC_SAFETY = "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.";
+const OPERATIONAL_PROXY_SUMMARY = "Shortest complete normalized observed route among same-endpoint candidates returned by this fresh generation.";
 
 type RouteGapReason = "invalid-reference" | "not-found" | "ambiguous" | "missing";
 
@@ -105,12 +108,20 @@ interface PublicLeg {
   readonly reason?: RouteGapReason;
 }
 
+interface PublicWaypoint {
+  readonly sequence: number;
+  readonly status: "resolved" | "gap";
+  readonly label?: string;
+  readonly reason?: RouteGapReason;
+}
+
 interface RouteProjection {
   readonly id: string;
   readonly flight: SafeFlight;
   readonly origin: Location;
   readonly destination: Location;
   readonly legs: readonly PublicLeg[];
+  readonly waypoints: readonly PublicWaypoint[];
   readonly segments: readonly (readonly Coordinate[])[];
   readonly gaps: readonly PublicGap[];
   readonly distanceNm: number | undefined;
@@ -353,7 +364,12 @@ async function acquireSnapshot(adapter: CaasAdapter, now: () => number, ttlMs: n
   const fixes = await adapter.fixes(signal);
   const airports = await adapter.airports(signal);
   const navaids = await adapter.navaids(signal);
-  return buildSnapshot(display, airway, [fixes, airports, navaids], now(), ttlMs);
+  const references = [fixes, airports, navaids] as const;
+  const totalReferenceRecords = references.reduce((total, dataset) => total + dataset.points.length, 0);
+  if (totalReferenceRecords > 700_000) {
+    throw new GenerationAcquisitionError("REFERENCE_RECORD_LIMIT");
+  }
+  return buildSnapshot(display, airway, references, now(), ttlMs);
 }
 
 function isFresh(snapshot: Snapshot, now: number): boolean {
@@ -428,12 +444,19 @@ export class GenerationStore {
   }
 
   rememberDraft(draft: RouteDraft, snapshot: Snapshot): string {
-    const id = randomToken();
+    if (this.drafts.size >= MAX_DRAFT_ENTRIES) {
+      throw new ApiHttpError(429, "DRAFT_CAPACITY_REACHED", "The active data generation has reached its draft capacity. Refresh or retry after the generation changes.", true);
+    }
+    const id = scopedToken(snapshot, "draft");
     this.drafts.set(id, Object.freeze({ snapshotId: snapshot.summary.id, draft: Object.freeze({ ...draft }) }));
     return id;
   }
 
   getDraft(id: string, snapshot: Snapshot): RouteDraft {
+    const decoded = readScoped(id, snapshot);
+    if (!decoded || decoded.g !== snapshot.summary.id || decoded.t !== "draft" || typeof decoded.e !== "number" || decoded.e <= this.now() || typeof decoded.n !== "string") {
+      throw new ApiHttpError(410, "DRAFT_EXPIRED", "The draft is no longer available.");
+    }
     const entry = this.drafts.get(id);
     if (!entry || entry.snapshotId !== snapshot.summary.id) throw new ApiHttpError(410, "DRAFT_EXPIRED", "The draft is no longer available.");
     return entry.draft;
@@ -543,6 +566,9 @@ function routeProjection(
   const lastEndpoint = occurrences[occurrences.length - 1];
   if (last > 0 && lastRouteOccurrence && lastEndpoint && "point" in lastRouteOccurrence && "point" in lastEndpoint && isSameCoordinate(lastRouteOccurrence.point.coordinate, lastEndpoint.point.coordinate)) occurrences.splice(last, 1);
 
+  const waypoints = Object.freeze(occurrences.map((occurrence) => "gap" in occurrence
+    ? Object.freeze({ sequence: occurrence.gap.sequence, status: "gap" as const, reason: occurrence.gap.reason })
+    : Object.freeze({ sequence: occurrence.point.sequence, status: "resolved" as const, label: occurrence.point.label })));
   const legs: PublicLeg[] = [];
   const segments: Coordinate[][] = [];
   let chain: Array<{ label: string; coordinate: Coordinate; sequence: number }> = [];
@@ -584,6 +610,7 @@ function routeProjection(
     origin,
     destination,
     legs: Object.freeze(legs),
+    waypoints: Object.freeze(waypoints),
     segments: Object.freeze(segments.map((segment) => Object.freeze(segment))),
     gaps: Object.freeze(gaps),
     distanceNm,
@@ -591,6 +618,17 @@ function routeProjection(
     complete,
     pointCount,
     signature,
+  });
+}
+
+function operationalProxy(projection: RouteProjection, rank?: number): Record<string, unknown> {
+  const eligible = projection.complete && projection.distanceNm !== undefined && projection.rankDistanceNm !== undefined && rank !== undefined;
+  return Object.freeze({
+    mode: "operational-proxy",
+    eligible,
+    criterion: "minimum-modeled-distance-nm",
+    summary: OPERATIONAL_PROXY_SUMMARY,
+    ...(eligible ? { rank } : { exclusion: "Route geometry is incomplete or unresolved." }),
   });
 }
 
@@ -608,6 +646,7 @@ function routeDto(snapshot: Snapshot, projection: RouteProjection, rank?: number
     complete: projection.complete,
     legs: projection.legs,
     ...(projection.distanceNm === undefined ? {} : { distanceNm: projection.distanceNm, rankDistanceNm: projection.rankDistanceNm, ...(rank === undefined ? {} : { rank }) }),
+    operationalProxy: operationalProxy(projection, rank),
     ...(geometry ? { geometry } : {}),
     ...(projection.segments.length > 0 ? { segments: projection.segments.map((points) => toGeoJsonLineString(points)) } : {}),
     provenance: PUBLIC_PROVENANCE,
@@ -617,8 +656,71 @@ function routeDto(snapshot: Snapshot, projection: RouteProjection, rank?: number
   };
 }
 
+function waypointKey(waypoint: PublicWaypoint): string {
+  return waypoint.status === "resolved"
+    ? `resolved:${waypoint.label ?? ""}`
+    : `gap:${waypoint.reason ?? "missing"}`;
+}
+
+function waypointDifference(baseline: readonly PublicWaypoint[], target: readonly PublicWaypoint[]): Record<string, unknown>[] {
+  const lengths = Array.from({ length: baseline.length + 1 }, () => Array<number>(target.length + 1).fill(0));
+  for (let baselineIndex = baseline.length - 1; baselineIndex >= 0; baselineIndex -= 1) {
+    for (let targetIndex = target.length - 1; targetIndex >= 0; targetIndex -= 1) {
+      lengths[baselineIndex]![targetIndex] = waypointKey(baseline[baselineIndex]!) === waypointKey(target[targetIndex]!)
+        ? 1 + lengths[baselineIndex + 1]![targetIndex + 1]!
+        : Math.max(lengths[baselineIndex + 1]![targetIndex]!, lengths[baselineIndex]![targetIndex + 1]!);
+    }
+  }
+  const differences: Record<string, unknown>[] = [];
+  let baselineIndex = 0;
+  let targetIndex = 0;
+  while (baselineIndex < baseline.length || targetIndex < target.length) {
+    const baselineWaypoint = baseline[baselineIndex];
+    const targetWaypoint = target[targetIndex];
+    if (baselineWaypoint && targetWaypoint && waypointKey(baselineWaypoint) === waypointKey(targetWaypoint)) {
+      baselineIndex += 1;
+      targetIndex += 1;
+    } else if (!targetWaypoint || (baselineWaypoint && lengths[baselineIndex + 1]![targetIndex]! >= lengths[baselineIndex]![targetIndex + 1]!)) {
+      differences.push({ kind: "removed", sequence: baselineWaypoint!.sequence, status: baselineWaypoint!.status, ...(baselineWaypoint!.label ? { label: baselineWaypoint!.label } : {}), ...(baselineWaypoint!.reason ? { reason: baselineWaypoint!.reason } : {}) });
+      baselineIndex += 1;
+    } else {
+      differences.push({ kind: "added", sequence: targetWaypoint.sequence, status: targetWaypoint.status, ...(targetWaypoint.label ? { label: targetWaypoint.label } : {}), ...(targetWaypoint.reason ? { reason: targetWaypoint.reason } : {}) });
+      targetIndex += 1;
+    }
+  }
+  return differences;
+}
+
+function compareProjections(snapshot: Snapshot, baseline: RouteProjection, target: RouteProjection, now: () => number): Record<string, unknown> {
+  if (baseline.origin.id !== target.origin.id || baseline.destination.id !== target.destination.id) {
+    throw new ApiHttpError(409, "ENDPOINT_MISMATCH", "Both routes must resolve to the same airport endpoints in the active generation.");
+  }
+  const waypointDifferences = waypointDifference(baseline.waypoints, target.waypoints);
+  const removedWaypointCount = waypointDifferences.filter((difference) => difference.kind === "removed").length;
+  const addedWaypointCount = waypointDifferences.length - removedWaypointCount;
+  const complete = baseline.complete && target.complete && baseline.distanceNm !== undefined && target.distanceNm !== undefined;
+  return {
+    baseline: routeDto(snapshot, baseline),
+    target: routeDto(snapshot, target),
+    comparison: {
+      status: complete ? "complete" : "gap",
+      message: complete
+        ? "Directional modeled-distance difference from baseline to target. This is not an operational recommendation."
+        : "Modeled-distance difference is unavailable because one or both normalized route geometries are incomplete or unresolved.",
+      ...(complete ? {
+        distanceDeltaNm: target.distanceNm! - baseline.distanceNm!,
+        percentageDistanceDelta: baseline.distanceNm === 0 ? undefined : ((target.distanceNm! - baseline.distanceNm!) / baseline.distanceNm!) * 100,
+      } : {}),
+      addedWaypointCount,
+      removedWaypointCount,
+      waypointDifferences,
+    },
+    generation: generationSummary(snapshot, now()),
+  };
+}
+
 function parseLimit(value: unknown): number {
-  if (value === undefined) return 25;
+  if (value === undefined) return 50;
   if (typeof value !== "string" || !/^\d+$/.test(value)) throw new ApiHttpError(400, "INVALID_LIMIT", "The limit must be an integer from 1 to 100.");
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_LIMIT) throw new ApiHttpError(400, "INVALID_LIMIT", "The limit must be an integer from 1 to 100.");
@@ -710,7 +812,17 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   const now = options.now ?? Date.now;
   const adapter = options.adapter ?? createCaasAdapter(options.transport ? { transport: options.transport } : {});
   const store = new GenerationStore(adapter, now, options.generationTtlMs ?? DEFAULT_GENERATION_TTL_MS);
-  const app = Fastify({ logger: options.logger ?? false, maxParamLength: 2048 });
+  const app = Fastify({ logger: options.logger ?? false, maxParamLength: 2048, bodyLimit: 64 * 1024 });
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply
+      .header("content-security-policy", "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; style-src 'self'")
+      .header("referrer-policy", "strict-origin-when-cross-origin")
+      .header("strict-transport-security", "max-age=31536000; includeSubDomains")
+      .header("x-content-type-options", "nosniff")
+      .header("x-frame-options", "DENY")
+      .header("permissions-policy", "geolocation=(), microphone=(), camera=()");
+    return payload;
+  });
 
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ApiHttpError) return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message.slice(0, MAX_ERROR_MESSAGE), retryable: error.retryable } });
@@ -814,11 +926,14 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
       if (!selectedFlight.record.departure || !selectedFlight.record.destination) throw new ApiHttpError(409, "ROUTE_GAP", "The selected flight has no usable airport endpoints.");
       const origin = resolveAirportEndpoint(snapshot, selectedFlight.record.departure, "origin");
       const destination = resolveAirportEndpoint(snapshot, selectedFlight.record.destination, "destination");
-      const projections = snapshot.flights
-        .filter((flight) => flight.index === selectedFlight.index || (
-          flightMatchesAirport(snapshot, flight.record.departure, origin) &&
-          flightMatchesAirport(snapshot, flight.record.destination, destination)
-        ))
+      const matchedFlights = snapshot.flights.filter((flight) => flight.index === selectedFlight.index || (
+        flightMatchesAirport(snapshot, flight.record.departure, origin) &&
+        flightMatchesAirport(snapshot, flight.record.destination, destination)
+      ));
+      if (matchedFlights.length > MAX_SAME_ENDPOINT_CANDIDATES) {
+        throw new ApiHttpError(409, "TOO_MANY_CANDIDATES", "The selected endpoints have more than 500 recorded route candidates.");
+      }
+      const projections = matchedFlights
         .map((flight) => routeProjection(
           snapshot,
           flight,
@@ -834,8 +949,12 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
       const origin = snapshot.locations[originIndex];
       const destination = snapshot.locations[destinationIndex];
       if (!origin || !destination || origin.kind !== "airport" || destination.kind !== "airport") throw new ApiHttpError(400, "INVALID_ENDPOINTS", "Endpoints must be uniquely selected from Airports.");
-      const projections = snapshot.flights
-        .filter((flight) => flightMatchesAirport(snapshot, flight.record.departure, origin) && flightMatchesAirport(snapshot, flight.record.destination, destination))
+      const matchedFlights = snapshot.flights
+        .filter((flight) => flightMatchesAirport(snapshot, flight.record.departure, origin) && flightMatchesAirport(snapshot, flight.record.destination, destination));
+      if (matchedFlights.length > MAX_SAME_ENDPOINT_CANDIDATES) {
+        throw new ApiHttpError(409, "TOO_MANY_CANDIDATES", "The selected endpoints have more than 500 recorded route candidates.");
+      }
+      const projections = matchedFlights
         .map((flight) => routeProjection(snapshot, flight, origin, destination));
       candidates = deduplicateRouteCandidates(projections, -1);
     }
@@ -934,7 +1053,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   const draftCompare = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
     const body = bodyObject(request, ["draftId", "draft"]);
-    const draftId = body.draftId === undefined ? undefined : requiredString(body.draftId, "INVALID_DRAFT", "A valid draft ID is required.", 128);
+    const draftId = body.draftId === undefined ? undefined : requiredString(body.draftId, "INVALID_DRAFT", "A valid draft ID is required.", 512);
     if (draftId && body.draft !== undefined) throw new ApiHttpError(400, "INVALID_DRAFT", "Provide either draftId or draft, not both.");
     let draft: RouteDraft | undefined;
     if (draftId) {

@@ -51,7 +51,7 @@ The intended separation is:
 apps/api/                 Fastify BFF and live five-family adapter
 apps/web/                 React/Vite map-first UI
 packages/contracts/       Runtime/public DTOs and schemas
-packages/route-engine/    Exact resolution, distance, ranking, draft, diff logic
+packages/route-engine/    Exact resolution, distance, ranking, local-draft validation, delta logic
 packages/upstream-caas/  Allow-listed upstream clients and sanitizers
 tests/                    Unit, contract, integration, E2E, a11y, security, live lanes
 docs/                     Binding decisions, data-use, operations, security, evidence

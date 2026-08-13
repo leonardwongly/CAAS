@@ -14,7 +14,7 @@ const requiredPatterns = [
   [/TMPDIR=\/tmp/, "a temporary directory under /tmp"],
   [/VOLUME \[\"\/tmp\"\]/, "a writable /tmp volume"],
   [/COPY --from=build .*apps\/web\/dist/, "the built web assets"],
-  [/EXPOSE 3000/, "the documented port 3000"],
+  [/EXPOSE 8080/, "the documented port 8080"],
 ];
 for (const [pattern, description] of requiredPatterns) {
   if (!pattern.test(dockerfile)) throw new Error(`Container smoke failed: missing ${description}`);

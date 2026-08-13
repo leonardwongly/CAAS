@@ -44,6 +44,8 @@ test("all route schemas share the 256-point endpoint-inclusive bound", () => {
   assert.equal(RouteQuerySchema.safeParse({ origin: reference, destination: reference, maxLegs: 255 }).success, true);
   assert.equal(RouteQuerySchema.safeParse({ origin: reference, destination: reference, maxLegs: 256 }).success, false);
   assert.equal(RouteDraftSchema.safeParse({ origin: "A", destination: "B", via: Array.from({ length: 254 }, () => "V") }).success, true);
+  assert.equal(RouteDraftSchema.safeParse({ origin: "A", destination: "B", via: ["   "] }).success, false);
+  assert.deepEqual(RouteDraftSchema.parse({ origin: "A", destination: "B", via: [" V "] }).via, ["V"]);
   assert.equal(RouteDraftSchema.safeParse({ origin: "A", destination: "B", via: Array.from({ length: 255 }, () => "V") }).success, false);
 });
 test("references and locations are normalized with bounded fields", () => {

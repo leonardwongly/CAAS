@@ -20,7 +20,7 @@ PG-00 is human-reviewed against the exact design/plan hashes using `evaluationMo
 
 ### Unit and property behavior
 
-Cover coordinate parsing/range checks, exact reference resolution, ambiguity, explicit gaps, Haversine legs/totals, antimeridian display, canonical signatures, tie-key rounding, all-Rank-1 presentation, draft integrity, ordered/directed differences, and hard bounds. Include negative cases for malformed records, duplicate references, unknown fields, missing endpoints, generation mismatch, and forbidden airway output.
+Cover coordinate parsing/range checks, exact reference resolution, ambiguity, explicit gaps, Haversine legs/totals, antimeridian display, canonical signatures, tie-key rounding, all-Rank-1 presentation, bounded local-draft integrity and server-computed delta when both computations are complete, and hard bounds. Include negative cases for malformed records, duplicate references, unknown fields, missing endpoints, generation mismatch, and forbidden airway output.
 
 ### Contract behavior
 
@@ -28,11 +28,11 @@ Use minimized, irreversibly sanitized captured-real responses. They must contain
 
 ### Integration and E2E behavior
 
-Verify server-only CAAS access, startup failure for any unusable mandatory family, atomic refresh, prior-generation freshness limits, cursor exact-once traversal from first to terminal cursor, callsign search, duplicate selection, route/table/map parity, visible gaps, all tied Rank 1 candidates, local editing/diff, keyboard/focus states, tile failure, and URL privacy. No synthetic fixture may appear as a runtime or demo fallback.
+Verify server-only CAAS access, startup failure for any unusable mandatory family, atomic refresh, prior-generation freshness limits, cursor exact-once traversal from first to terminal cursor, callsign search, duplicate selection, route/table/SVG parity, visible gaps, all tied Rank 1 recorded candidates, the bounded local draft controls, keyboard/focus states, and URL privacy. The browser must make no external map-provider request. No synthetic fixture may appear as a runtime or demo fallback.
 
 ### Security and operational behavior
 
-Verify key/raw-field absence from browser, image, logs, traces, and artifacts; origin/path/method/redirect/proxy controls; output encoding; request limits; OSM Referer/caching/no-prefetch rules; telemetry redaction; non-root/read-only image properties; restart reacquisition; stale refresh behavior; and explicit failure fallback. Network firewall enforcement is not a POC claim and remains a production blocker.
+Verify key/raw-field absence from browser, image, logs, traces, and artifacts; origin/path/method/redirect/proxy controls; output encoding; request limits; same-origin URL privacy; telemetry redaction; non-root/read-only image properties; restart reacquisition; stale refresh behavior; and explicit failure fallback. Network firewall enforcement is not a POC claim and remains a production blocker.
 
 ## Current local commands
 
@@ -48,6 +48,8 @@ pnpm run test
 ```
 
 `validate` is the aggregate offline lane: configuration and policy validation, TypeScript checks, package tests, offline tests, and the Linux container smoke check. `build` produces the Vite UI and TypeScript outputs. The live lane remains separately authorized and is not part of generic offline validation.
+
+`lint` and `test` are currently recursive `--if-present` wrappers. Until package-level scripts exist, either command may complete without application work; a successful no-op is not lint or test evidence. Record the exact substantive suites and assertions that ran instead.
 
 The future implementation command matrix is:
 

@@ -3,7 +3,7 @@ import { relative, resolve } from "node:path";
 import { startServer } from "./server.ts";
 
 const DEFAULT_HOST = "127.0.0.1";
-const DEFAULT_PORT = 3000;
+const DEFAULT_PORT = 8080;
 
 function optionValue(args: readonly string[], name: string): string | undefined {
   const index = args.indexOf(name);

@@ -115,6 +115,20 @@ test("returns same-endpoint alternatives, preserves tied ranks, and leaves incom
   assert.equal(routes[0]?.rank, 1);
   assert.equal(routes[1]?.rank, 1);
   assert.equal(routes[0]?.rankDistanceNm, routes[1]?.rankDistanceNm);
+  assert.deepEqual(routes[0]?.operationalProxy, {
+    mode: "operational-proxy",
+    eligible: true,
+    criterion: "minimum-modeled-distance-nm",
+    summary: "Shortest complete normalized observed route among same-endpoint candidates returned by this fresh generation.",
+    rank: 1,
+  });
+  assert.deepEqual(routes[2]?.operationalProxy, {
+    mode: "operational-proxy",
+    eligible: false,
+    criterion: "minimum-modeled-distance-nm",
+    summary: "Shortest complete normalized observed route among same-endpoint candidates returned by this fresh generation.",
+    exclusion: "Route geometry is incomplete or unresolved.",
+  });
   assert.equal(routes[2]?.rank, undefined);
   assert.equal(routes[2]?.distanceNm, undefined);
   assert.equal(JSON.stringify(routes).includes("raw-tie"), false);
@@ -176,6 +190,24 @@ test("binds cursors and flight IDs to generation, query, limit, expiry, and refr
   assert.equal((await server.app.inject({ method: "GET", url: `/api/v1/routes/${encodeURIComponent(firstBody.data[0]!.id)}` })).statusCode, 410);
 });
 
+
+test("rejects same-endpoint route populations above the hard candidate cap", async (t) => {
+  const records: FlightPlanRecord[] = Array.from({ length: 501 }, (_, index) => ({
+    id: `raw-cap-${index}`,
+    callsign: `CAP${String(index).padStart(3, "0")}`,
+    departure: "KJFK",
+    destination: "KLAX",
+    routeElements: [],
+  }));
+  const server = await createApiServer({ adapter: fixtureAdapter(records), refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+
+  const search = await server.app.inject({ method: "GET", url: "/api/v1/callsigns/search?query=CAP000" });
+  const flightId = (search.json() as { data: Array<{ id: string }> }).data[0]!.id;
+  const options = await server.app.inject({ method: "POST", url: "/api/v1/routes/options", payload: { flightId } });
+  assert.equal(options.statusCode, 409);
+  assert.equal((options.json() as { error: { code: string } }).error.code, "TOO_MANY_CANDIDATES");
+});
 test("reports unavailable readiness and rejects startup when acquisition fails", async (t) => {
   const server = await createApiServer({ adapter: failingAdapter(), initialize: false });
   t.after(() => server.app.close());
@@ -207,6 +239,23 @@ test("accepts a transport-injected adapter without exposing credentials or airwa
 });
 
 
+
+test("bounds server-resident drafts within the active generation", async (t) => {
+  const server = await createApiServer({ adapter: fixtureAdapter(), refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  const payload = { origin: "KJFK", destination: "KLAX", via: [] };
+
+  for (let index = 0; index < 512; index += 1) {
+    const response = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload });
+    assert.equal(response.statusCode, 201);
+  }
+
+  const rejected = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload });
+  assert.equal(rejected.statusCode, 429);
+  const body = rejected.json() as { error: { code: string; retryable: boolean } };
+  assert.equal(body.error.code, "DRAFT_CAPACITY_REACHED");
+  assert.equal(body.error.retryable, true);
+});
 test("hardens route drafts to resolved airports and withholds incomplete distances", async (t) => {
   const server = await createApiServer({ adapter: fixtureAdapter(), refreshSecret: "test-refresh" });
   t.after(() => server.app.close());
@@ -223,6 +272,11 @@ test("hardens route drafts to resolved airports and withholds incomplete distanc
   const created = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { origin: " kjfk ", destination: " klax ", via: ["DCT"] } });
   assert.equal(created.statusCode, 201);
   const draftId = (created.json() as { id: string }).id;
+  assert.equal(draftId.split(".").length, 2);
+  const tamperedDraftId = `${draftId.slice(0, -1)}${draftId.endsWith("A") ? "B" : "A"}`;
+  const tampered = await server.app.inject({ method: "POST", url: "/api/v1/drafts/compare", payload: { draftId: tamperedDraftId } });
+  assert.equal(tampered.statusCode, 410);
+  assert.equal((tampered.json() as { error: { code: string } }).error.code, "DRAFT_EXPIRED");
   const compared = await server.app.inject({ method: "POST", url: "/api/v1/drafts/compare", payload: { draftId } });
   assert.equal(compared.statusCode, 200);
   const complete = compared.json() as { route: Record<string, unknown> };
@@ -253,4 +307,38 @@ test("hardens route drafts to resolved airports and withholds incomplete distanc
   assert.equal(incomplete.route.rank, undefined);
   assert.equal(incomplete.route.geometry, undefined);
   assert.equal((incomplete.route.legs as Array<Record<string, unknown>>).every((leg) => leg.distanceNm === undefined), true);
+});
+
+test("invalidates draft tokens after refresh and at the exact generation expiry", async (t) => {
+  let clock = 10_000;
+  let activeRecords: readonly FlightPlanRecord[] = defaultRecords();
+  const replacementRecords: FlightPlanRecord[] = [{ ...defaultRecords()[0]!, id: "replacement-raw-id", callsign: "REPLACED" }];
+  const base = fixtureAdapter();
+  const adapter: CaasAdapter = {
+    ...base,
+    displayAll: async () => ({ records: activeRecords, evidence: evidence("displayAll", activeRecords.length) }),
+  };
+  const server = await createApiServer({ adapter, now: () => clock, generationTtlMs: 1_000, refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+
+  const created = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { origin: "KJFK", destination: "KLAX", via: [] } });
+  assert.equal(created.statusCode, 201);
+  const oldDraftId = (created.json() as { id: string }).id;
+
+  clock += 100;
+  activeRecords = replacementRecords;
+  const refreshed = await server.app.inject({ method: "POST", url: "/api/v1/refresh", headers: { "x-refresh-token": "test-refresh" } });
+  assert.equal(refreshed.statusCode, 200);
+
+  const oldDraft = await server.app.inject({ method: "POST", url: "/api/v1/drafts/compare", payload: { draftId: oldDraftId } });
+  assert.equal(oldDraft.statusCode, 410);
+  assert.equal((oldDraft.json() as { error: { code: string } }).error.code, "DRAFT_EXPIRED");
+
+  const current = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { origin: "KJFK", destination: "KLAX", via: [] } });
+  assert.equal(current.statusCode, 201);
+  const currentDraftId = (current.json() as { id: string }).id;
+  clock += 1_000;
+  const atExpiry = await server.app.inject({ method: "POST", url: "/api/v1/drafts/compare", payload: { draftId: currentDraftId } });
+  assert.equal(atExpiry.statusCode, 503);
+  assert.equal((atExpiry.json() as { error: { code: string } }).error.code, "GENERATION_STALE");
 });

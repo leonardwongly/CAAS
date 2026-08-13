@@ -25,8 +25,8 @@ test("exposes stable DTOs with provenance, safety, visible gaps, and no raw upst
   const options = await server.app.inject({ method: "POST", url: "/api/v1/routes/options", payload: { flightId } });
   assert.equal(options.statusCode, 200);
   const route = (options.json() as { data: Array<Record<string, unknown>> }).data[0]!;
-  assert.equal(route.provenance, "CAAS normalized snapshot");
-  assert.equal(route.safety, "For planning display only; verify operational data before use.");
+  assert.equal(route.provenance, "CAAS normalized live generation");
+  assert.equal(route.safety, "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.");
   assert.deepEqual(route.gaps, []);
   assert.equal(typeof route.distanceNm, "number");
   assert.equal(typeof route.rankDistanceNm, "number");
@@ -91,4 +91,16 @@ test("fails closed on cold, stale, or incomplete acquisition", async (t) => {
   assert.equal((await server.app.inject({ method: "GET", url: "/readyz" })).statusCode, 503);
   await assert.rejects(server.store.initialize(), /live data generation/);
   assert.equal((await server.app.inject({ method: "GET", url: "/readyz" })).statusCode, 503);
+});
+
+test("applies same-origin security headers to API responses", async (t) => {
+  const server = await createApiServer({ adapter: sanitizedAdapter() });
+  t.after(() => server.app.close());
+
+  const response = await server.app.inject({ method: "GET", url: "/api/v1/health/live" });
+  assert.equal(response.statusCode, 200);
+  assert.match(String(response.headers["content-security-policy"]), /default-src 'self'/);
+  assert.equal(response.headers["referrer-policy"], "strict-origin-when-cross-origin");
+  assert.equal(response.headers["x-content-type-options"], "nosniff");
+  assert.equal(response.headers["x-frame-options"], "DENY");
 });

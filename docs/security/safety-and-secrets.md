@@ -46,11 +46,11 @@ The target Azure topology uses Key Vault-backed runtime injection and a runtime 
 
 Airways is fetched and validated for contract conformance, but its unproven values and types are a prohibited output field. Never expose or log them, use them in signatures/diffs/completeness/rank, or infer directed topology from names or adjacency. Exact Fix/Airport/NAVAID resolution preserves ambiguity and explicit gaps. Never connect a gap or select a nearby point silently.
 
-## Map privacy
+## Route-diagram privacy
 
-OpenStreetMap Standard raster tiles are the configurable default for the one-user POC. Show attribution and use the accepted origin-only cross-origin Referer behavior. Do not put callsigns, flight identifiers, coordinates, route state, or tokens in URLs. Permit only interactive viewport requests: no bulk download, prefetch, offline cache, proxy, or headless scan. Direct tile calls disclose the user's client IP and requested `z/x/y` viewport to the tile provider; this is an explicit POC tradeoff. Route data remains available if tiles fail.
+The POC uses a dependency-free SVG route diagram. The browser makes no external map, tile-provider, or map-provider API request, so it discloses no map viewport, client IP, or route geometry to such a provider. Do not put callsigns, flight identifiers, coordinates, route state, or tokens in URLs. Render only normalized BFF fields; when exact geometry is absent or interrupted, preserve an unavailable state or visible gap rather than fabricating a substitute.
 
-A later production design must revisit tile-provider terms, privacy, quotas, and whether a privacy-preserving hosted/proxied model is required.
+Any later external-map decision requires a separate privacy, CSP, attribution, caching, failure-mode, and data-use review before implementation.
 
 ## Evidence and authorization
 

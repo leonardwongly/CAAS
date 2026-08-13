@@ -65,3 +65,12 @@ test("keeps coordinate adapter ordering lossless", () => {
   assert.deepEqual(toLeafletCoordinate(coordinate), { lat: 40.5, lng: -73.25 });
   assert.deepEqual(fromLeafletCoordinate({ lat: 40.5, lng: -73.25 }), coordinate);
 });
+
+test("normalizes antimeridian deltas and remains finite near antipodal points", () => {
+  const antimeridian = haversineDistanceNm({ lat: 0, lon: 179 }, { lat: 0, lon: -179 });
+  assert.ok(Math.abs(antimeridian - 120.080921) < 0.000001);
+
+  const antipodal = haversineDistanceNm({ lat: 0, lon: 0 }, { lat: 0, lon: 180 });
+  assert.ok(Number.isFinite(antipodal));
+  assert.ok(Math.abs(antipodal - 10807.282932) < 0.000001);
+});

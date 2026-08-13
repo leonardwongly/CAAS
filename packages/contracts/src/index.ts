@@ -122,7 +122,7 @@ export type RouteQuery = z.output<typeof RouteQuerySchema>;
 export const RouteDraftSchema = z.object({
   origin: z.string().trim().max(MAX_REFERENCE_LENGTH).default(""),
   destination: z.string().trim().max(MAX_REFERENCE_LENGTH).default(""),
-  via: z.array(z.string().trim().max(MAX_REFERENCE_LENGTH)).max(MAX_ROUTE_LEGS - 1).default([]),
+  via: z.array(z.string().trim().min(1).max(MAX_REFERENCE_LENGTH)).max(MAX_ROUTE_LEGS - 1).default([]),
 }).strict();
 export type RouteDraft = z.output<typeof RouteDraftSchema>;
 

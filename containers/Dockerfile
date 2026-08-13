@@ -21,7 +21,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
-    PORT=3000 \
+    PORT=8080 \
     TMPDIR=/tmp \
     WEB_ASSET_DIR=/app/apps/web/dist
 
@@ -38,6 +38,6 @@ RUN chown -R app:app /app
 
 USER app
 VOLUME ["/tmp"]
-EXPOSE 3000
+EXPOSE 8080
 ENTRYPOINT ["node", "--experimental-strip-types", "apps/api/src/cli.ts"]
-CMD ["--host", "0.0.0.0", "--port", "3000"]
+CMD ["--host", "0.0.0.0", "--port", "8080"]

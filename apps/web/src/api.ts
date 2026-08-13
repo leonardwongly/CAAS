@@ -29,6 +29,15 @@ export type RouteGap = {
   code?: string | undefined;
 };
 
+export type OperationalProxy = {
+  mode: "operational-proxy";
+  eligible: boolean;
+  criterion: string;
+  summary: string;
+  rank?: number | undefined;
+  exclusion?: string | undefined;
+};
+
 export type RouteOption = {
   id: OpaqueId;
   flightId: OpaqueId;
@@ -44,6 +53,7 @@ export type RouteOption = {
   distanceNm?: number | undefined;
   rankDistanceNm?: number | undefined;
   rank?: number | undefined;
+  operationalProxy?: OperationalProxy | undefined;
   geometry?: Coordinate[] | undefined;
   provenance?: string | undefined;
   freshness?: string | undefined;
@@ -182,6 +192,21 @@ function normalizeLeg(value: unknown, index: number): RouteLeg | undefined {
   };
 }
 
+function normalizeOperationalProxy(value: unknown): OperationalProxy | undefined {
+  if (!isRecord(value) || value.mode !== "operational-proxy" || typeof value.eligible !== "boolean") return undefined;
+  const criterion = stringValue(value, "criterion");
+  const summary = stringValue(value, "summary");
+  if (!criterion || !summary) return undefined;
+  return {
+    mode: "operational-proxy",
+    eligible: value.eligible,
+    criterion,
+    summary,
+    ...(finiteNumber(value, "rank") !== undefined ? { rank: finiteNumber(value, "rank") } : {}),
+    ...(stringValue(value, "exclusion") ? { exclusion: stringValue(value, "exclusion") } : {}),
+  };
+}
+
 function normalizeRoute(value: unknown, index: number): RouteOption | undefined {
   if (!isRecord(value)) return undefined;
   const id = stringValue(value, "id", "flightId", "routeId", "opaqueId");
@@ -202,6 +227,7 @@ function normalizeRoute(value: unknown, index: number): RouteOption | undefined 
   ].sort((left, right) => left.sequence - right.sequence).reduce<RouteGap[]>((unique, gap) => unique.some((item) => item.sequence === gap.sequence && item.reason === gap.reason) ? unique : [...unique, gap], [])];
   const geometry = normalizeGeometry(value.geometry);
   const segments = normalizeSegments(value.segments);
+  const operationalProxy = normalizeOperationalProxy(value.operationalProxy);
   return {
     id,
     flightId: stringValue(value, "flightId", "id") ?? id,
@@ -218,6 +244,7 @@ function normalizeRoute(value: unknown, index: number): RouteOption | undefined 
     ...(finiteNumber(value, "distanceNm", "distance", "totalDistanceNm") !== undefined ? { distanceNm: finiteNumber(value, "distanceNm", "distance", "totalDistanceNm") } : {}),
     ...(finiteNumber(value, "rankDistanceNm") !== undefined ? { rankDistanceNm: finiteNumber(value, "rankDistanceNm") } : {}),
     ...(finiteNumber(value, "rank") !== undefined ? { rank: finiteNumber(value, "rank") } : {}),
+    ...(operationalProxy ? { operationalProxy } : {}),
     ...(stringValue(value, "provenance", "source", "sourceLabel") ? { provenance: stringValue(value, "provenance", "source", "sourceLabel") } : {}),
     ...(stringValue(value, "freshness", "updatedAt", "asOf") ? { freshness: stringValue(value, "freshness", "updatedAt", "asOf") } : {}),
     ...(stringValue(value, "safety", "safetyNote") ? { safety: stringValue(value, "safety", "safetyNote") } : {}),
@@ -270,4 +297,112 @@ export async function fetchRouteData(routeId: OpaqueId, signal?: AbortSignal): P
   const route = normalizeRoute(isRecord(payload) && payload.data ? payload.data : payload, 0);
   if (!route) throw new Error("The route response did not contain usable route data.");
   return route;
+}
+
+export type DraftRoute = {
+  id: OpaqueId;
+  origin: string;
+  destination: string;
+  legs: RouteLeg[];
+  gaps: RouteGap[];
+  distanceNm?: number | undefined;
+  rankDistanceNm?: number | undefined;
+  geometry?: Coordinate[] | undefined;
+  provenance?: string | undefined;
+  freshness?: string | undefined;
+  safety?: string | undefined;
+};
+
+export type DraftComparison = {
+  id: OpaqueId;
+  draft: { origin: string; destination: string; via: string[] };
+  route: DraftRoute;
+  comparison: { status: "complete" | "gap" | string; message: string };
+};
+
+export type PointMatch = {
+  identifier: string;
+  name: string;
+  kind: string;
+  coordinate: Coordinate;
+  duplicateGroup?: string | undefined;
+};
+
+function normalizePointMatch(value: unknown): PointMatch | undefined {
+  if (!isRecord(value)) return undefined;
+  const identifier = stringValue(value, "callsign", "code", "name");
+  const coordinateValue = value.coordinate;
+  const coordinate = isRecord(coordinateValue)
+    ? { lat: finiteNumber(coordinateValue, "lat", "latitude"), lon: finiteNumber(coordinateValue, "lon", "lng", "longitude") }
+    : undefined;
+  if (!identifier || !coordinate || coordinate.lat === undefined || coordinate.lon === undefined) return undefined;
+  return {
+    identifier,
+    name: stringValue(value, "name", "callsign") ?? identifier,
+    kind: stringValue(value, "kind") ?? "reference point",
+    coordinate: { lat: coordinate.lat, lon: coordinate.lon },
+    ...(stringValue(value, "duplicateGroup") ? { duplicateGroup: stringValue(value, "duplicateGroup") } : {}),
+  };
+}
+
+export async function lookupPoint(reference: string, signal?: AbortSignal): Promise<PointMatch[]> {
+  const payload = await request(`/api/v1/points/${encodeURIComponent(reference)}`, signal ? { signal } : {});
+  if (!isRecord(payload)) return [];
+  const values = Array.isArray(payload.matches) ? payload.matches : payload.data ? [payload.data] : [];
+  return values.flatMap((value) => {
+    const match = normalizePointMatch(value);
+    return match ? [match] : [];
+  });
+}
+
+export async function validateDraft(origin: string, destination: string, via: string[], signal?: AbortSignal): Promise<DraftComparison> {
+  const created = await request("/api/v1/drafts", {
+    method: "POST",
+    ...(signal ? { signal } : {}),
+    body: JSON.stringify({ origin, destination, via }),
+  });
+  if (!isRecord(created) || typeof created.id !== "string") throw new Error("The route service did not create a draft.");
+  const payload = await request("/api/v1/drafts/compare", {
+    method: "POST",
+    ...(signal ? { signal } : {}),
+    body: JSON.stringify({ draftId: created.id }),
+  });
+  if (!isRecord(payload) || !isRecord(payload.route) || !isRecord(payload.draft) || !isRecord(payload.comparison)) {
+    throw new Error("The route service did not return a valid draft comparison.");
+  }
+  const route = payload.route;
+  const legs = Array.isArray(route.legs) ? route.legs.flatMap((leg, index) => {
+    const normalized = normalizeLeg(leg, index);
+    return normalized ? [normalized] : [];
+  }) : [];
+  const gaps = Array.isArray(route.gaps) ? route.gaps.flatMap((gap, index) => {
+    const normalized = normalizeGap(gap, index);
+    return normalized ? [normalized] : [];
+  }) : [];
+  const draft = payload.draft;
+  const comparison = payload.comparison;
+  const draftOrigin = stringValue(draft, "origin");
+  const draftDestination = stringValue(draft, "destination");
+  const draftVia = Array.isArray(draft.via) ? draft.via.filter((value): value is string => typeof value === "string") : [];
+  const id = stringValue(route, "id") ?? stringValue(created, "id");
+  const message = stringValue(comparison, "message") ?? "Draft validation completed.";
+  if (!draftOrigin || !draftDestination || !id) throw new Error("The route service did not return a complete draft identity.");
+  return {
+    id,
+    draft: { origin: draftOrigin, destination: draftDestination, via: draftVia },
+    route: {
+      id,
+      origin: stringValue(route, "origin") ?? draftOrigin,
+      destination: stringValue(route, "destination") ?? draftDestination,
+      legs,
+      gaps,
+      ...(finiteNumber(route, "distanceNm") !== undefined ? { distanceNm: finiteNumber(route, "distanceNm") } : {}),
+      ...(finiteNumber(route, "rankDistanceNm") !== undefined ? { rankDistanceNm: finiteNumber(route, "rankDistanceNm") } : {}),
+      ...(normalizeGeometry(route.geometry) ? { geometry: normalizeGeometry(route.geometry) } : {}),
+      ...(stringValue(route, "provenance") ? { provenance: stringValue(route, "provenance") } : {}),
+      ...(stringValue(route, "freshness") ? { freshness: stringValue(route, "freshness") } : {}),
+      ...(stringValue(route, "safety") ? { safety: stringValue(route, "safety") } : {}),
+    },
+    comparison: { status: stringValue(comparison, "status") ?? "gap", message },
+  };
 }
