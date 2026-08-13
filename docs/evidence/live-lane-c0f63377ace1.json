@@ -1,0 +1,114 @@
+{
+  "recordKind": "lane-results",
+  "lane": "live-five-family-lane",
+  "subject": {
+    "type": "commit",
+    "identifiers": {
+      "commit": "c0f63377ace1"
+    },
+    "environment": "local-live-pending"
+  },
+  "startedAt": "2026-08-13T15:57:12.071Z",
+  "endedAt": "2026-08-13T15:57:12.086Z",
+  "mode": "pending-authorized-execution",
+  "credentialHandling": "no credential present; no live origin call attempted",
+  "procedure": "Authorized run: `apikey=<authorized-key> pnpm live:lane` or place the key in root .env, then commit the generated record. The key is consumed by the real transport (packages/upstream-caas/src/transport.ts) and is never printed or recorded.",
+  "checks": [
+    {
+      "checkId": "LIVE-CREDENTIAL-ABSENT",
+      "name": "no credential configured",
+      "procedure": "No CAAS apikey is present in the environment or root .env, so no live call can be made.",
+      "startedAt": "2026-08-13T15:57:12.071Z",
+      "endedAt": "2026-08-13T15:57:12.086Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "no credential configured",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "58661eb352d5ba4588306c94853fd98ec1de9364d40e0e079d2ee375ecce1bf6"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LIVE-FIVE-FAMILY-ACQUISITION",
+      "name": "live five-family acquisition",
+      "procedure": "Pending authorized execution: run `apikey=<authorized-key> pnpm live:lane` (or provide the key via root .env) on a machine authorized to call https://api.swimapisg.info, then commit the generated docs/evidence/live-lane-<sha>.json as an authorized-run record.",
+      "startedAt": "2026-08-13T15:57:12.071Z",
+      "endedAt": "2026-08-13T15:57:12.086Z",
+      "result": "blocked",
+      "measurement": {
+        "summary": "pending authorized execution",
+        "value": null,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "58661eb352d5ba4588306c94853fd98ec1de9364d40e0e079d2ee375ecce1bf6"
+        }
+      ],
+      "failureFallback": "The PG-03 loopback gate cannot lift until an authorized live run records a real pass."
+    },
+    {
+      "checkId": "LIVE-BROWSE-EXACT-ONCE",
+      "name": "live browse exact-once traversal",
+      "procedure": "Pending authorized execution: same run as LIVE-FIVE-FAMILY-ACQUISITION; the lane traverses the full browse cursor from first page to terminal cursor and asserts each id appears exactly once.",
+      "startedAt": "2026-08-13T15:57:12.071Z",
+      "endedAt": "2026-08-13T15:57:12.086Z",
+      "result": "blocked",
+      "measurement": {
+        "summary": "pending authorized execution",
+        "value": null,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "58661eb352d5ba4588306c94853fd98ec1de9364d40e0e079d2ee375ecce1bf6"
+        }
+      ],
+      "failureFallback": "The PG-03 loopback gate cannot lift until an authorized live run records a real pass."
+    },
+    {
+      "checkId": "LIVE-REFRESH-AUTH",
+      "name": "live refresh authorization",
+      "procedure": "Pending authorized execution: same run as LIVE-FIVE-FAMILY-ACQUISITION; refresh without the runtime token must be rejected, and with the token must swap generations atomically.",
+      "startedAt": "2026-08-13T15:57:12.071Z",
+      "endedAt": "2026-08-13T15:57:12.086Z",
+      "result": "blocked",
+      "measurement": {
+        "summary": "pending authorized execution",
+        "value": null,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "58661eb352d5ba4588306c94853fd98ec1de9364d40e0e079d2ee375ecce1bf6"
+        }
+      ],
+      "failureFallback": "The PG-03 loopback gate cannot lift until an authorized live run records a real pass."
+    }
+  ],
+  "summary": {
+    "checks": 4,
+    "passed": 1,
+    "blocked": 3,
+    "failed": 0
+  },
+  "artifacts": [
+    {
+      "path": "scripts/validation/live-lane.mjs",
+      "sha256": "58661eb352d5ba4588306c94853fd98ec1de9364d40e0e079d2ee375ecce1bf6"
+    }
+  ]
+}
