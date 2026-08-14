@@ -1,0 +1,608 @@
+{
+  "recordKind": "lane-results",
+  "lane": "loopback-five-family-lane",
+  "subject": {
+    "type": "commit",
+    "identifiers": {
+      "commit": "475dfdcff7ea"
+    },
+    "environment": "local-loopback-fixture-backed"
+  },
+  "startedAt": "2026-08-14T15:21:50.871Z",
+  "endedAt": "2026-08-14T15:21:50.992Z",
+  "mode": "mechanics",
+  "credentialHandling": "fixture apikey consumed only by the deterministic mock transport; no live CAAS origin call was made",
+  "checks": [
+    {
+      "checkId": "LANE-HEALTH-LIVE",
+      "name": "liveness endpoint",
+      "procedure": "GET /api/v1/health/live returns 200.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.939Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "liveness endpoint",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-STARTUP-READY",
+      "name": "startup readiness",
+      "procedure": "Cold startup completes five-family acquisition and reports started.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.941Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "startup readiness",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-FIVE-FAMILY-ACQUISITION",
+      "name": "five-family acquisition path",
+      "procedure": "All five families acquired, validated, and available in one complete generation: displayAll, fixes, airports, navaids in the families payload plus Airways validated separately.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.942Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "five-family acquisition path",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-RETRY-POLICY",
+      "name": "bounded single retry on 429",
+      "procedure": "Mock returns 429 once for Flight Plan; the adapter retries exactly once and succeeds.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.942Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "bounded single retry on 429",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-BOUNDED-EGRESS",
+      "name": "allow-listed request contract",
+      "procedure": "All upstream requests use the fixed allow-listed family URLs with the apikey header only.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.942Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "allow-listed request contract",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-BROWSE-EXACT-ONCE",
+      "name": "browse-all exact-once traversal",
+      "procedure": "Cursor traversal from first page to terminal cursor returns every active-generation flight exactly once.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.949Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "browse-all exact-once traversal",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 6
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-SEARCH-POST-ONLY",
+      "name": "callsign search is POST-only",
+      "procedure": "GET is 405 with Allow: POST; the query is accepted only in the JSON body and any query string on POST is rejected 400 INVALID_QUERY.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.953Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "callsign search is POST-only",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-CALLSIGN-SEARCH",
+      "name": "callsign search",
+      "procedure": "Case-insensitive callsign search over POST returns the exact flight.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.954Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "callsign search",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-SEARCH-NEGATIVE",
+      "name": "negative search",
+      "procedure": "A callsign with no match returns an empty page.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.955Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "negative search",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-RANK-TIES",
+      "name": "rank-1/other-ranked/incomplete presentation",
+      "procedure": "Complete candidates are ranked by modeled distance, the rankLabel envelope is present with the bound first-place label, the rank-1 group is presented together, and incomplete candidates are never ranked.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.958Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "rank-1/other-ranked/incomplete presentation",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 2
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-DEDUP-SIGNATURE",
+      "name": "exact-signature candidate dedup",
+      "procedure": "Candidates with identical normalized signatures are deduplicated with source provenance retained.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.958Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "exact-signature candidate dedup",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-GAP-PRESERVATION",
+      "name": "explicit gap preservation",
+      "procedure": "Unresolved references surface as explicit gaps; no distance or geometry is inferred.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.959Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "explicit gap preservation",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-AMBIGUITY",
+      "name": "duplicate-identifier ambiguity",
+      "procedure": "Duplicate reference identifiers are preserved as an explicit ambiguity group.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.960Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "duplicate-identifier ambiguity",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-DRAFT-COMPARE",
+      "name": "bounded local draft and server comparison",
+      "procedure": "A complete draft with explicit selections is stored, compared against a recorded baseline via POST /api/v1/routes/compare with a complete comparison status and server-computed distance delta, and the stored draft compares with server-computed distance.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.964Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "bounded local draft and server comparison",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-GENERATION-TIERS",
+      "name": "tiered generation freshness summary",
+      "procedure": "Browse, search, route-options, and compare responses carry the plan §6.2 tiered generation summary: live and reference tiers with retrievedAt/freshUntil/staleUntil and an overall state equal to the more severe tier.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.964Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "tiered generation freshness summary",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 4
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-REFRESH-AUTH",
+      "name": "refresh authorization fails closed",
+      "procedure": "Refresh without the runtime token is rejected.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.965Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "refresh authorization fails closed",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-REFRESH-BOUND",
+      "name": "generation-bound cursors and IDs",
+      "procedure": "Refresh swaps the generation atomically; IDs bound to the prior generation fail closed.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.968Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "generation-bound cursors and IDs",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-REFRESH-RETAINS",
+      "name": "failed refresh retains usable generation",
+      "procedure": "A failed refresh returns 503 REFRESH_FAILED naming the retained generation in a retained.generation payload while the last usable complete generation keeps serving.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.969Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "failed refresh retains usable generation",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-REFRESH-UNSET-SECRET",
+      "name": "refresh without a configured secret",
+      "procedure": "With no refresh secret configured the single-user access model authorizes refresh; the recovery path succeeds and returns a generation summary.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.979Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "refresh without a configured secret",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-AIRWAY-EXCLUSION",
+      "name": "airway values excluded from output",
+      "procedure": "Airway fixture values, the fixture key, and raw upstream ids never appear in any API response.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.979Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "airway values excluded from output",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 27
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-SECURITY-HEADERS",
+      "name": "same-origin security headers",
+      "procedure": "All documented response security headers are present on API responses.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.981Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "same-origin security headers",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 6
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-FAIL-CLOSED-STARTUP",
+      "name": "startup fails closed on unusable family",
+      "procedure": "Cold startup with any unusable mandatory family fails explicitly without serving.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.985Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "startup fails closed on unusable family",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-RESTART-REACQUISITION",
+      "name": "restart reacquires generation",
+      "procedure": "A fresh process restarts and reacquires a complete usable generation.",
+      "startedAt": "2026-08-14T15:21:50.915Z",
+      "endedAt": "2026-08-14T15:21:50.991Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "restart reacquires generation",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    }
+  ],
+  "summary": {
+    "checks": 23,
+    "passed": 23,
+    "blocked": 0,
+    "failed": 0
+  },
+  "artifacts": [
+    {
+      "path": "scripts/validation/loopback-lane.mjs",
+      "sha256": "a9941e7eee5348cfe237f3602990b5bf0f2f3de5d20386aa8892b65b2d8dd17b"
+    },
+    {
+      "path": "scripts/validation/fixtures.mjs",
+      "sha256": "4c0d93868754ae7ca4777b295f48ca511155b4b3a6475c63ac70dc8f4a05c413"
+    }
+  ]
+}
