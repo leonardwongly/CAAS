@@ -18,8 +18,8 @@
 // Deterministic, hermetic, offline. Fails loudly with a non-zero exit when
 // invoked directly; importing this module is side-effect free.
 import { createHash } from "node:crypto";
-import { readFile, readdir } from "node:fs/promises";
-import { resolve } from "node:path";
+import { lstat, readFile, readdir, realpath } from "node:fs/promises";
+import { resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { validateManifest } from "./validate-offline.mjs";
@@ -116,12 +116,21 @@ export async function validateEvidenceBundle() {
 
   async function validateArtifact(file, owner, artifact) {
     if (artifact?.path === "raw" || artifact?.path === "spawn" || artifact?.sha256 === "redacted-location-only" || artifact?.sha256 === "none") return;
-    if (!artifact || typeof artifact.path !== "string" || artifact.path.includes("..") || !/^[a-f0-9]{64}$/.test(artifact.sha256 ?? "")) {
+    if (!artifact || typeof artifact.path !== "string" || !/^[a-f0-9]{64}$/.test(artifact.sha256 ?? "")) {
       errors.push(`${file}: ${owner} artifact invalid`);
       return;
     }
+    // Path containment: absolute paths, parent traversal, symlinks, and
+    // non-regular files are rejected WITHOUT opening them — never a host-file
+    // hash oracle and never a hang on a special file.
+    if (artifact.path.includes("..") || artifact.path.startsWith("/")) { errors.push(`${file}: ${owner} artifact invalid`); return; }
+    const absolute = resolve(root, artifact.path);
     try {
-      const contents = await readFile(resolve(root, artifact.path));
+      const stats = await lstat(absolute);
+      if (!stats.isFile()) { errors.push(`${file}: ${owner} artifact invalid`); return; }
+      const real = await realpath(absolute);
+      if (!real.startsWith(resolve(root) + sep)) { errors.push(`${file}: ${owner} artifact invalid`); return; }
+      const contents = await readFile(absolute);
       if (digest(contents) !== artifact.sha256) errors.push(`${file}: artifact hash mismatch ${artifact.path}`);
     } catch {
       errors.push(`${file}: artifact missing ${artifact.path}`);

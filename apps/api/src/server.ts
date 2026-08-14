@@ -465,14 +465,23 @@ export class GenerationStore {
 
   async initialize(): Promise<Snapshot> {
     if (this.activeSnapshot && this.state === "ready") return this.activeSnapshot;
+    // Same acquisition-order guard as refresh(): the LAST-STARTED acquisition
+    // owns the active generation; an earlier-started initialize settling late
+    // must never overwrite a newer generation.
+    const sequence = ++this.refreshSequence;
     this.state = "loading";
     try {
       const snapshot = await acquireSnapshot(this.adapter, this.now);
+      if (sequence !== this.refreshSequence) return snapshot;
       this.activeSnapshot = snapshot;
       this.state = "ready";
       this.failureCode = undefined;
       return snapshot;
-    } catch {
+    } catch (error) {
+      if (sequence !== this.refreshSequence) {
+        if (this.activeSnapshot) return this.activeSnapshot;
+        throw error instanceof GenerationAcquisitionError ? error : new GenerationAcquisitionError();
+      }
       this.state = "failed";
       this.failureCode = "UPSTREAM_UNAVAILABLE";
       throw new GenerationAcquisitionError();
@@ -494,12 +503,19 @@ export class GenerationStore {
     // and must not touch state settled by the newer attempt.
     const sequence = ++this.refreshSequence;
     this.state = "loading";
+    let aborted = false;
     try {
       const snapshot = await acquireSnapshot(this.adapter, this.now, signal);
       if (sequence !== this.refreshSequence) {
         // Superseded by a later-started refresh: report the acquisition this
         // caller initiated without installing it over the newer generation.
         return snapshot;
+      }
+      // A refresh whose request deadline already fired must not install its
+      // late-arriving snapshot: the caller has long received a 503.
+      if (signal?.aborted) {
+        aborted = true;
+        throw new GenerationAcquisitionError();
       }
       const current = this.activeSnapshot;
       this.previousSnapshot = current !== undefined && this.isServable(current) ? current : undefined;
@@ -509,6 +525,13 @@ export class GenerationStore {
       for (const [draftId, entry] of this.drafts) if (entry.snapshotId !== snapshot.id) this.drafts.delete(draftId);
       return snapshot;
     } catch (error) {
+      if (aborted || signal?.aborted) {
+        // A server-deadline abort is not upstream unavailability: leave the
+        // store's observable state unchanged and never record a false failure.
+        this.state = this.activeSnapshot ? "ready" : "cold";
+        if (this.activeSnapshot) return this.activeSnapshot;
+        throw error instanceof GenerationAcquisitionError ? error : new GenerationAcquisitionError();
+      }
       if (sequence !== this.refreshSequence) {
         // Superseded: the newer refresh settled the store; report its outcome
         // rather than clobbering state or surfacing a stale failure.
@@ -708,13 +731,13 @@ function routeProjection(
       if (element.coordinate) {
         let label = `Point ${element.sequence + 1}`;
         if (element.identifier) {
-          const named = resolveExactReference({ value: element.identifier }, snapshot.locations);
+          const named = indexedReferenceResolution(snapshot, element.identifier);
           if (named.status === "resolved") label = displayReference(named.match);
         }
         occurrences.push({ point: { label, coordinate: element.coordinate, sequence: element.sequence } });
         continue;
       }
-      const result = element.identifier ? resolveExactReference({ value: element.identifier }, snapshot.locations) : { status: "gap" as const } as ResolutionResult;
+      const result = element.identifier ? indexedReferenceResolution(snapshot, element.identifier) : { status: "gap" as const } as ResolutionResult;
       const reason: RouteGapReason = result.status === "ambiguous" ? "ambiguous" : result.status === "resolved" ? "not-found" : element.identifier ? "not-found" : "missing";
       if (result.status === "resolved") {
         occurrences.push({ point: { label: displayReference(result.match), coordinate: result.match.coordinate, sequence: element.sequence } });
@@ -889,6 +912,32 @@ interface DraftProjection {
  * and binds to one of the waypoint's exact matches. Selections are never treated
  * as nearby or inferred choices.
  */
+/**
+ * Index-backed exact reference resolution for the draft hot path: the
+ * prebuilt snapshot.locationTokens index resolves a reference in O(matches)
+ * instead of rescanning and schema-parsing every location per waypoint (a
+ * full scan of ~270k locations per via entry blocks the event loop and evades
+ * the warm deadline). Semantics match resolveExactReference for kind
+ * "unknown": exact-token match, distinct locations sharing the token stay
+ * ambiguous.
+ */
+function indexedReferenceResolution(snapshot: Snapshot, value: string, kind: "airport" | "city" | "station" | "place" | "unknown" = "unknown"): ResolutionResult {
+  const reference = { value, kind: "unknown" as const };
+  const indexes = snapshot.locationTokens.get(token(value)) ?? [];
+  if (indexes.length === 0) return { status: "gap", reference, reason: "not-found" };
+  const distinct = new Map<string, Location>();
+  for (const index of indexes) {
+    const location = snapshot.locations[index];
+    if (!location) continue;
+    if (kind !== "unknown" && location.kind !== kind) continue;
+    const key = `${location.id}|${location.kind}|${location.coordinate.lat}|${location.coordinate.lon}`;
+    if (!distinct.has(key)) distinct.set(key, location);
+  }
+  const matches = [...distinct.values()];
+  if (matches.length === 1) return { status: "resolved", reference, match: matches[0]! };
+  return { status: "ambiguous", reference, matches };
+}
+
 function resolveDraftProjection(snapshot: Snapshot, draft: RouteDraft, now: () => number): DraftProjection {
   const origin = resolveAirportEndpoint(snapshot, draft.origin, "origin");
   const destination = resolveAirportEndpoint(snapshot, draft.destination, "destination");
@@ -906,7 +955,7 @@ function resolveDraftProjection(snapshot: Snapshot, draft: RouteDraft, now: () =
       const selection = selections.get(sequence - 1);
       resolution = selection
         ? { status: "resolved", reference: { value: reference, kind: "unknown" }, match: selectedLocation(snapshot, selection, reference, now) }
-        : resolveExactReference({ value: reference }, snapshot.locations);
+        : indexedReferenceResolution(snapshot, reference);
     }
     if (resolution.status === "resolved") {
       points.push({ label: displayReference(resolution.match), location: resolution.match });
@@ -1116,7 +1165,12 @@ function withWarmDeadline(
       }, deadlineMs);
     });
     try {
-      return await Promise.race([handler(request, reply, controller.signal), deadline]);
+      const work = handler(request, reply, controller.signal);
+      // Once the race settles (either way), the losing promise's later
+      // settlement — including a late reply.send after the deadline reply —
+      // must be swallowed, never an unhandled rejection.
+      work.catch(() => {});
+      return await Promise.race([work, deadline]);
     } finally {
       if (timer) clearTimeout(timer);
       controller.abort();
@@ -1160,6 +1214,25 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
       return target.code(400).send({ error: { code: "INVALID_REQUEST", message: "The request could not be parsed." } });
     },
   });
+  app.addHook("onRequest", async (request, reply) => {
+    // Cross-site request defense for state-changing methods: a browser that
+    // POSTs from another origin always carries an Origin header; reject any
+    // mismatch against the request Host. (GETs stay read-only and are not
+    // state-changing; the CSP form-action 'self' header additionally binds
+    // same-origin browsers.)
+    if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") return;
+    const origin = request.headers.origin;
+    if (origin === undefined) return;
+    const host = request.headers.host;
+    let originHost: string | undefined;
+    try { originHost = new URL(origin).host; } catch { originHost = undefined; }
+    if (originHost !== undefined && host !== undefined && originHost !== host) {
+      throw new ApiHttpError(403, "CROSS_ORIGIN_DENIED", "Cross-origin state-changing requests are not allowed.");
+    }
+    // Allowed: return nothing so Fastify continues the normal request chain
+    // (a hook's non-undefined return value would be treated as a payload).
+    return;
+  });
   app.addHook("onSend", async (_request, reply, payload) => {
     // Plan §6.1: browser responses are hard-limited to 2 MiB. Crossing the
     // limit fails closed with a bounded error; a larger payload is never
@@ -1176,7 +1249,13 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     return payload;
   });
 
-  app.setErrorHandler((error, _request, reply) => {
+  const SECURITY_EVENT_CODES = new Set(["UNAUTHORIZED", "TOO_MANY_MATCHES", "CURSOR_EXPIRED", "GENERATION_EXPIRED", "TOKEN_INVALID", "SELECTION_MISMATCH", "CROSS_ORIGIN_DENIED", "DRAFT_CAPACITY_REACHED"]);
+  app.setErrorHandler((error, request, reply) => {
+    // Security-relevant rejections are logged when a logger is configured;
+    // bounded, code-only lines — never request bodies or identifiers.
+    if (options.logger && error instanceof ApiHttpError && SECURITY_EVENT_CODES.has(error.code)) {
+      request.log.info({ securityEvent: error.code, status: error.statusCode }, "security-relevant request rejected");
+    }
     if (error instanceof ApiHttpError) return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message.slice(0, MAX_ERROR_MESSAGE), retryable: error.retryable }, ...(error.details ? { ...error.details } : {}) });
     if (error instanceof SyntaxError) return reply.code(400).send({ error: { code: "INVALID_JSON", message: "The request body is not valid JSON." } });
     // Client-shaped Fastify errors (body parsing, content-type mismatch, entity
@@ -1200,7 +1279,9 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     return reply.code(payload.status === "ready" ? 200 : 503).send(payload);
   };
   const startup = async (_request: FastifyRequest, reply: FastifyReply) => {
-    const ready = store.status === "ready" && !!store.active;
+    // A servable generation means the app IS started — including during an
+    // in-flight refresh, when the retained generation keeps serving.
+    const ready = store.readiness().ready;
     return reply.code(ready ? 200 : 503).send(ready ? { status: "started", service: "flight-route-api" } : { status: "starting", code: store.failure ?? "NOT_INITIALIZED", retryable: true });
   };
   app.get("/health", health);
@@ -1404,7 +1485,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     const reference = requiredString(raw, "INVALID_REFERENCE", "A bounded point reference is required.");
     const kind = query.kind ?? body.kind ?? "unknown";
     if (typeof kind !== "string" || !["airport", "city", "station", "place", "unknown"].includes(kind)) throw new ApiHttpError(400, "INVALID_KIND", "The point kind is invalid.");
-    const result: ResolutionResult = resolveExactReference({ value: reference, kind }, snapshot.locations);
+    const result: ResolutionResult = indexedReferenceResolution(snapshot, reference, kind as "airport" | "city" | "station" | "place" | "unknown");
     if (result.status === "resolved") {
       const index = snapshot.locations.findIndex((location) => location.id === result.match.id);
       return reply.send({ status: "resolved", data: publicLocation(snapshot, index, idsForLocation(snapshot, result.match)), generation: generationSummary(snapshot, now()) });
@@ -1436,8 +1517,12 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     assertEmptyBody(request);
     ensureRefreshAuthorization(request, runtimeRefreshSecret(options));
     try {
-      const snapshot = await store.refresh(signal);
-      return reply.send({ status: "refreshed", generation: generationSummary(snapshot, now()) });
+      await store.refresh(signal);
+      // Always report the generation the store is actually serving: a
+      // superseded refresh must never claim its own built-but-never-installed
+      // snapshot as the refreshed generation.
+      const active = store.requireSnapshot();
+      return reply.send({ status: "refreshed", generation: generationSummary(active, now()) });
     } catch {
       // Plan §6.2: a failed refresh keeps serving the prior generation when it is
       // still within freshness limits, and the 503 names it with its retrieval time.

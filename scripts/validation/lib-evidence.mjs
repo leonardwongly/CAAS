@@ -31,8 +31,12 @@ export function isoNow() {
 export async function writeJsonRecord(relativePath, record) {
   const absolute = resolve(root, relativePath);
   await mkdir(dirname(absolute), { recursive: true });
-  await writeFile(absolute, `${JSON.stringify(record, null, 2)}\n`, "utf8");
-  return sha256Hex(await readFile(absolute, "utf8"));
+  const contents = `${JSON.stringify(record, null, 2)}\n`;
+  await writeFile(absolute, contents, "utf8");
+  // Hash the exact serialized bytes in memory: the sha256 must attest what
+  // the lane wrote, never whatever the record path yields at re-read time
+  // (a symlink planted at the path would otherwise redirect the attestation).
+  return sha256Hex(contents);
 }
 
 export class CheckCollector {

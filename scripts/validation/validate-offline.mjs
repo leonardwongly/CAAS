@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir } from "node:fs/promises";
-import { resolve, relative, extname } from "node:path";
+import { lstat, readFile, readdir, realpath } from "node:fs/promises";
+import { resolve, relative, extname, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 
@@ -96,10 +96,19 @@ export async function validateManifest(manifest, baseDirectory = root) {
     rejectUnknown(check.measurement, new Set(["summary", "value", "units", "sampleCount"]), `check ${check.checkId} measurement`, errors);
     if (!Array.isArray(check.artifacts) || check.artifacts.length < 1) errors.push(issue(`check ${check.checkId} has no artifacts`));
     for (const artifact of check.artifacts ?? []) {
-      if (!isObject(artifact) || typeof artifact.path !== "string" || artifact.path.includes("..") || !/^[a-f0-9]{64}$/.test(artifact.sha256 ?? "")) { errors.push(issue(`check ${check.checkId} artifact is invalid`)); continue; }
+      if (!isObject(artifact) || typeof artifact.path !== "string" || !/^[a-f0-9]{64}$/.test(artifact.sha256 ?? "")) { errors.push(issue(`check ${check.checkId} artifact is invalid`)); continue; }
       rejectUnknown(artifact, new Set(["path", "sha256"]), `check ${check.checkId} artifact`, errors);
+      // Path containment: absolute paths, parent traversal, symlinks, and
+      // non-regular files (devices, FIFOs) are rejected WITHOUT opening them —
+      // never a host-file hash oracle and never a hang on a special file.
+      if (artifact.path.includes("..") || artifact.path.startsWith("/")) { errors.push(issue(`check ${check.checkId} artifact is invalid`)); continue; }
+      const absolute = resolve(baseDirectory, artifact.path);
       try {
-        const contents = await readFile(resolve(baseDirectory, artifact.path));
+        const stats = await lstat(absolute);
+        if (!stats.isFile()) { errors.push(issue(`check ${check.checkId} artifact is invalid`)); continue; }
+        const real = await realpath(absolute);
+        if (!real.startsWith(resolve(baseDirectory) + sep)) { errors.push(issue(`check ${check.checkId} artifact is invalid`)); continue; }
+        const contents = await readFile(absolute);
         if (digest(contents) !== artifact.sha256) errors.push(issue(`artifact hash mismatch: ${artifact.path}`));
       } catch { errors.push(issue(`artifact is missing: ${artifact.path}`)); }
     }

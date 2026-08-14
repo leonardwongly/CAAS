@@ -28,6 +28,37 @@ function sha256Hex(contents) {
   return createHash("sha256").update(contents).digest("hex");
 }
 
+/**
+ * Contained tar extraction for the OCI build context: reject absolute member
+ * names, parent traversal, and symlink members whose targets escape the
+ * context directory. A docker build context must never materialize files
+ * outside contextDir. Exported so the adversarial regression suite can feed
+ * crafted archives through the exact path the build lane uses.
+ */
+export async function extractBuildContext(contextTar, contextDir) {
+  const listing = (await execFileAsync("tar", ["-tvf", contextTar], { cwd: root, maxBuffer: 32 * 1024 * 1024 })).stdout;
+  const listingLines = listing.split("\n").filter(Boolean);
+  for (const line of listingLines) {
+    // bsdtar: mode links user group size mon day time NAME (9 cols)
+    // GNU tar: mode user/group size date time NAME (6 cols)
+    const words = line.split(/\s+/);
+    const name = words.length >= 9 ? words.slice(8).join(" ") : words.slice(5).join(" ");
+    if (!name) throw new Error(`OCI build context listing line unparseable: ${line.slice(0, 80)}`);
+    if (name.startsWith("/") || name.split("/").some((segment) => segment === "..")) {
+      throw new Error(`OCI build context contains an escaping member name: ${name}`);
+    }
+    // Symlink members start with 'l' in the mode column: their target is
+    // appended after "->" and must stay inside the context directory.
+    if (line.startsWith("l")) {
+      const target = line.split(" -> ")[1];
+      if (target === undefined || target.startsWith("/") || target.split("/").some((segment) => segment === "..")) {
+        throw new Error(`OCI build context contains an escaping symlink member: ${name}`);
+      }
+    }
+  }
+  await execFileAsync("tar", ["-xf", contextTar, "-C", contextDir], { cwd: root, maxBuffer: 32 * 1024 * 1024 });
+}
+
 async function sha256OfFile(path) {
   return sha256Hex(await readFile(path));
 }
@@ -66,7 +97,7 @@ async function buildImage() {
     await rm(contextDir, { recursive: true, force: true });
     await mkdir(contextDir, { recursive: true });
     await execFileAsync("git", ["archive", "--format=tar", "-o", contextTar, "HEAD"], { cwd: root, maxBuffer: 32 * 1024 * 1024 });
-    await execFileAsync("tar", ["-xf", contextTar, "-C", contextDir], { cwd: root, maxBuffer: 32 * 1024 * 1024 });
+    await extractBuildContext(contextTar, contextDir);
     return docker(["build", "--pull=false", "-f", dockerfilePath, "-t", tag, "--iidfile", iidFile, contextDir]);
   }
   return docker(["build", "--pull=false", "-f", dockerfilePath, "-t", tag, "--iidfile", iidFile, root]);
