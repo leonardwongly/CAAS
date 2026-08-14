@@ -82,7 +82,10 @@ export async function validateEvidenceBundle() {
       const checkStarted = Date.parse(check.startedAt ?? "");
       const checkEnded = Date.parse(check.endedAt ?? "");
       if (!Number.isFinite(checkStarted) || !Number.isFinite(checkEnded) || checkEnded < checkStarted) errors.push(`${file}: check ${check.checkId} timestamps invalid or reversed`);
-      if (!Array.isArray(check.artifacts) || check.artifacts.length < 1) { errors.push(`${file}: check ${check.checkId} has no artifacts`); continue; }
+      // Failed checks record no artifact hash (nothing was produced); only
+      // passing/blocked checks must carry artifact evidence.
+      if (check.result !== "fail" && (!Array.isArray(check.artifacts) || check.artifacts.length < 1)) { errors.push(`${file}: check ${check.checkId} has no artifacts`); continue; }
+      if (check.result === "fail") continue;
       for (const artifact of check.artifacts) {
         if (artifact?.path === "raw" || artifact?.path === "spawn" || artifact?.sha256 === "redacted-location-only" || artifact?.sha256 === "none") continue;
         if (!artifact || typeof artifact.path !== "string" || artifact.path.includes("..") || !/^[a-f0-9]{64}$/.test(artifact.sha256 ?? "")) {

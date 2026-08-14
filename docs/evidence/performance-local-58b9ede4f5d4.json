@@ -1,0 +1,284 @@
+{
+  "recordKind": "measurement-results",
+  "lane": "performance",
+  "subject": {
+    "type": "commit",
+    "identifiers": {
+      "commit": "58b9ede4f5d4"
+    },
+    "environment": "local-fixture-backed-loopback"
+  },
+  "startedAt": "2026-08-14T01:54:01.795Z",
+  "endedAt": "2026-08-14T01:54:04.085Z",
+  "scope": "fixture-backed loopback server on this machine; no live network latency included",
+  "policy": {
+    "coldStartObjectiveMs": 120000,
+    "coldStartHardMs": 180000,
+    "warmP95ObjectiveMs": 2000,
+    "warmP95HardMs": 5000,
+    "memoryTargetMiB": 1536,
+    "memoryHardMiB": 2048
+  },
+  "pendingLive": "Live-data cold start and latency (with real acquisition over the network) are pending an authorized run: execute the measurement with the live transport (replace the mock in perf-child.mjs with createLiveTransport and the authorized apikey) and commit the resulting record.",
+  "pendingCi": "CI-measured values are pending the authoritative CI workflow run (oci-subject-build.yml / ci-secretless-validation.yml), which must be triggered by an authorized push.",
+  "checks": [
+    {
+      "checkId": "PERF-COLD-START",
+      "name": "cold start to readiness (worst of 3)",
+      "procedure": "Fresh-process boot through five-family acquisition to health/ready; policy 120s objective, 180s hard.",
+      "startedAt": "2026-08-14T01:54:01.795Z",
+      "endedAt": "2026-08-14T01:54:03.304Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "cold start to readiness (worst of 3)",
+        "value": 538,
+        "units": "milliseconds",
+        "sampleCount": 3
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-performance.mjs",
+          "sha256": "0c34686b55027ff966a69ecd50c8d0469040db4987197587d2fa771fdf114e43"
+        },
+        {
+          "path": "scripts/validation/perf-child.mjs",
+          "sha256": "cb65000734ec10f9ff97fd093db0512176740368051ecab36ad5ad77ee279bdc"
+        },
+        {
+          "path": "raw",
+          "sha256": "none",
+          "metadata": {
+            "coldStartMs": 538,
+            "samplesMs": [
+              501,
+              466,
+              538
+            ],
+            "initMs": [
+              38,
+              44,
+              51
+            ]
+          }
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "PERF-WARM-LIVE",
+      "name": "warm p95 health/live latency",
+      "procedure": "100 sampled requests after 10 warmup; policy 2000ms objective, 5000ms hard.",
+      "startedAt": "2026-08-14T01:54:01.795Z",
+      "endedAt": "2026-08-14T01:54:04.085Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "warm p95 health/live latency",
+        "value": 2,
+        "units": "milliseconds",
+        "sampleCount": 100
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-performance.mjs",
+          "sha256": "0c34686b55027ff966a69ecd50c8d0469040db4987197587d2fa771fdf114e43"
+        },
+        {
+          "path": "scripts/validation/perf-child.mjs",
+          "sha256": "cb65000734ec10f9ff97fd093db0512176740368051ecab36ad5ad77ee279bdc"
+        },
+        {
+          "path": "raw",
+          "sha256": "none",
+          "metadata": {
+            "p95Ms": 2,
+            "maxMs": 3,
+            "samples": 100
+          }
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "PERF-WARM-BROWSE",
+      "name": "warm p95 browse page latency",
+      "procedure": "100 sampled GET /api/v1/routes?limit=20 pages after warmup.",
+      "startedAt": "2026-08-14T01:54:01.795Z",
+      "endedAt": "2026-08-14T01:54:04.085Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "warm p95 browse page latency",
+        "value": 2,
+        "units": "milliseconds",
+        "sampleCount": 100
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-performance.mjs",
+          "sha256": "0c34686b55027ff966a69ecd50c8d0469040db4987197587d2fa771fdf114e43"
+        },
+        {
+          "path": "scripts/validation/perf-child.mjs",
+          "sha256": "cb65000734ec10f9ff97fd093db0512176740368051ecab36ad5ad77ee279bdc"
+        },
+        {
+          "path": "raw",
+          "sha256": "none",
+          "metadata": {
+            "p95Ms": 2,
+            "maxMs": 3,
+            "samples": 100
+          }
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "PERF-MEMORY-PEAK",
+      "name": "peak RSS during warm window",
+      "procedure": "Peak resident set sampled at 1 Hz during the warm measurement; policy 1536 MiB target, 2048 MiB hard.",
+      "startedAt": "2026-08-14T01:54:01.795Z",
+      "endedAt": "2026-08-14T01:54:04.085Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "peak RSS during warm window",
+        "value": 116,
+        "units": "MiB",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-performance.mjs",
+          "sha256": "0c34686b55027ff966a69ecd50c8d0469040db4987197587d2fa771fdf114e43"
+        },
+        {
+          "path": "scripts/validation/perf-child.mjs",
+          "sha256": "cb65000734ec10f9ff97fd093db0512176740368051ecab36ad5ad77ee279bdc"
+        },
+        {
+          "path": "raw",
+          "sha256": "none",
+          "metadata": {
+            "rssPeakMb": 116
+          }
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "PERF-COLD-START-HARD",
+      "name": "COLD-START within hard bound",
+      "procedure": "Design section 6 hard bound; failing this keeps the gate red.",
+      "startedAt": "2026-08-14T01:54:01.795Z",
+      "endedAt": "2026-08-14T01:54:04.085Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "538 <= 180000",
+        "value": 538,
+        "units": "milliseconds",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-performance.mjs",
+          "sha256": "0c34686b55027ff966a69ecd50c8d0469040db4987197587d2fa771fdf114e43"
+        },
+        {
+          "path": "scripts/validation/perf-child.mjs",
+          "sha256": "cb65000734ec10f9ff97fd093db0512176740368051ecab36ad5ad77ee279bdc"
+        }
+      ],
+      "failureFallback": "Keep the performance gate blocked until the hard bound is met."
+    },
+    {
+      "checkId": "PERF-WARM-LIVE-HARD",
+      "name": "WARM-LIVE within hard bound",
+      "procedure": "Design section 6 hard bound; failing this keeps the gate red.",
+      "startedAt": "2026-08-14T01:54:01.795Z",
+      "endedAt": "2026-08-14T01:54:04.085Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "2 <= 5000",
+        "value": 2,
+        "units": "milliseconds",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-performance.mjs",
+          "sha256": "0c34686b55027ff966a69ecd50c8d0469040db4987197587d2fa771fdf114e43"
+        },
+        {
+          "path": "scripts/validation/perf-child.mjs",
+          "sha256": "cb65000734ec10f9ff97fd093db0512176740368051ecab36ad5ad77ee279bdc"
+        }
+      ],
+      "failureFallback": "Keep the performance gate blocked until the hard bound is met."
+    },
+    {
+      "checkId": "PERF-WARM-BROWSE-HARD",
+      "name": "WARM-BROWSE within hard bound",
+      "procedure": "Design section 6 hard bound; failing this keeps the gate red.",
+      "startedAt": "2026-08-14T01:54:01.795Z",
+      "endedAt": "2026-08-14T01:54:04.085Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "2 <= 5000",
+        "value": 2,
+        "units": "milliseconds",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-performance.mjs",
+          "sha256": "0c34686b55027ff966a69ecd50c8d0469040db4987197587d2fa771fdf114e43"
+        },
+        {
+          "path": "scripts/validation/perf-child.mjs",
+          "sha256": "cb65000734ec10f9ff97fd093db0512176740368051ecab36ad5ad77ee279bdc"
+        }
+      ],
+      "failureFallback": "Keep the performance gate blocked until the hard bound is met."
+    },
+    {
+      "checkId": "PERF-MEMORY-HARD",
+      "name": "MEMORY within hard bound",
+      "procedure": "Design section 6 hard bound; failing this keeps the gate red.",
+      "startedAt": "2026-08-14T01:54:01.795Z",
+      "endedAt": "2026-08-14T01:54:04.085Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "116 <= 2048",
+        "value": 116,
+        "units": "milliseconds",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-performance.mjs",
+          "sha256": "0c34686b55027ff966a69ecd50c8d0469040db4987197587d2fa771fdf114e43"
+        },
+        {
+          "path": "scripts/validation/perf-child.mjs",
+          "sha256": "cb65000734ec10f9ff97fd093db0512176740368051ecab36ad5ad77ee279bdc"
+        }
+      ],
+      "failureFallback": "Keep the performance gate blocked until the hard bound is met."
+    }
+  ],
+  "summary": {
+    "checks": 8,
+    "passed": 8,
+    "blocked": 0,
+    "failed": 0
+  },
+  "artifacts": [
+    {
+      "path": "scripts/validation/measure-performance.mjs",
+      "sha256": "0c34686b55027ff966a69ecd50c8d0469040db4987197587d2fa771fdf114e43"
+    },
+    {
+      "path": "scripts/validation/perf-child.mjs",
+      "sha256": "cb65000734ec10f9ff97fd093db0512176740368051ecab36ad5ad77ee279bdc"
+    }
+  ]
+}

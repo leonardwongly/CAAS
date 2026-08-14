@@ -45,10 +45,14 @@ const envTracked = trackedFiles.filter((path) => /(?:^|\/)\.env(?:$|\.)/.test(pa
 collector.pass("SEC-DOTENV-NOT-TRACKED", "no local .env tracked", "The only tracked .env* file is .env.example.", startedAt, isoNow(),
   envTracked.length === 1 && envTracked[0] === ".env.example", "files", envTracked.length, artifactsFor());
 const envExample = await readFile(resolve(root, ".env.example"), "utf8").catch(() => "");
-const placeholderValues = [...envExample.matchAll(/^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*['"]?([^'"\n]*)['"]?\s*$/gm)].map((match) => match[1]?.trim() ?? "");
-const allPlaceholders = placeholderValues.every((value) => value === "" || /^(?:your-|changeme|replace-with|<[^>]+>|\[[^\]]+\]|example|xxxxx|n\/a|none)/i.test(value));
-collector.pass("SEC-ENV-EXAMPLE-PLACEHOLDER", ".env.example contains only placeholders", "Every value in .env.example is a documented placeholder, not a real credential.", startedAt, isoNow(),
-  allPlaceholders, "values", placeholderValues.length, artifactsFor());
+// HOST/PORT are documented non-secret defaults, not credentials; the check
+// guards credential-shaped values only (the CAAS key must stay a placeholder).
+const credentialShapedValues = [...envExample.matchAll(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*['"]?([^'"\n]*)['"]?\s*$/gm)]
+  .map((match) => ({ key: match[1] ?? "", value: (match[2] ?? "").trim() }))
+  .filter(({ key }) => !/^(HOST|PORT)$/i.test(key));
+const allPlaceholders = credentialShapedValues.every(({ value }) => value === "" || /^(?:your-|changeme|replace-with|<[^>]+>|\[[^\]]+\]|example|xxxxx|n\/a|none)/i.test(value));
+collector.pass("SEC-ENV-EXAMPLE-PLACEHOLDER", ".env.example contains only placeholders", "Every credential-shaped value in .env.example is a documented placeholder, not a real credential.", startedAt, isoNow(),
+  allPlaceholders, "values", credentialShapedValues.length, artifactsFor());
 
 // 3. Fixture credentials appear only where fixtures are documented.
 const fixtureOnlyIn = new Set(["scripts/validation", "tests"]);
