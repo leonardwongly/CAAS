@@ -1,0 +1,90 @@
+{
+  "recordKind": "measurement-results",
+  "lane": "lint",
+  "subject": {
+    "type": "commit",
+    "identifiers": {
+      "commit": "dddda4a87947"
+    },
+    "environment": "local-hermetic"
+  },
+  "startedAt": "2026-08-14T03:00:55.914Z",
+  "endedAt": "2026-08-14T03:00:55.935Z",
+  "checks": [
+    {
+      "checkId": "LINT-WEB-BOUNDARY",
+      "name": "web does not import server packages or node builtins",
+      "procedure": "apps/web only depends on browser-safe packages; no upstream-caas, node: builtins, or process.env.",
+      "startedAt": "2026-08-14T03:00:55.914Z",
+      "endedAt": "2026-08-14T03:00:55.925Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "web does not import server packages or node builtins",
+        "value": true,
+        "units": "violations",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/lint-import-boundaries.mjs",
+          "sha256": "fb27487338c3f1cf02e71b2d051f5f64243578a3d08dc95cfdd1e03091d64378"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LINT-SCRIPTS",
+      "name": "workspace packages declare real typecheck and test scripts",
+      "procedure": "Every package declares typecheck; every package except the web static bundle declares a real test script.",
+      "startedAt": "2026-08-14T03:00:55.914Z",
+      "endedAt": "2026-08-14T03:00:55.934Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "workspace packages declare real typecheck and test scripts",
+        "value": true,
+        "units": "violations",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/lint-import-boundaries.mjs",
+          "sha256": "fb27487338c3f1cf02e71b2d051f5f64243578a3d08dc95cfdd1e03091d64378"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LINT-ROOT-VALIDATION",
+      "name": "root validate/lint/test scripts are real commands",
+      "procedure": "No root validation-related script is a silent stub.",
+      "startedAt": "2026-08-14T03:00:55.914Z",
+      "endedAt": "2026-08-14T03:00:55.935Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "root validate/lint/test scripts are real commands",
+        "value": true,
+        "units": "violations",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/lint-import-boundaries.mjs",
+          "sha256": "fb27487338c3f1cf02e71b2d051f5f64243578a3d08dc95cfdd1e03091d64378"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    }
+  ],
+  "summary": {
+    "checks": 3,
+    "passed": 3,
+    "blocked": 0,
+    "failed": 0
+  },
+  "artifacts": [
+    {
+      "path": "scripts/validation/lint-import-boundaries.mjs",
+      "sha256": "fb27487338c3f1cf02e71b2d051f5f64243578a3d08dc95cfdd1e03091d64378"
+    }
+  ]
+}
