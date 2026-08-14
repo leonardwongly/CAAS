@@ -77,7 +77,10 @@ if (!imageBuilt) {
     child.once("error", (error) => { clearTimeout(timer); resolvePromise({ exit: `error:${error.message}`, durationMs: 0 }); });
   });
   collector.pass("CONTAINER-FAIL-CLOSED-WITHOUT-CREDENTIAL", "container fails closed without a credential", "Without a credential the container must exit non-zero (never start serving); a live call must not be attempted.", startedAt, isoNow(),
-    spawned.exit !== 0 && spawned.exit !== "timeout", "boolean", 1, artifactsFor([{ path: "spawn", sha256: "none", metadata: { exit: String(spawned.exit), durationMs: spawned.durationMs } }]));
+    // The container must be OBSERVED to exit with a non-zero numeric code. A
+    // spawn error (docker missing/daemon down) or a signal kill is NOT proof of
+    // fail-closed behavior and must fail this check.
+    typeof spawned.exit === "number" && spawned.exit !== 0, "boolean", 1, artifactsFor([{ path: "spawn", sha256: "none", metadata: { exit: String(spawned.exit), durationMs: spawned.durationMs } }]));
 }
 
 const record = {

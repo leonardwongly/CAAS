@@ -22,6 +22,9 @@ export const OPERATIONAL_PROXY_EXPLANATION = "This comparison uses modeled route
 
 export const SAFETY_NOTICE = "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.";
 
+/** Byte-identical mirror of `packages/contracts` DRAFT_SAFETY_COPY (pinned by the shared web-copy scan). */
+export const DRAFT_SAFETY_COPY = "Computationally complete; operational constraints not assessed.";
+
 export const REFRESH_CONFIRM = "Refresh the live data generation? The current flight selection and route will be cleared, and the service will re-acquire the latest flight and reference data.";
 
 export const REFRESH_STALE_BANNER = "Live flight data is stale — refresh recommended.";

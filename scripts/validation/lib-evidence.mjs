@@ -49,6 +49,13 @@ export class CheckCollector {
   }
 
   pass(checkId, name, procedure, startedAt, endedAt, value, units, sampleCount = 1, artifacts = []) {
+    if (!value) {
+      // A false predicate is a FAILURE, never a pass: the evidence regime must
+      // be fail-closed. Callers that want an honest non-pass must use fail()
+      // or blocked() explicitly.
+      this.fail(checkId, name, procedure, startedAt, endedAt, `check predicate evaluated false: ${name}`);
+      return;
+    }
     this.add({ checkId, name, procedure, startedAt, endedAt, result: "pass", measurement: { summary: name, value, units, sampleCount }, artifacts });
   }
 

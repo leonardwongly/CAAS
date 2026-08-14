@@ -12,7 +12,9 @@ import { createHash } from "node:crypto";
 
 export const FIXTURE_API_KEY = "loopback-fixture-key";
 export const FIXTURE_REFRESH_SECRET = "loopback-fixture-refresh-secret";
-export const FIXTURE_AIRWAY_VALUES = Object.freeze(["A1", "G1"]);
+// Distinctive marker values: the exclusion scan must never collide with
+// legitimate response text (tokens, identifiers, prose).
+export const FIXTURE_AIRWAY_VALUES = Object.freeze(["AIRWAY-A101", "AIRWAY-G202"]);
 
 export const CAAS_CONTRACT = Object.freeze({
   origin: "https://api.swimapisg.info",

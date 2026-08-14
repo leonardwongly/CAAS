@@ -147,38 +147,54 @@ const get = async (path) => {
   return { status: response.status, headers: Object.fromEntries(response.headers.entries()), body, json: () => JSON.parse(body) };
 };
 
-const live = await get("/api/v1/health/live");
-collector.pass("LIVE-LIVENESS", "liveness endpoint", "GET /api/v1/health/live returns 200.", startedAt, isoNow(), live.status === 200, "boolean", 1, artifactsFor());
+try {
+  const live = await get("/api/v1/health/live");
+  collector.pass("LIVE-LIVENESS", "liveness endpoint", "GET /api/v1/health/live returns 200.", startedAt, isoNow(), live.status === 200, "boolean", 1, artifactsFor());
 
-const ready = await get("/api/v1/health/ready");
-const readyBody = ready.json();
-const familyCount = readyBody.families?.length ?? 0;
-const familyNames = (readyBody.families ?? []).map((item) => item.family).sort();
-collector.pass("LIVE-FIVE-FAMILY-ACQUISITION", "live five-family acquisition", "All five families acquired and validated from the real origin.", startedAt, isoNow(),
-  ready.status === 200 && readyBody.status === "ready" && familyCount === 5, "families", familyCount, artifactsFor());
+  const ready = await get("/api/v1/health/ready");
+  const readyBody = ready.json();
+  // The readiness payload reports the four product families plus Airways
+  // separately (fetched/validated, values never exposed).
+  const familyCount = readyBody.families?.length ?? 0;
+  const airwayAvailable = readyBody.airway?.status === "available";
+  collector.pass("LIVE-FIVE-FAMILY-ACQUISITION", "live five-family acquisition", "All five families acquired and validated from the real origin: Flight Plan, Fixes, Airports, NAVAIDs in the families payload plus Airways validated separately.", startedAt, isoNow(),
+    ready.status === 200 && readyBody.status === "ready" && familyCount === 4 && airwayAvailable, "families", familyCount, artifactsFor());
 
-const seen = [];
-let cursor;
-let pages = 0;
-do {
-  const query = cursor === undefined ? "/api/v1/routes?limit=100" : `/api/v1/routes?limit=100&cursor=${encodeURIComponent(cursor)}`;
-  const page = await get(query);
-  if (page.status !== 200) throw new Error(`live browse failed with ${page.status}`);
-  seen.push(...page.json().data.map((item) => item.id));
-  cursor = page.json().nextCursor;
-  pages += 1;
-} while (cursor !== undefined);
-const unique = new Set(seen).size === seen.length;
-collector.pass("LIVE-BROWSE-EXACT-ONCE", "live browse exact-once traversal", "Cursor traversal from first page to terminal cursor returns every flight exactly once.", startedAt, isoNow(),
-  unique, "flights", seen.length, artifactsFor());
+  // Bounded traversal: at most 100 pages of 100 records (10,000 records), far
+  // beyond the observed 115-flight population; a persistent cursor terminates
+  // the lane with a failure instead of hanging.
+  const MAX_BROWSE_PAGES = 100;
+  const seen = [];
+  let cursor;
+  let pages = 0;
+  while (pages < MAX_BROWSE_PAGES) {
+    const query = cursor === undefined ? "/api/v1/routes?limit=100" : `/api/v1/routes?limit=100&cursor=${encodeURIComponent(cursor)}`;
+    const page = await get(query);
+    if (page.status !== 200) throw new Error(`live browse failed with ${page.status}`);
+    seen.push(...page.json().data.map((item) => item.id));
+    cursor = page.json().nextCursor;
+    pages += 1;
+    if (cursor === undefined) break;
+  }
+  const unique = new Set(seen).size === seen.length;
+  collector.pass("LIVE-BROWSE-EXACT-ONCE", "live browse exact-once traversal", "Cursor traversal from first page to terminal cursor returns every flight exactly once and terminates within the page cap.", startedAt, isoNow(),
+    unique && cursor === undefined, "flights", seen.length, artifactsFor());
 
-const refreshed = await fetch(`${base}/api/v1/refresh`, { method: "POST" });
-collector.pass("LIVE-REFRESH-AUTH", "live refresh authorization", "Refresh without the runtime token is rejected.", startedAt, isoNow(), refreshed.status === 401, "boolean", 1, artifactsFor());
+  // Single-user access model: with no refresh secret configured, refresh is
+  // authorized by the access boundary and must succeed (recovery path).
+  const refreshed = await fetch(`${base}/api/v1/refresh`, { method: "POST" });
+  const refreshedBody = await refreshed.text();
+  const refreshedGeneration = refreshedBody ? JSON.parse(refreshedBody).generation : undefined;
+  collector.pass("LIVE-REFRESH-UNSET-SECRET", "refresh under the single-user access model", "With no refresh secret configured, refresh succeeds and returns a new generation summary (the Azure edge gates the user session).", startedAt, isoNow(),
+    refreshed.status === 200 && typeof refreshedGeneration?.id === "string", "boolean", 1, artifactsFor());
 
-const secretExcluded = !live.body.includes(apikey) && !ready.body.includes(apikey);
-collector.pass("LIVE-SECRET-EXCLUDED", "credential never surfaces", "The runtime key never appears in any API response.", startedAt, isoNow(), secretExcluded, "boolean", 1, artifactsFor());
-
-await server.app.close();
+  const secretExcluded = !live.body.includes(apikey) && !ready.body.includes(apikey);
+  collector.pass("LIVE-SECRET-EXCLUDED", "credential never surfaces", "The runtime key never appears in any API response.", startedAt, isoNow(), secretExcluded, "boolean", 1, artifactsFor());
+} catch (error) {
+  collector.fail("LIVE-LANE-ERROR", "live lane execution", "Every live check must complete; an exception fails the lane loudly instead of hanging or silently missing evidence.", startedAt, isoNow(), error instanceof Error ? error.message : String(error));
+} finally {
+  await server.app.close();
+}
 
 const record = {
   recordKind: "lane-results",

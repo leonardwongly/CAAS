@@ -1006,16 +1006,13 @@ function runtimeRefreshSecret(options: ApiServerOptions): string | undefined {
   return options.refreshSecret ?? process.env.REFRESH_SECRET ?? process.env.REFRESH_TOKEN;
 }
 
-function isTestRuntime(): boolean {
-  return process.env.NODE_ENV === "test" || process.execArgv.includes("--test") || process.argv.some((value) => value.includes("node:test"));
-}
-
 function ensureRefreshAuthorization(request: FastifyRequest, secret: string | undefined): void {
-  // Test adapters may exercise refresh without deployment credentials; every non-test process fails closed.
-  if (!secret) {
-    if (isTestRuntime()) return;
-    throw new ApiHttpError(401, "UNAUTHORIZED", "Refresh authorization is required.");
-  }
+  // Single-user access model (design §0.1/§0.5, plan §2 decision 4): with no
+  // refresh secret configured, refresh is authorized by the access boundary —
+  // loopback single-user locally, Entra authConfigs at the Azure edge. A
+  // configured REFRESH_SECRET is optional defense-in-depth and must then be
+  // presented on every refresh.
+  if (!secret) return;
   const supplied = request.headers["x-refresh-token"];
   if (typeof supplied !== "string") throw new ApiHttpError(401, "UNAUTHORIZED", "Refresh authorization is required.");
   const suppliedBuffer = Buffer.from(supplied);
@@ -1100,6 +1097,13 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ApiHttpError) return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message.slice(0, MAX_ERROR_MESSAGE), retryable: error.retryable }, ...(error.details ? { ...error.details } : {}) });
     if (error instanceof SyntaxError) return reply.code(400).send({ error: { code: "INVALID_JSON", message: "The request body is not valid JSON." } });
+    // Client-shaped Fastify errors (body parsing, content-type mismatch, entity
+    // too large) carry a 4xx statusCode; report them as 4xx, never as a 500
+    // server fault.
+    const statusCode = typeof (error as { statusCode?: unknown }).statusCode === "number" ? (error as { statusCode: number }).statusCode : undefined;
+    if (statusCode !== undefined && statusCode >= 400 && statusCode < 500) {
+      return reply.code(statusCode).send({ error: { code: statusCode === 413 ? "REQUEST_TOO_LARGE" : "INVALID_REQUEST", message: error.message.slice(0, MAX_ERROR_MESSAGE) } });
+    }
     return reply.code(500).send({ error: { code: "INTERNAL_ERROR", message: "The route service encountered an internal error." } });
   });
 

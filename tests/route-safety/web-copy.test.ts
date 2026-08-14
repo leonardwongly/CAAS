@@ -29,15 +29,17 @@ const CANDIDATE_COPY_CONSTANTS = [
   "INCOMPLETE_GROUP_DESCRIPTION",
   "OPERATIONAL_PROXY_EXPLANATION",
   "SAFETY_NOTICE",
+  "DRAFT_SAFETY_COPY",
 ] as const;
 
 test("the web client carries the exact qualified labels and safety copies verbatim", () => {
   assert.ok(labelsSource.includes(`"${RANK_ONE_LABEL}"`), "labels.ts must define the exact qualified rank-1 label");
   assert.ok(labelsSource.includes(PERSISTENT_SAFETY_COPY), "the persistent safety copy must appear verbatim in labels.ts");
+  assert.ok(labelsSource.includes(DRAFT_SAFETY_COPY), "the draft safety copy must appear verbatim in labels.ts");
   // App.tsx renders the constants from labels.ts; the exact strings are pinned there.
   assert.ok(appSource.includes("RANK_ONE_LABEL"), "App.tsx must render the qualified rank-1 label");
   assert.ok(appSource.includes("SAFETY_NOTICE"), "App.tsx must render the persistent safety copy");
-  assert.ok(appSource.includes(DRAFT_SAFETY_COPY), "the draft safety copy must appear verbatim");
+  assert.ok(appSource.includes("DRAFT_SAFETY_COPY"), "App.tsx must render the draft safety copy constant");
 });
 
 test("the web client rounds modeled distances for display only, at 0.1 NM", () => {

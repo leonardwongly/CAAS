@@ -127,7 +127,10 @@ export type RouteQuery = z.output<typeof RouteQuerySchema>;
  * that do not identify one of the waypoint's exact matches.
  */
 export const RouteDraftSelectionSchema = z.object({
-  sequence: z.number().int().min(0).max(MAX_ROUTE_LEGS - 1),
+  // via is capped at MAX_ROUTE_LEGS - 1 entries (valid indices 0..MAX_ROUTE_LEGS - 2);
+  // a selection must reference an existing waypoint, so the sequence bound matches
+  // the last valid via index (the server rejects sequence >= via.length).
+  sequence: z.number().int().min(0).max(MAX_ROUTE_LEGS - 2),
   locationId: z.string().trim().min(1).max(512),
 }).strict();
 export type RouteDraftSelection = z.output<typeof RouteDraftSelectionSchema>;

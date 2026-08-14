@@ -41,7 +41,7 @@ async function runChecks() {
   const post = async (path, payload, headers = {}) => {
     const response = await fetch(`${base}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...headers },
+      headers: { ...(payload !== undefined ? { "content-type": "application/json" } : {}), ...headers },
       ...(payload !== undefined ? { body: JSON.stringify(payload) } : {}),
     });
     const body = await response.text();
@@ -62,10 +62,13 @@ async function runChecks() {
   collector.pass("LANE-STARTUP-READY", "startup readiness", "Cold startup completes five-family acquisition and reports started.", startedAt, isoNow(), startup.status === 200 && startup.json().status === "started", "boolean", 1, artifactsFor());
   const ready = await get("/api/v1/health/ready");
   const readyBody = ready.json();
+  // The readiness payload reports the four product families (internal names:
+  // displayAll, fixes, airports, navaids) in `families` and Airways separately
+  // in `airway` (fetched/validated, values never exposed).
   const familiesAvailable = readyBody.status === "ready" ? readyBody.families?.map((item) => item.family) ?? [] : [];
   const airwayAvailable = readyBody.status === "ready" && readyBody.airway?.status === "available";
-  collector.pass("LANE-FIVE-FAMILY-ACQUISITION", "five-family acquisition path", "All five families acquired, validated, and available in one complete generation.", startedAt, isoNow(),
-    ready.status === 200 && familiesAvailable.length === 5 && familiesAvailable.every((family) => ["Flight Plan", "Airways", "Fixes", "Airports", "NAVAIDs"].includes(family)) && airwayAvailable, "boolean", 1, artifactsFor());
+  collector.pass("LANE-FIVE-FAMILY-ACQUISITION", "five-family acquisition path", "All five families acquired, validated, and available in one complete generation: displayAll, fixes, airports, navaids in the families payload plus Airways validated separately.", startedAt, isoNow(),
+    ready.status === 200 && familiesAvailable.length === 4 && familiesAvailable.every((family) => ["displayAll", "fixes", "airports", "navaids"].includes(family)) && airwayAvailable, "boolean", 1, artifactsFor());
 
   // 4. Retry: the mock returns 429 once for displayAll; the adapter must retry once and succeed.
   const retriedOnce = transport.state.displayAllAttempts === 2;
@@ -183,6 +186,24 @@ async function runChecks() {
   const stillServing = await get("/api/v1/routes?limit=1");
   collector.pass("LANE-REFRESH-RETAINS", "failed refresh retains usable generation", "A failed refresh returns 503 REFRESH_FAILED naming the retained generation in a retained.generation payload while the last usable complete generation keeps serving.", startedAt, isoNow(),
     failedRefresh.status === 503 && failedRefresh.json().error?.code === "REFRESH_FAILED" && typeof retainedGen?.id === "string" && retainedGen.overall !== "unusable" && stillServing.status === 200, "boolean", 1, artifactsFor());
+
+  // 12b. Single-user access model: with NO refresh secret configured, refresh is
+  // authorized by the access boundary (loopback single-user locally; Entra
+  // authConfigs at the Azure edge) and must succeed so the UI recovery path works.
+  const noSecretTransport = createMockTransport();
+  const noSecretServer = await createApiServer({ adapter: createCaasAdapter({ transport: noSecretTransport }), refreshSecret: "" });
+  await noSecretServer.app.listen({ port: 0, host: "127.0.0.1" });
+  const noSecretAddress = noSecretServer.app.server.address();
+  try {
+    const noSecretRefresh = await fetch(`http://127.0.0.1:${noSecretAddress.port}/api/v1/refresh`, { method: "POST" });
+    const noSecretBody = await noSecretRefresh.text();
+    responses.push({ method: "POST", path: "/api/v1/refresh (no-secret server)", status: noSecretRefresh.status, body: noSecretBody });
+    const noSecretGeneration = noSecretBody ? JSON.parse(noSecretBody).generation : undefined;
+    collector.pass("LANE-REFRESH-UNSET-SECRET", "refresh without a configured secret", "With no refresh secret configured the single-user access model authorizes refresh; the recovery path succeeds and returns a generation summary.", startedAt, isoNow(),
+      noSecretRefresh.status === 200 && typeof noSecretGeneration?.id === "string", "boolean", 1, artifactsFor());
+  } finally {
+    await noSecretServer.app.close();
+  }
 
   // 13. Airways are exercised but excluded from every output.
   const airwayValuesExcluded = !responses.some((response) => FIXTURE_AIRWAY_VALUES.some((value) => response.body.includes(value)));

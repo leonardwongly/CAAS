@@ -19,6 +19,7 @@ import {
 import {
   COMPLETE_RANKED_GROUP_DESCRIPTION,
   COMPLETE_RANKED_GROUP_TITLE,
+  DRAFT_SAFETY_COPY,
   INCOMPLETE_GROUP_DESCRIPTION,
   INCOMPLETE_GROUP_TITLE,
   OPERATIONAL_PROXY_EXPLANATION,
@@ -56,6 +57,9 @@ function refreshFailureMessage(error: unknown): string {
       : undefined;
     const live = generation?.live;
     if (live?.retrievedAt) {
+      if (live.state === "unusable") {
+        return `Live data refresh failed and the prior generation is no longer usable (retrieved ${new Date(live.retrievedAt).toLocaleTimeString()}). No live data is serving requests — retry refresh.`;
+      }
       return `Live data refresh failed. The prior generation (retrieved ${new Date(live.retrievedAt).toLocaleTimeString()}, ${live.state ?? "state unknown"}) is still serving requests.`;
     }
   }
@@ -81,6 +85,7 @@ function App() {
   const [rankLabel, setRankLabel] = useState<string>();
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string>();
+  const [readinessError, setReadinessError] = useState<string>();
   const routeRequest = useRef(0);
   const draftRequest = useRef<AbortController | undefined>(undefined);
   const searchRequest = useRef<AbortController | undefined>(undefined);
@@ -121,7 +126,12 @@ function App() {
     const controller = new AbortController();
     fetchReadiness(controller.signal)
       .then((readiness) => { if (!controller.signal.aborted && readiness.generation) setGeneration(readiness.generation); })
-      .catch((error) => { if (error instanceof DOMException && error.name === "AbortError") return; });
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        // A failed readiness (e.g. upstream unavailable at boot) must still
+        // surface the refresh-recovery path instead of a dead app.
+        setReadinessError(apiMessage(error));
+      });
     return () => controller.abort();
   }, []);
 
@@ -243,6 +253,7 @@ function App() {
     try {
       const result = await refreshLiveData();
       setGeneration(result.generation);
+      setReadinessError(undefined);
       resetAll();
       setStatus(`Live data refreshed. New generation retrieved at ${new Date(result.generation.retrievedAt).toLocaleTimeString()}; selection cleared.`);
     } catch (error) {
@@ -267,10 +278,10 @@ function App() {
         <button className="quiet-button toolbar-clear" type="button" onClick={() => { setPrimarySurface("none"); resetAll(); }}>Clear session</button>
       </header>}
 
-      {(generation || refreshError) && (
+      {(generation || refreshError || readinessError) && (
         <div className="generation-strip" role="region" aria-label="Live data freshness">
           {generation && <span className={`status-chip freshness-chip freshness-${generation.live.state}`}>Live data {generation.live.state} · retrieved {new Date(generation.live.retrievedAt).toLocaleTimeString()}</span>}
-          {refreshError && <span className="refresh-error" role="alert">{refreshError}</span>}
+          {(refreshError || readinessError) && <span className="refresh-error" role="alert">{refreshError ?? readinessError}</span>}
           <button className="quiet-button" type="button" onClick={() => void runRefresh()} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh live data"}</button>
         </div>
       )}
@@ -337,7 +348,7 @@ function SearchBox({ selected, state, onFocus, onQuery, onSearch, onSelect }: { 
       {selected && <p className="selected-value"><span className="check">✓</span> Selected <strong>{selected.callsign}</strong> <span>{selected.departure} → {selected.destination}</span></p>}
       {state.error && <p className="field-error" role="alert">{state.error}</p>}
       {hasResults && <div className="duplicate-picker"><p className="picker-label">{state.matches.length > 1 ? "Multiple flight plans — choose the exact record" : "Flight-plan match"}</p><div id={resultId} role="listbox" aria-label="Choose an exact flight-plan match">{state.matches.map((match, index) => <div className={`match-option ${activeIndex === index ? "is-active" : ""}`} id={`flight-match-${index}`} role="option" aria-selected={activeIndex === index} key={match.id} tabIndex={-1} onMouseDown={(event) => event.preventDefault()} onClick={() => select(match)}><span><strong>{match.callsign}</strong><small>{match.departure} → {match.destination} · {match.routePointCount} recorded points</small></span><span aria-hidden="true">›</span></div>)}</div></div>}
-      {state.searched && !state.loading && state.query.trim() && !state.error && !hasResults && !selected && <p className="helper-text">No matching flight plans returned.</p>}
+      {state.searched && !state.loading && state.query.trim() && !state.error && !hasResults && state.matches.length === 0 && !selected && <p className="helper-text">No matching flight plans returned.</p>}
     </div>
   );
 }
@@ -384,6 +395,7 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
   const [activeIndex, setActiveIndex] = useState(-1);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string>();
+  const lookupRequest = useRef(0);
   const via = draft?.draft.via ?? [];
   const selections = draft?.draft.selections ?? [];
   const delta = draft?.comparison.distanceDeltaNm;
@@ -408,6 +420,7 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
   }
 
   function commitMatch(match: PointMatch) {
+    lookupRequest.current += 1;
     onUpdate([...via, match.identifier], match.locationId ? [...selections, { sequence: via.length, locationId: match.locationId }] : selections);
     setQuery("");
     setMatches([]);
@@ -416,25 +429,28 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
 
   async function findReference() {
     const value = query.trim();
-    if (!value) return;
+    if (!value || lookupLoading) return;
+    const requestId = ++lookupRequest.current;
     setLookupLoading(true);
     setLookupError(undefined);
     setMatches([]);
     setActiveIndex(-1);
     try {
       const found = await lookupPoint(value);
+      if (requestId !== lookupRequest.current) return; // a newer lookup superseded this one
       setMatches(found);
       if (!found.length) setLookupError("No exact reference point was returned. Free-form points cannot be added.");
     } catch (lookupFailure) {
+      if (requestId !== lookupRequest.current) return;
       setLookupError(apiMessage(lookupFailure));
     } finally {
-      setLookupLoading(false);
+      if (requestId === lookupRequest.current) setLookupLoading(false);
     }
   }
 
   return <section className="draft-section" aria-labelledby="draft-heading">
     <div className="section-title"><div><p className="eyebrow">EDIT COPY</p><h2 id="draft-heading" tabIndex={-1}>Local computational draft</h2></div><button className="quiet-button" type="button" onClick={onClose}>Close draft</button></div>
-    <p className="draft-safety">Computationally complete; operational constraints not assessed. Endpoints are locked and every change is checked against exact reference data.</p>
+    <p className="draft-safety">{DRAFT_SAFETY_COPY} Endpoints are locked and every change is checked against exact reference data.</p>
     <div className="draft-endpoints"><span><strong>From</strong> {baseline.origin ?? "Selected origin"}</span><span><strong>To</strong> {baseline.destination ?? "Selected destination"}</span></div>
     <div className="draft-search"><label htmlFor="draft-point-search">Add an exact reference point</label><div className="search-input-row"><input id="draft-point-search" role="combobox" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
       if (event.key === "ArrowDown" && hasMatches) { event.preventDefault(); setActiveIndex((index) => Math.min(index + 1, matches.length - 1)); }

@@ -36,43 +36,43 @@ transports, and mocked clocks — no network, no credentials, no live CAAS data.
 
 ## ACTUAL behavior vs plan/design — documented gaps (not fixed here)
 
-These are issue-#30 observations of what the code does today where the plan
-(`2026-08-11-flight-route-explorer-plan.md`) or design spec requires more.
-They are **gaps**, not failures of the tests; runtime policy changes belong to
-issue #35 and must not be smuggled into this evidence suite.
+These were issue-#30 observations of the code as of the pre-integration tree.
+The runtime-policies workstream (issue #35) has since implemented most of them
+on the merged tree; each item below records its current status.
 
-1. **Active + previous generation retention not implemented.** Plan §5.1 and
-   design §0.2 require the active *and immediately previous* generation to be
-   retained for 30 minutes so in-flight interactions complete. The store keeps
-   only the active snapshot; on refresh success the prior generation is dropped
-   immediately and its cursors/draft tokens fail closed at once (409/410).
-   Proved in `generation-lifecycle.test.ts` ("a successful refresh drops the
-   previous generation immediately").
-2. **Single 30-minute TTL, no tiered freshness windows.** Plan §6.2 defines
-   tiered windows (live data stale at 5 min, unusable at 30 min; reference
-   data 24 h/7 d). The code has one TTL with a boolean `fresh` and
-   `GENERATION_STALE` at expiry. Proved in `generation-lifecycle.test.ts`
-   (30-minute window test).
-3. **No application-revision field in tokens.** Design §0.2 says tokens bind to
-   "application revision and generation"; the token body is `{g, t, e, n, ...}`
-   with no revision identifier. Binding to a fresh per-process generation UUID
-   means a restart/redeploy invalidates tokens de facto — acceptable for the
-   POC, not the documented mechanism. Proved in `generation-lifecycle.test.ts`
-   ("cursors bind the generation id and carry no separate application-revision
-   field").
-4. **5-second hard server deadline not enforced.** Plan §6.2 requires every
-   warm request to complete within 5 s server-side. No such deadline exists in
-   the API; only the upstream transport has connect/total deadlines (proved in
-   `failure-surfacing.test.ts`).
-5. **Refresh-failure response detail.** Plan §5.1 wants the prior-generation
-   retrieval time and stale state surfaced with a refresh failure; the current
-   503 `REFRESH_FAILED` body does not include them.
-6. **Acquisition causes collapse to `UPSTREAM_UNAVAILABLE`.** `acquireSnapshot`
-   computes and throws the precise cause (`REFERENCE_RECORD_LIMIT` for the
-   aggregate bound, per-family `RECORD_LIMIT`, timeouts), but the store's
-   `catch` re-throws a default `GenerationAcquisitionError` whose causeCode is
-   always `UPSTREAM_UNAVAILABLE`. The public surface cannot distinguish
-   acquisition causes today, so the failure-classification measurements in
+1. **Active + previous generation retention — IMPLEMENTED (issue #35).** The
+   store now retains the active plus immediately previous generation
+   (`GenerationStore.previousSnapshot`, pruned once unusable); tokens remain
+   generation-scoped, so prior-generation cursors/drafts still fail closed on
+   refresh. Proved in `generation-lifecycle.test.ts` ("a successful refresh
+   invalidates prior-generation cursors while retaining the previous snapshot").
+2. **Tiered freshness windows — IMPLEMENTED (issue #35).** Plan §6.2 tiers are
+   pinned in `packages/upstream-caas/src/freshness.ts` (live fresh ≤ 5 min,
+   unusable after 30 min; reference 24 h/7 d) with fail-closed unusable states.
+   Proved in `generation-lifecycle.test.ts` (live unusable-boundary test) and
+   `tests/runtime-policies/`.
+3. **No application-revision field in tokens — REMAINS.** Design §0.2 says
+   tokens bind to "application revision and generation"; the token body is
+   `{g, t, e, n, ...}` with no revision identifier. Binding to a fresh
+   per-process generation UUID means a restart/redeploy invalidates tokens de
+   facto — acceptable for the POC, not the documented mechanism. Proved in
+   `generation-lifecycle.test.ts` ("cursors bind the generation id and carry
+   no separate application-revision field").
+4. **5-second hard server deadline — IMPLEMENTED (issue #35).** Warm requests
+   now run under a 5-second server-side deadline (`withWarmDeadline`) and fail
+   closed `503 REQUEST_DEADLINE_EXCEEDED`. Proved in
+   `tests/runtime-policies/runtime-policies.test.ts`.
+5. **Refresh-failure response detail — IMPLEMENTED (issue #35).** The 503
+   `REFRESH_FAILED` body now carries `retained.generation` with the prior
+   generation's retrieval time and stale state. Proved by the loopback lane
+   `LANE-REFRESH-RETAINS` check.
+6. **Acquisition causes collapse to `UPSTREAM_UNAVAILABLE` — REMAINS.**
+   `acquireSnapshot` computes and throws the precise cause
+   (`REFERENCE_RECORD_LIMIT` for the aggregate bound, per-family
+   `RECORD_LIMIT`, timeouts), but the store's `catch` re-throws a default
+   `GenerationAcquisitionError` whose causeCode is always
+   `UPSTREAM_UNAVAILABLE`. The public surface cannot distinguish acquisition
+   causes today, so the failure-classification measurements in
    `docs/operations/production-operations.md` §2 (UPSTREAM_UNAVAILABLE vs
    REFERENCE_RECORD_LIMIT vs RECORD_LIMIT vs timeouts) are not yet reachable.
    Proved in `generation-lifecycle.test.ts` ("acquisition fails closed beyond
