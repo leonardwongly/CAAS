@@ -240,10 +240,16 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
         ? { data: routeOptions, rankLabel: RANK_ONE_LABEL }
         : { data: routeOptions, rankLabel: RANK_ONE_LABEL, generation });
     }
-    // Point lookup: GET /api/v1/points/:reference -> { matches } with locationId tokens.
-    if (method === "GET" && url.startsWith("/api/v1/points/")) {
-      const reference = decodeURIComponent(url.split("/").pop() ?? "").toUpperCase();
+    // Point lookup: POST { reference } -> { matches } with locationId tokens
+    // (the user term travels in the body only; plan §2.4).
+    if (method === "POST" && url === "/api/v1/points/lookup") {
+      const reference = String(bodyOf(init).reference ?? "").toUpperCase();
       return jsonResponse(pointMatches[reference] ?? { matches: [] });
+    }
+    // Route detail: POST { routeId } -> { data } (the signed token travels in
+    // the body only; plan §2.4).
+    if (method === "POST" && url === "/api/v1/routes/detail") {
+      return jsonResponse({ data: routeOptions[0] });
     }
     // Draft validation: single two-operand POST carrying baselineId + targetDraft.
     if (method === "POST" && url === "/api/v1/routes/compare") {

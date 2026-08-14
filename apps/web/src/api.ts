@@ -88,10 +88,18 @@ function stringValue(record: Record<string, unknown>, ...keys: string[]): string
   return undefined;
 }
 
+/** Canonical decimal grammar only: never Number()-coerce "0x1A", "1e2", "", null, or booleans. */
+function decimalNumber(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : NaN;
+  if (typeof value !== "string") return NaN;
+  const trimmed = value.trim();
+  if (!/^-?\d+(?:\.\d+)?$/.test(trimmed)) return NaN;
+  return Number(trimmed);
+}
+
 function finiteNumber(record: Record<string, unknown>, ...keys: string[]): number | undefined {
   for (const key of keys) {
-    const value = record[key];
-    const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+    const number = decimalNumber(record[key]);
     if (Number.isFinite(number)) return number;
   }
   return undefined;
@@ -108,8 +116,8 @@ function unwrap(value: unknown): unknown[] {
 
 function geoJsonCoordinate(value: unknown): Coordinate | undefined {
   if (!Array.isArray(value) || value.length < 2) return undefined;
-  const lon = typeof value[0] === "number" ? value[0] : Number(value[0]);
-  const lat = typeof value[1] === "number" ? value[1] : Number(value[1]);
+  const lon = decimalNumber(value[0]);
+  const lat = decimalNumber(value[1]);
   return Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 ? { lat, lon } : undefined;
 }
 
@@ -124,9 +132,11 @@ function normalizeGeometry(value: unknown): Coordinate[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const points = value.flatMap((point) => {
     if (isRecord(point)) {
-      const lat = typeof point.lat === "number" ? point.lat : Number(point.lat ?? point.latitude);
-      const lon = typeof point.lon === "number" ? point.lon : Number(point.lon ?? point.longitude ?? point.lng);
-      return Number.isFinite(lat) && Number.isFinite(lon) ? [{ lat, lon }] : [];
+      // Same strict grammar and range bounds as the array branch: a coerced
+      // (0,0) or unbounded coordinate must never render.
+      const lat = decimalNumber(point.lat ?? point.latitude);
+      const lon = decimalNumber(point.lon ?? point.longitude ?? point.lng);
+      return Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 ? [{ lat, lon }] : [];
     }
     const parsed = geoJsonCoordinate(point);
     return parsed ? [parsed] : [];
@@ -399,7 +409,13 @@ export async function refreshLiveData(signal?: AbortSignal): Promise<RefreshResu
 }
 
 export async function fetchRouteData(routeId: OpaqueId, signal?: AbortSignal): Promise<RouteOption> {
-  const payload = await request(`/api/v1/routes/${encodeURIComponent(routeId)}`, signal ? { signal } : {});
+  // URL privacy (plan §2.4): the signed flight token travels in the POST body,
+  // never in a request URL.
+  const payload = await request("/api/v1/routes/detail", {
+    method: "POST",
+    ...(signal ? { signal } : {}),
+    body: JSON.stringify({ routeId }),
+  });
   const route = normalizeRoute(isRecord(payload) && payload.data ? payload.data : payload, 0);
   if (!route) throw new Error("The route response did not contain usable route data.");
   return route;
@@ -470,7 +486,13 @@ export type PointLookupResult = {
 };
 
 export async function lookupPoint(reference: string, signal?: AbortSignal): Promise<PointLookupResult> {
-  const payload = await request(`/api/v1/points/${encodeURIComponent(reference)}`, signal ? { signal } : {});
+  // URL privacy (plan §2.4): the user's search term travels in the POST body,
+  // never in a request URL.
+  const payload = await request("/api/v1/points/lookup", {
+    method: "POST",
+    ...(signal ? { signal } : {}),
+    body: JSON.stringify({ reference }),
+  });
   if (!isRecord(payload)) return { matches: [], truncated: false };
   const values = Array.isArray(payload.matches) ? payload.matches : payload.data ? [payload.data] : [];
   const matches = values.flatMap((value) => {

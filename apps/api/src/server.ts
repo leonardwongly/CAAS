@@ -52,6 +52,16 @@ const AMBIGUITY_HARD_TOTAL = 500;
 // Plan §6.1: browser response hard limit 2 MiB — a larger payload fails
 // closed with a bounded error instead of emitting an over-limit body.
 const MAX_BROWSER_RESPONSE_BYTES = 2 * 1024 * 1024;
+
+function securityHeaders(reply: FastifyReply): FastifyReply {
+  return reply
+    .header("content-security-policy", "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; style-src 'self'")
+    .header("referrer-policy", "strict-origin-when-cross-origin")
+    .header("strict-transport-security", "max-age=31536000; includeSubDomains")
+    .header("x-content-type-options", "nosniff")
+    .header("x-frame-options", "DENY")
+    .header("permissions-policy", "geolocation=(), microphone=(), camera=()");
+}
 const MAX_DRAFT_ENTRIES = 512;
 const MAX_SEARCH_LENGTH = 64;
 const MAX_ERROR_MESSAGE = 160;
@@ -440,6 +450,7 @@ export class GenerationStore {
   private readonly drafts = new Map<string, DraftEntry>();
   private readonly adapter: CaasAdapter;
   private readonly now: () => number;
+  private refreshSequence = 0;
 
   constructor(adapter: CaasAdapter, now: () => number = Date.now) {
     this.adapter = adapter;
@@ -477,9 +488,19 @@ export class GenerationStore {
    * another server fail HMAC.
    */
   async refresh(signal?: AbortSignal): Promise<Snapshot> {
+    // Acquisition-order guard: when refreshes overlap, the LAST-STARTED one
+    // owns the active generation. A superseded (earlier-started) refresh that
+    // settles late must never install its older snapshot over the newer one,
+    // and must not touch state settled by the newer attempt.
+    const sequence = ++this.refreshSequence;
     this.state = "loading";
     try {
       const snapshot = await acquireSnapshot(this.adapter, this.now, signal);
+      if (sequence !== this.refreshSequence) {
+        // Superseded by a later-started refresh: report the acquisition this
+        // caller initiated without installing it over the newer generation.
+        return snapshot;
+      }
       const current = this.activeSnapshot;
       this.previousSnapshot = current !== undefined && this.isServable(current) ? current : undefined;
       this.activeSnapshot = snapshot;
@@ -487,7 +508,13 @@ export class GenerationStore {
       this.failureCode = undefined;
       for (const [draftId, entry] of this.drafts) if (entry.snapshotId !== snapshot.id) this.drafts.delete(draftId);
       return snapshot;
-    } catch {
+    } catch (error) {
+      if (sequence !== this.refreshSequence) {
+        // Superseded: the newer refresh settled the store; report its outcome
+        // rather than clobbering state or surfacing a stale failure.
+        if (this.activeSnapshot) return this.activeSnapshot;
+        throw error instanceof GenerationAcquisitionError ? error : new GenerationAcquisitionError();
+      }
       this.state = this.activeSnapshot ? "ready" : "failed";
       this.failureCode = "UPSTREAM_UNAVAILABLE";
       this.prunePrevious();
@@ -1109,7 +1136,27 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   const deadlineMs = options.warmRequestDeadlineMs ?? DEFAULT_WARM_DEADLINE_MS;
   const warm = (handler: (request: FastifyRequest, reply: FastifyReply, signal?: AbortSignal) => Promise<unknown>) => withWarmDeadline(handler, deadlineMs);
   const store = new GenerationStore(adapter, now);
-  const app = Fastify({ logger: options.logger ?? false, maxParamLength: 2048, bodyLimit: 64 * 1024 });
+  const app = Fastify({
+    logger: options.logger ?? false,
+    maxParamLength: 2048,
+    bodyLimit: 64 * 1024,
+    // Framework-level errors (invalid percent-escapes, malformed URLs) bypass
+    // setErrorHandler; answer them with the same bounded envelope so no raw
+    // path echo, internal code (FST_ERR_*), or unbounded message ever leaves
+    // the server, and the security-header onSend hooks still apply.
+    frameworkErrors: (error, _request, reply) => {
+      // FST_ERR_BAD_URL is always 400; async-constraint failures are 500-class.
+      // Framework-error replies bypass the onSend hooks, so the security
+      // headers are applied here explicitly.
+      const target = reply as FastifyReply;
+      securityHeaders(target);
+      const statusCode = typeof (error as { statusCode?: unknown }).statusCode === "number" ? (error as { statusCode: number }).statusCode : 400;
+      if (statusCode >= 500) {
+        return target.code(500).send({ error: { code: "INTERNAL_ERROR", message: "The route service encountered an internal error." } });
+      }
+      return target.code(400).send({ error: { code: "INVALID_REQUEST", message: "The request could not be parsed." } });
+    },
+  });
   app.addHook("onSend", async (_request, reply, payload) => {
     // Plan §6.1: browser responses are hard-limited to 2 MiB. Crossing the
     // limit fails closed with a bounded error; a larger payload is never
@@ -1122,13 +1169,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     return payload;
   });
   app.addHook("onSend", async (_request, reply, payload) => {
-    reply
-      .header("content-security-policy", "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; style-src 'self'")
-      .header("referrer-policy", "strict-origin-when-cross-origin")
-      .header("strict-transport-security", "max-age=31536000; includeSubDomains")
-      .header("x-content-type-options", "nosniff")
-      .header("x-frame-options", "DENY")
-      .header("permissions-policy", "geolocation=(), microphone=(), camera=()");
+    securityHeaders(reply);
     return payload;
   });
 
@@ -1144,6 +1185,11 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     }
     return reply.code(500).send({ error: { code: "INTERNAL_ERROR", message: "The route service encountered an internal error." } });
   });
+
+  // Unknown paths and wrong methods get the same bounded envelope; never the
+  // Fastify default that reflects the raw method and path back at the client.
+  app.setNotFoundHandler((_request, reply) =>
+    reply.code(404).send({ error: { code: "NOT_FOUND", message: "The requested resource does not exist." } }));
 
   const health = async (_request: FastifyRequest, reply: FastifyReply) => reply.send({ status: "ok", service: "flight-route-api" });
   const readiness = async (_request: FastifyRequest, reply: FastifyReply) => {
@@ -1209,6 +1255,8 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   };
   const searchMethodNotAllowed = async (_request: FastifyRequest, reply: FastifyReply) =>
     reply.header("allow", "POST").code(405).send({ error: { code: "METHOD_NOT_ALLOWED", message: "Callsign search is available over POST only." } });
+  const methodNotAllowed = (label: string) => async (_request: FastifyRequest, reply: FastifyReply) =>
+    reply.header("allow", "POST").code(405).send({ error: { code: "METHOD_NOT_ALLOWED", message: `${label} is available over POST only.` } });
   app.post("/api/v1/callsigns/search", warm(searchCallsigns));
   app.post("/api/v1/search", warm(searchCallsigns));
   app.post("/api/v1/flights/search", warm(searchCallsigns));
@@ -1318,12 +1366,16 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     });
   };
   app.post("/api/v1/routes/options", warm(routeOptions));
+  // Non-POST methods on the POST-only option surface answer a bounded 405 —
+  // the static routes below must beat the parametric GET /api/v1/routes/:routeId.
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/routes/options", handler: methodNotAllowed("Route options lookup") });
   app.post("/api/v1/route-options", warm(routeOptions));
 
   const routeDetail = async (request: FastifyRequest, reply: FastifyReply) => {
     queryObject(request, []);
+    const body = request.method === "POST" ? bodyObject(request, ["routeId"]) : {};
     const snapshot = store.requireSnapshot();
-    const route = (request.params as { routeId?: unknown }).routeId;
+    const route = (request.params as { routeId?: unknown }).routeId ?? body.routeId;
     const selectedId = requiredString(route, "INVALID_ROUTE_ID", "A flight ID is required.", 2048);
     const flightIndex = decodeScoped(selectedId, snapshot, "flight", now);
     const flight = snapshot.flightByIndex.get(flightIndex);
@@ -1333,6 +1385,9 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     return reply.send({ data: routeDto(snapshot, routeProjection(snapshot, flight, origin, destination)), generation: generationSummary(snapshot, now()) });
   };
   app.get("/api/v1/routes/:routeId", warm(routeDetail));
+  // URL-privacy variant: the signed flight token travels in a POST body so no
+  // token ever appears in a request URL.
+  app.post("/api/v1/routes/detail", warm(routeDetail));
   app.get("/api/v1/detail/:routeId", warm(routeDetail));
   app.get("/api/v1/flight/:routeId", warm(routeDetail));
   app.get("/api/v1/flights/:routeId", warm(routeDetail));
@@ -1447,6 +1502,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     return reply.send(compareProjections(snapshot, baseline, target, now, draftId));
   };
   app.post("/api/v1/routes/compare", warm(compareRoutes));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/routes/compare", handler: methodNotAllowed("Route comparison") });
 
   if (options.assetDirectory || (process.env.NODE_ENV === "production" && process.env.WEB_ASSET_DIR)) registerStaticAssets(app, options.assetDirectory ?? process.env.WEB_ASSET_DIR);
   if (options.initialize !== false) await store.initialize();
