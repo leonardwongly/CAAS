@@ -14,7 +14,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -84,8 +84,6 @@ function parseArgs(argv) {
   return { verify: argv.includes("--verify") };
 }
 
-const { verify } = parseArgs(process.argv.slice(2));
-
 // The image subject must bind the committed tree, not a dirty working tree.
 // When OCI_BUILD_CONTEXT_TAR is set, the build context is a tar of the
 // committed HEAD tree (`git archive`), so uncommitted edits from other
@@ -103,95 +101,104 @@ async function buildImage() {
   return docker(["build", "--pull=false", "-f", dockerfilePath, "-t", tag, "--iidfile", iidFile, root]);
 }
 
-const dockerfile = await readFile(dockerfilePath, "utf8");
-const pinnedBasePattern = /^FROM node:22\.14\.0-bookworm-slim@sha256:[0-9a-f]{64} AS (dependencies|runtime)$/m;
-const pinnedBases = dockerfile.match(/@sha256:[0-9a-f]{64}/g) ?? [];
-if (verify) {
-  if (pinnedBases.length < 2) throw new Error("oci verify failed: containers/Dockerfile must pin both stages by digest");
-} else if (!pinnedBasePattern.test(dockerfile)) {
-  throw new Error("oci build failed: containers/Dockerfile must pin node:22.14.0-bookworm-slim by digest for every stage");
-}
+// Main entry: the build + evidence writes run ONLY when this script is the
+// direct entry point. Importing the module (e.g. tests exercising
+// extractBuildContext) must be side-effect free — never a docker build, never
+// an evidence write. This is the same main-guard the evidence validator uses.
+const isMain = import.meta.url === pathToFileURL(resolve(process.argv[1] ?? "")).href;
+if (isMain) {
+  const { verify } = parseArgs(process.argv.slice(2));
 
-if (!verify) {
-  await mkdir(resolve(root, "tmp"), { recursive: true });
-  await buildImage();
-}
-
-const imageId = (await readFile(iidFile, "utf8")).trim();
-const configJson = (await docker(["image", "inspect", "--format", "{{json .Config}}", imageId])).stdout;
-const config = JSON.parse(configJson);
-const osInfo = { os: JSON.parse((await docker(["image", "inspect", "--format", "{{json .Os}}", imageId])).stdout), architecture: JSON.parse((await docker(["image", "inspect", "--format", "{{json .Architecture}}", imageId])).stdout) };
-
-const env = Object.fromEntries((config.Env ?? []).map((entry) => {
-  const index = entry.indexOf("=");
-  return index === -1 ? [entry, ""] : [entry.slice(0, index), entry.slice(index + 1)];
-}));
-const secretEnvKeys = Object.keys(env).filter((key) => /api|key|secret|token|credential|password/i.test(key));
-const secretLikeValues = Object.values(env).filter((value) => /^[A-Za-z0-9._-]{16,}$/.test(value) && !/^(production|8080|0\.0\.0\.0|1|true|false|localhost|127\.0\.0\.1|workspace|\/app|\/tmp)$/i.test(value));
-
-await docker(["save", "-o", layoutTar, imageId]);
-const tarBytes = (await stat(layoutTar)).size;
-const tarSha256 = await sha256OfFile(layoutTar);
-
-const commit = await currentCommit();
-const short = commit.slice(0, 12);
-const nowIso = new Date().toISOString();
-
-const bundle = {
-  recordKind: "oci-digest-bundle",
-  subject: {
-    type: "oci",
-    identifiers: { digest: imageId, commit, tarSha256 },
-    environment: verify ? "local-verify" : "local-build",
-  },
-  image: {
-    tag,
-    imageId,
-    osArchitecture: osInfo,
-    config: {
-      user: config.User ?? "",
-      workingDir: config.WorkingDir ?? "",
-      exposedPorts: Object.keys(config.ExposedPorts ?? {}).sort(),
-      envKeys: Object.keys(env).sort(),
-    },
-    artifactTar: { path: "tmp/flight-route-explorer-oci.tar", sha256: tarSha256, bytes: tarBytes },
-  },
-  sourceHashes: {
-    dockerfile: await sha256OfFile(dockerfilePath),
-    buildScript: await sha256OfFile(resolve(root, "scripts/validation/build-oci.mjs")),
-  },
-  reproducibility: {
-    baseImagePinnedByDigest: true,
-    installFrozenLockfile: dockerfile.includes("pnpm install --frozen-lockfile"),
-    networkAtBuildTime: "pnpm registry fetch inside the build; no live CAAS call and no cloud write",
-    registryPush: "never performed by this script",
-  },
-  buildMetadata: { builder: await (async () => { try { return (await docker(["version", "--format", "{{.Client.Version}}"])).stdout.trim(); } catch { return "unknown"; } })(), contextSource: process.env.OCI_BUILD_CONTEXT_TAR ? "git-archive@HEAD" : "working-tree", startedAt: nowIso, verifiedAt: verify ? nowIso : undefined },
-};
-
-// Honest image assertions: fail loudly instead of recording an unverified claim.
-const assertions = {
-  nonRootUser: config.User !== "" && !/^0(?:[^0-9]|$)|^root$/.test(config.User),
-  noSecretEnv: secretEnvKeys.length === 0 && secretLikeValues.length === 0,
-  exposes8080: Object.keys(config.ExposedPorts ?? {}).includes("8080/tcp"),
-  linuxImage: osInfo.os === "linux",
-};
-bundle.assertions = assertions;
-for (const [name, ok] of Object.entries(assertions)) {
-  if (!ok) {
-    console.error(`oci assertions failed: ${name}`);
-    process.exitCode = 1;
+  const dockerfile = await readFile(dockerfilePath, "utf8");
+  const pinnedBasePattern = /^FROM node:22\.14\.0-bookworm-slim@sha256:[0-9a-f]{64} AS (dependencies|runtime)$/m;
+  const pinnedBases = dockerfile.match(/@sha256:[0-9a-f]{64}/g) ?? [];
+  if (verify) {
+    if (pinnedBases.length < 2) throw new Error("oci verify failed: containers/Dockerfile must pin both stages by digest");
+  } else if (!pinnedBasePattern.test(dockerfile)) {
+    throw new Error("oci build failed: containers/Dockerfile must pin node:22.14.0-bookworm-slim by digest for every stage");
   }
-}
 
-const bundleRelative = `docs/evidence/oci-digest-bundle-${short}.json`;
-const bundleAbsolute = resolve(root, bundleRelative);
-await mkdir(dirname(bundleAbsolute), { recursive: true });
-await writeFile(bundleAbsolute, `${JSON.stringify(bundle, null, 2)}\n`, "utf8");
-const bundleSha = await sha256OfFile(bundleAbsolute);
-console.log(`OCI image ${imageId}`);
-console.log(`OCI layout tar: ${tarSha256} (${tarBytes} bytes) at tmp/flight-route-explorer-oci.tar`);
-console.log(`Digest bundle written to ${bundleRelative} (sha256 ${bundleSha})`);
-console.log(`Image assertions: ${JSON.stringify(assertions)}`);
-if (verify) await rm(layoutTar, { force: true });
-process.exitCode = process.exitCode ?? 0;
+  if (!verify) {
+    await mkdir(resolve(root, "tmp"), { recursive: true });
+    await buildImage();
+  }
+
+  const imageId = (await readFile(iidFile, "utf8")).trim();
+  const configJson = (await docker(["image", "inspect", "--format", "{{json .Config}}", imageId])).stdout;
+  const config = JSON.parse(configJson);
+  const osInfo = { os: JSON.parse((await docker(["image", "inspect", "--format", "{{json .Os}}", imageId])).stdout), architecture: JSON.parse((await docker(["image", "inspect", "--format", "{{json .Architecture}}", imageId])).stdout) };
+
+  const env = Object.fromEntries((config.Env ?? []).map((entry) => {
+    const index = entry.indexOf("=");
+    return index === -1 ? [entry, ""] : [entry.slice(0, index), entry.slice(index + 1)];
+  }));
+  const secretEnvKeys = Object.keys(env).filter((key) => /api|key|secret|token|credential|password/i.test(key));
+  const secretLikeValues = Object.values(env).filter((value) => /^[A-Za-z0-9._-]{16,}$/.test(value) && !/^(production|8080|0\.0\.0\.0|1|true|false|localhost|127\.0\.0\.1|workspace|\/app|\/tmp)$/i.test(value));
+
+  await docker(["save", "-o", layoutTar, imageId]);
+  const tarBytes = (await stat(layoutTar)).size;
+  const tarSha256 = await sha256OfFile(layoutTar);
+
+  const commit = await currentCommit();
+  const short = commit.slice(0, 12);
+  const nowIso = new Date().toISOString();
+
+  const bundle = {
+    recordKind: "oci-digest-bundle",
+    subject: {
+      type: "oci",
+      identifiers: { digest: imageId, commit, tarSha256 },
+      environment: verify ? "local-verify" : "local-build",
+    },
+    image: {
+      tag,
+      imageId,
+      osArchitecture: osInfo,
+      config: {
+        user: config.User ?? "",
+        workingDir: config.WorkingDir ?? "",
+        exposedPorts: Object.keys(config.ExposedPorts ?? {}).sort(),
+        envKeys: Object.keys(env).sort(),
+      },
+      artifactTar: { path: "tmp/flight-route-explorer-oci.tar", sha256: tarSha256, bytes: tarBytes },
+    },
+    sourceHashes: {
+      dockerfile: await sha256OfFile(dockerfilePath),
+      buildScript: await sha256OfFile(resolve(root, "scripts/validation/build-oci.mjs")),
+    },
+    reproducibility: {
+      baseImagePinnedByDigest: true,
+      installFrozenLockfile: dockerfile.includes("pnpm install --frozen-lockfile"),
+      networkAtBuildTime: "pnpm registry fetch inside the build; no live CAAS call and no cloud write",
+      registryPush: "never performed by this script",
+    },
+    buildMetadata: { builder: await (async () => { try { return (await docker(["version", "--format", "{{.Client.Version}}"])).stdout.trim(); } catch { return "unknown"; } })(), contextSource: process.env.OCI_BUILD_CONTEXT_TAR ? "git-archive@HEAD" : "working-tree", startedAt: nowIso, verifiedAt: verify ? nowIso : undefined },
+  };
+
+  // Honest image assertions: fail loudly instead of recording an unverified claim.
+  const assertions = {
+    nonRootUser: config.User !== "" && !/^0(?:[^0-9]|$)|^root$/.test(config.User),
+    noSecretEnv: secretEnvKeys.length === 0 && secretLikeValues.length === 0,
+    exposes8080: Object.keys(config.ExposedPorts ?? {}).includes("8080/tcp"),
+    linuxImage: osInfo.os === "linux",
+  };
+  bundle.assertions = assertions;
+  for (const [name, ok] of Object.entries(assertions)) {
+    if (!ok) {
+      console.error(`oci assertions failed: ${name}`);
+      process.exitCode = 1;
+    }
+  }
+
+  const bundleRelative = `docs/evidence/oci-digest-bundle-${short}.json`;
+  const bundleAbsolute = resolve(root, bundleRelative);
+  await mkdir(dirname(bundleAbsolute), { recursive: true });
+  await writeFile(bundleAbsolute, `${JSON.stringify(bundle, null, 2)}\n`, "utf8");
+  const bundleSha = await sha256OfFile(bundleAbsolute);
+  console.log(`OCI image ${imageId}`);
+  console.log(`OCI layout tar: ${tarSha256} (${tarBytes} bytes) at tmp/flight-route-explorer-oci.tar`);
+  console.log(`Digest bundle written to ${bundleRelative} (sha256 ${bundleSha})`);
+  console.log(`Image assertions: ${JSON.stringify(assertions)}`);
+  if (verify) await rm(layoutTar, { force: true });
+  process.exitCode = process.exitCode ?? 0;
+}
