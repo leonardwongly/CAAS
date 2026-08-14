@@ -1,0 +1,200 @@
+{
+  "recordKind": "measurement-results",
+  "lane": "security",
+  "subject": {
+    "type": "commit",
+    "identifiers": {
+      "commit": "116a84d608f3"
+    },
+    "environment": "local-hermetic"
+  },
+  "startedAt": "2026-08-14T15:34:41.099Z",
+  "endedAt": "2026-08-14T15:34:41.444Z",
+  "scope": "tracked-file secret scan, .env tracking, fixture scope, response headers on fixture-backed server, image metadata when built",
+  "checks": [
+    {
+      "checkId": "SEC-CREDENTIAL-SCAN",
+      "name": "no credential material in tracked files",
+      "procedure": "No private keys, AWS/GitHub/Slack tokens, or similar material appears in any tracked file.",
+      "startedAt": "2026-08-14T15:34:41.099Z",
+      "endedAt": "2026-08-14T15:34:41.164Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "no credential material in tracked files",
+        "value": true,
+        "units": "hits",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "355b8a8e12e618ccea84979ce07711f42f765876e86e91c2ec2c58610010f8b6"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-DOTENV-NOT-TRACKED",
+      "name": "no local .env tracked",
+      "procedure": "The only tracked .env* file is .env.example.",
+      "startedAt": "2026-08-14T15:34:41.099Z",
+      "endedAt": "2026-08-14T15:34:41.164Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "no local .env tracked",
+        "value": true,
+        "units": "files",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "355b8a8e12e618ccea84979ce07711f42f765876e86e91c2ec2c58610010f8b6"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-ENV-EXAMPLE-PLACEHOLDER",
+      "name": ".env.example contains only placeholders",
+      "procedure": "Every credential-shaped value in .env.example is a documented placeholder, not a real credential.",
+      "startedAt": "2026-08-14T15:34:41.099Z",
+      "endedAt": "2026-08-14T15:34:41.165Z",
+      "result": "pass",
+      "measurement": {
+        "summary": ".env.example contains only placeholders",
+        "value": true,
+        "units": "values",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "355b8a8e12e618ccea84979ce07711f42f765876e86e91c2ec2c58610010f8b6"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-FIXTURE-SCOPE",
+      "name": "fixture credentials scoped to fixtures",
+      "procedure": "The loopback fixture apikey/refresh secret appear only in scripts/validation and tests.",
+      "startedAt": "2026-08-14T15:34:41.099Z",
+      "endedAt": "2026-08-14T15:34:41.183Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "fixture credentials scoped to fixtures",
+        "value": true,
+        "units": "files",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "355b8a8e12e618ccea84979ce07711f42f765876e86e91c2ec2c58610010f8b6"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-RESPONSE-HEADERS",
+      "name": "documented response security headers",
+      "procedure": "All documented security headers present on API responses.",
+      "startedAt": "2026-08-14T15:34:41.099Z",
+      "endedAt": "2026-08-14T15:34:41.338Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "documented response security headers",
+        "value": true,
+        "units": "headers",
+        "sampleCount": 6
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "355b8a8e12e618ccea84979ce07711f42f765876e86e91c2ec2c58610010f8b6"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-IMAGE-NON-ROOT",
+      "name": "image runs as non-root",
+      "procedure": "The built image's runtime user is not root.",
+      "startedAt": "2026-08-14T15:34:41.099Z",
+      "endedAt": "2026-08-14T15:34:41.441Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "image runs as non-root",
+        "value": true,
+        "units": "user",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "355b8a8e12e618ccea84979ce07711f42f765876e86e91c2ec2c58610010f8b6"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-IMAGE-NO-SECRET-ENV",
+      "name": "image has no credential environment",
+      "procedure": "No apikey/secret/token environment is baked into the image.",
+      "startedAt": "2026-08-14T15:34:41.099Z",
+      "endedAt": "2026-08-14T15:34:41.441Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "image has no credential environment",
+        "value": true,
+        "units": "keys",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "355b8a8e12e618ccea84979ce07711f42f765876e86e91c2ec2c58610010f8b6"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "SEC-PACKAGE-AUDIT",
+      "name": "dependency audit against registry",
+      "procedure": "Authorized networked run (pnpm 11.5.2): `pnpm audit --prod --json` against the frozen pnpm-lock.yaml, with the committed record bound by sha256. The CI dependency-audit job re-runs the identical invocation on every push and PR.",
+      "startedAt": "2026-08-14T15:34:41.099Z",
+      "endedAt": "2026-08-14T15:34:41.444Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "0 advisories in production dependencies at audit time",
+        "value": 0,
+        "units": "vulnerabilities",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/measure-security.mjs",
+          "sha256": "355b8a8e12e618ccea84979ce07711f42f765876e86e91c2ec2c58610010f8b6"
+        },
+        {
+          "path": "docs/security/dependency-audit-local.json",
+          "sha256": "1005e6ed1ba9b9974e614ede45eabeb7182f159a1d35f67d4c37570471b58361"
+        }
+      ],
+      "failureFallback": "Keep the security gate failed until a clean audit result is recorded."
+    }
+  ],
+  "summary": {
+    "checks": 8,
+    "passed": 8,
+    "blocked": 0,
+    "failed": 0
+  },
+  "artifacts": [
+    {
+      "path": "scripts/validation/measure-security.mjs",
+      "sha256": "355b8a8e12e618ccea84979ce07711f42f765876e86e91c2ec2c58610010f8b6"
+    }
+  ]
+}

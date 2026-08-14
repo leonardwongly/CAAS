@@ -1,9 +1,9 @@
 # Flight Route Explorer - System Design
 
-Status: Local-first POC design independently reviewed with no unresolved P0/P1; confirmed live API and read-only Azure capability evidence retained; the local-first POC implementation now exists beneath this document, while Azure resources, deployment, CI execution, and UAT remain intentionally un-evidenced and unauthorized; `PG-00` remains blocked only by an explicitly authorized exact-hash commit and later implementation authorization
-Version: 1.2-rc4
-Date: 2026-08-12
-Last reviewed: 2026-08-12
+Status: Local-first POC design; version 1.2-rc4 independently reviewed with no unresolved P0/P1. Version 1.2-rc5 amends §0.5/§0.6 to the implemented no-tile SVG map boundary and awaits independent exact-hash re-review. The local-first POC implementation now exists beneath this document, while Azure resources, deployment, and UAT remain intentionally un-evidenced and unauthorized; `PG-00` remains blocked only by an explicitly authorized exact-hash commit and later implementation authorization
+Version: 1.2-rc5
+Date: 2026-08-12 (amended 2026-08-14)
+Last reviewed: 2026-08-12 (v1.2-rc4); v1.2-rc5 pending independent exact-hash review
 POC decision authority: The user; no separate named-owner or reviewer-audience register is required
 Technical execution authority: Not granted
 Source brief: `CAAS Tech Challenge_v2.21.pdf`
@@ -159,12 +159,17 @@ secret-reference, scale/environment and separate `authConfigs` settings, then
 fetches current data. Steady state configures at most one active serving replica,
 with transient platform rollout/prewarming overlap treated honestly.
 
-OpenStreetMap Standard raster tiles are the configurable Leaflet default. The UI
-shows attribution, permits an origin-only cross-origin Referer, keeps all flight
-and user state out of URLs, honors caching, and prohibits bulk, prefetch,
-offline, proxy, and headless scan behavior. Direct requests disclose the user's
-client IP and requested `z/x/y` viewport tiles to the provider; this is accepted
-for the one-user POC. Route Data remains usable if tiles fail.
+The implemented POC renders a dependency-free SVG route diagram: no external map
+tiles, no tile-provider API key, and no map-provider request of any kind; the
+browser calls same-origin application APIs only (strict CSP in the API server).
+The former configurable Leaflet/OpenStreetMap tile option — and its attribution,
+IP/tile disclosure, origin-only Referer, provider caching/prefetch, and
+configurable-provider constraints — is superseded: with no tile path there is no
+provider party to disclose to and no tile-failure mode, so those criteria have no
+external party and Route Data remains usable unconditionally. The legacy tile
+option is retained only as non-binding archived material. Flight and user state
+stay out of URLs, and bulk, prefetch, offline, proxy, and headless scan behavior
+remain prohibited.
 
 Network-enforced outbound filtering is omitted to preserve the least-complex
 POC. Strict application origin/path/method/redirect/proxy controls are mandatory.
@@ -228,9 +233,11 @@ For the challenge profile, the following replace conflicting `AC-SD-*` and
   and NAVAIDs participate only through exact, ambiguity-preserving resolution.
   Evidence records the user-approved graphical-airway variance and never claims
   inferred airway-topology display.
-- `AC-POC-MAP-01`: attribution, accepted IP/tile disclosure, origin-only
-  Referer, caching, no-prefetch, configurable provider, and non-map tile-failure
-  behavior pass.
+- `AC-POC-MAP-01`: the dependency-free SVG route diagram makes no external
+  map/tile/provider request (same-origin application APIs only; strict CSP), so
+  attribution, IP/tile disclosure, Referer, provider caching, configurable-
+  provider, and tile-failure criteria have no external party; deterministic
+  checks evidence the no-tile boundary.
 - `AC-POC-SEC-01`: the browser never receives the CAAS key/raw object; strict
   application allow-list tests and the accepted no-firewall residual are
   recorded.

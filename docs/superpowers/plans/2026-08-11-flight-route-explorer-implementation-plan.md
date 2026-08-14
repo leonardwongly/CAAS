@@ -1,10 +1,10 @@
 # Flight Route Explorer - Implementation Plan
 
-Status: Local-first POC plan independently reviewed with no unresolved P0/P1; live API and read-only Azure capability discovery confirmed; the local-first POC implementation now exists, while Azure resources, deployment, CI execution, and UAT remain un-evidenced and unauthorized; `PG-00` remains blocked only by an explicitly authorized exact-hash commit and later implementation authorization
+Status: Local-first POC plan; version 1.4-rc4 independently reviewed with no unresolved P0/P1. Version 1.4-rc5 amends Section 18 (per-command tree status), Section 5.5 and PLAN-3.5/PLAN-4.1 (supply-chain scope: the POC CI does not generate SBOM/provenance/signature or export an OCI layout), and PLAN-R-18 (implemented eligibility API) and awaits independent exact-hash re-review. The local-first POC implementation now exists, while Azure resources, deployment, and UAT remain un-evidenced and unauthorized; `PG-00` remains blocked only by an explicitly authorized exact-hash commit and later implementation authorization
 
-Version: 1.4-rc4
+Version: 1.4-rc5
 
-Date: 2026-08-12
+Date: 2026-08-12 (amended 2026-08-14)
 
 POC owner: The user; no separate named-owner register is required
 
@@ -385,23 +385,31 @@ validation before it can appear in this plan.
 
 ### 5.5 CI/CD and rollback
 
-- PR jobs run format, lint, type, focused tests, build, dependency review, and
-  secret scanning without cloud credentials.
-- For the final-feature commit, secretless Linux CI builds once, scans the image,
-  produces SBOM/provenance, signs it, and exports the exact digest as a retained
-  OCI layout. It does not rebuild after this point and does not need Azure or ACR
-  for `PG-03`.
-- CI publishes a digest-bound offline verification bundle as a retained GitHub
-  artifact: OCI layout/digest manifest, signature/certificate/bundle, SBOM,
-  provenance, scan result, and policy metadata.
+- PR jobs run import-boundary lint, typecheck, the offline/evidence suites,
+  build, dependency audit, secret scanning, Semgrep, and the digest-pinned image
+  build with a Trivy HIGH/CRITICAL scan, all without cloud credentials
+  (`ci-secretless-validation.yml`, `oci-subject-build.yml`; green at `116a84d`).
+- For the final-feature commit, secretless Linux CI builds once from the
+  digest-pinned Dockerfile, scans the image (Trivy, HIGH/CRITICAL, exit code 1),
+  and exports the exact digest as a retained digest bundle (image ID, artifact-tar
+  sha256, source hashes, assertions). The POC CI deliberately does not generate an
+  SBOM, provenance attestation, or image signature, and does not export an OCI
+  layout — those supply-chain mechanisms remain production-hardening material for
+  the separate production gate. It does not rebuild after this point and does not
+  need Azure or ACR for `PG-03`.
+- CI publishes the digest-bound bundle and the Trivy scan report as a retained
+  GitHub workflow artifact; the CI-built bundle is also committed under
+  `docs/evidence/` (currently PR #38 merge ref `e456dd0c`, digest
+  `sha256:8d978f18…`, 0 HIGH/CRITICAL findings).
 - `PG-03` downloads and verifies that bundle, loads/runs that exact OCI digest
   loopback-only, and records all local real-data, browser, accessibility,
   container, security, and performance checks against it. A separately built
   local image is not an equivalent gate subject.
 - A protected no-checkout Phase 4 job first verifies the same offline bundle and
   OCI subject before Azure login. It obtains narrowly scoped OIDC, pushes the
-  unchanged subject to private ACR, verifies that the registry digest and Cosign
-  OCI referrer match the preverified bundle, and deploys only that digest.
+  unchanged subject to private ACR, verifies that the registry digest matches the
+  preverified bundle digest (no signature/referrer verification exists — image
+  signing is descoped from the POC), and deploys only that digest.
 - Health, single-user auth and identity-negative cases, five-family live upstream
   acquisition, browse-all/business flow, telemetry, and prohibited-field smoke
   run against the deployed revision.
@@ -557,7 +565,7 @@ remain labeled as governance controls.
 | `PLAN-R-15` | Full platform inventory deferred. | Test every enabled POC log/category for prohibited fields and cap/retention. | `PG-04`; `PG-PROD` |
 | `PLAN-R-16` | Remains mandatory in minimal form. | Stable `SRC`, `USR`, `AC`, decision, gate, and evidence references. | `PG-00`, `PG-05` |
 | `PLAN-R-17` | POC profile fixed. | Local-first completion, late 48-hour Azure provisioning window, USD 50 governance ceiling/alerts, access expiry, 24-hour teardown target, and seven-day operator-enforced maximum with no false automatic-cutoff claim. DR/on-call is production-only. | `PG-00`, `PG-04`, `PG-05`; `PG-PROD` |
-| `PLAN-R-18` | Remains mandatory. | Use `hasResolvableFiledRoute` and non-operational candidate wording. | `PG-00`, `PG-03` |
+| `PLAN-R-18` | Remains mandatory. | Use the implemented candidate eligibility projection (`eligible` on the operational-proxy candidate projection: complete route with modeled distances; incomplete/unresolved candidates carry the `exclusion` reason) and non-operational candidate wording. | `PG-00`, `PG-03` |
 
 Removing a mechanism does not remove its underlying least-privilege, rollback,
 redaction, or truthfulness obligation.
@@ -687,7 +695,7 @@ multiplicity 160 versus the 500 ambiguity hard total.
 
 | `PG-00` packet item | Status on 2026-08-12 |
 |---|---|
-| Design and ADR reconciliation | Updated in system-design version `1.2-rc4`; independent exact-hash reviews of the corrected plan/design report no unresolved P0/P1. |
+| Design and ADR reconciliation | Independent exact-hash reviews of design `1.2-rc4` and plan `1.4-rc4` report no unresolved P0/P1. Design `1.2-rc5` (no-tile SVG map boundary) and plan `1.4-rc5` (command-matrix tree status, supply-chain scope, `PLAN-R-18` eligibility API) await independent exact-hash re-review. |
 | Real endpoint discovery | Successful contracts are confirmed for Flight Plan, Airways, Fixes, Airports, and NAVAIDs. All five are mandatory generation inputs; Airways fetch/schema/count is exercised while values/types stay hidden. Secret-free aggregates/replay rules are retained in the linked JSON manifest. Deliberate throttle/fault probing was not authorized or performed; unobserved failure behavior is explicitly deferred to `PLAN-3.4` and is not claimed as discovered. |
 | Topology, local-first path, OSM, egress, limits, budget, teardown | User-directed POC decisions are accepted. The authoritative CI OCI digest must pass complete loopback-only real-data container evidence before all Azure writes. Direct OSM requests disclose client IP and viewport tile coordinates; application-only egress remains an accepted POC residual and a production blocker. |
 | Azure account, region, and provider/SKU availability | Authenticated read-only checks confirmed an enabled selected subscription (`sha256:3e361ecb94f7`), tenant (`sha256:d989279aec5b`), signed-in user (`sha256:3f223ecb4e07`), and two enabled visible subscriptions. `southeastasia` supports the required metadata. `Microsoft.App` is `NotRegistered`; `Microsoft.ManagedIdentity` and the other required providers are registered. Provider registration writes are deferred to authorized Phase 4 after `PG-03` and are not a `PG-00` prerequisite. |
@@ -982,8 +990,9 @@ demo fallback.
 ### `PLAN-3.5` Prove the authoritative local release candidate
 
 Freeze the final-feature commit and run the credential-free Linux CI image job
-once. Verify and download its digest-bound OCI layout plus signature, SBOM,
-provenance, scan, and policy bundle. Load and run that exact digest—not a local
+once. Verify and download its digest-bound bundle (image ID, artifact-tar sha256,
+source hashes, assertions) and Trivy scan report; the POC CI generates no
+signature, SBOM, or OCI layout. Load and run that exact digest—not a local
 rebuild—loopback-only with the real CAAS key injected at runtime, never copied
 into the image or browser.
 
@@ -991,7 +1000,7 @@ Against that subject, run `test:container`, `test:live`, `test:e2e`,
 `test:a11y`, `test:performance`, and `test:security` as mapped in Section 18.
 Directly evidence all five endpoint families, exact-once browse-all, complete
 search/selection, exact resolution and gaps, all tied Rank 1 options, editing and
-diff, OSM/non-map behavior, refresh/staleness, three clean restarts, Section 6
+diff, no-tile map behavior, refresh/staleness, three clean restarts, Section 6
 measurements, telemetry redaction, secret boundaries, and cold/refresh failure.
 The image is non-root with a read-only root filesystem and the intended
 1-vCPU/2-GiB limits. Every check writes the Section 8 manifest against the same
@@ -1005,11 +1014,11 @@ registry, vault, monitoring, managed environment, or Container App is created.
 
 ### `PLAN-4.1` Verify the authoritative subject and late-bootstrap authority
 
-Do not rebuild after `PG-03`. Reverify the retained OCI layout, signature,
-SBOM/provenance, scan, policy metadata, manifest hashes, and absence of `.env`,
-key, raw responses, and restricted fields. No Phase 4 cloud write starts before
-`PG-03`, a planned demonstration within 48 hours, and explicit cloud-write
-authorization.
+Do not rebuild after `PG-03`. Reverify the retained digest bundle, scan, policy
+metadata, manifest hashes, and absence of `.env`, key, raw responses, and
+restricted fields (no SBOM/provenance/signature exists in the POC — descoped).
+No Phase 4 cloud write starts before `PG-03`, a planned demonstration within 48
+hours, and explicit cloud-write authorization.
 
 Before opening that window, record a go/no-go preflight for the selected
 subscription/tenant/region and the user's bootstrap/cleanup authority. Confirm,
@@ -1166,26 +1175,33 @@ obligations. Destructive teardown always requires explicit approval.
 ## 18. Validation command matrix
 
 Commands become valid only when their phase creates the corresponding script.
+The third column records the tree status as of 2026-08-14 (PR #38,
+`sweep/round-4-adversarial`); commands named by this plan that do not exist are
+annotated instead of described as passed.
 
-| Command | Scope | Required from |
-|---|---|---|
-| `pnpm format:check` | Markdown/code formatting | `PG-01` |
-| `pnpm lint` | Lint and import boundaries | `PG-01` |
-| `pnpm typecheck` | All TypeScript projects | `PG-01` |
-| `pnpm test:unit` | Pure packages/components | `PG-02` |
-| `pnpm test:property` | Route/parser invariants | `PG-02` |
-| `pnpm test:contract` | Captured-real schemas/OpenAPI/providers | `PG-02` |
-| `pnpm test:integration` | BFF/live-adapter stubs/generation/token boundaries | `PG-02`, expanded `PG-03` |
-| `pnpm test:a11y` | Automated browser accessibility against declared subject | `PG-02`; authoritative OCI digest at `PG-03`; deployed smoke/manual review at `PG-05` |
-| `pnpm test:e2e` | Deterministic captured-real browse/search/map/edit flow | `PG-02`; authoritative OCI digest at `PG-03` |
-| `pnpm test:live` | Authorized five-family CAAS acquisition, Airways exclusion, browse-all and business flow | `PG-02`; authoritative OCI digest at `PG-03`; unchanged deployed digest at `PG-04` |
-| `pnpm test:performance` | Section 6 startup/API/memory rules with retained measurements | authoritative OCI digest at `PG-03` |
-| `pnpm test:security` | Sanitization, secrets, limits, OSM/privacy, telemetry and artifact boundaries | authoritative OCI digest at `PG-03`; deployed negatives at `PG-04` |
-| `pnpm test:container` | Digest identity, non-root/read-only image, health/API/UI and limits | `PG-02`; authoritative OCI digest at `PG-03`; registry/deployed identity at `PG-04` |
-| `pnpm bicep:check` | POC Bicep build/lint/policy | `PG-04` |
-| `pnpm test:azure` | Bootstrap checkpoints, single-user/identity negatives, five-family live smoke, first-deploy abort, later revision+app-config rollback | `PG-04` |
-| `pnpm test:evidence` | Schema plus policy/validator positive and adversarial records | `PG-01`, every later gate |
-| `pnpm verify` | Every applicable secretless local/CI gate | Evolves by phase |
+| Command | Scope | Required from | Tree status (2026-08-14) |
+|---|---|---|---|
+| `pnpm format:check` | Markdown/code formatting | `PG-01` | No such command; no formatter lane is configured on this tree |
+| `pnpm lint` | Lint and import boundaries | `PG-01` | Implemented as import-boundary lint only (`scripts/validation/lint-import-boundaries.mjs`; 3/3, record `docs/evidence/lint-local-116a84d608f3.json`); no JS/TS linter is configured |
+| `pnpm typecheck` | All TypeScript projects | `PG-01` | Implemented; 5 projects pass |
+| `pnpm test:offline` | Node offline suite across `tests/`, `apps/api/test`, `packages/*/test` | `PG-02` | Implemented (added after this plan); 214 tests pass (`scripts/test-offline.mjs`) |
+| `pnpm test:adversarial` | Adversarial security/edge regression suite | `PG-02` | Implemented (added after this plan); 17 tests pass (`tests/adversarial`) |
+| `pnpm test:responsive` | Browser responsive/zoom/reflow/forced-colors/reduced-motion checks | `PG-02` | Implemented (added after this plan); 8/8 pass |
+| `pnpm test:unit` | Pure packages/components | `PG-02` | No such command; unit coverage lives in `test:offline` |
+| `pnpm test:property` | Route/parser invariants | `PG-02` | No such command; property/invariant coverage lives in `test:offline` |
+| `pnpm test:contract` | Captured-real schemas/OpenAPI/providers | `PG-02` | No such command; contract coverage lives in `test:offline` |
+| `pnpm test:integration` | BFF/live-adapter stubs/generation/token boundaries | `PG-02`, expanded `PG-03` | Implemented as the loopback lane; 23/23 (record `docs/evidence/loopback-lane-local-116a84d608f3.json`) |
+| `pnpm test:a11y` | Automated browser accessibility against declared subject | `PG-02`; authoritative OCI digest at `PG-03`; deployed smoke/manual review at `PG-05` | Implemented; 15/15 pass |
+| `pnpm test:e2e` | Deterministic captured-real browse/search/map/edit flow | `PG-02`; authoritative OCI digest at `PG-03` | Implemented; 16/16 pass |
+| `pnpm test:live` | Authorized five-family CAAS acquisition, Airways exclusion, browse-all and business flow | `PG-02`; authoritative OCI digest at `PG-03`; unchanged deployed digest at `PG-04` | Implemented; authorized runs retained (5/5, record `docs/evidence/live-lane-116a84d608f3.json`) |
+| `pnpm test:performance` | Section 6 startup/API/memory rules with retained measurements | authoritative OCI digest at `PG-03` | Implemented; 8/8 (record `docs/evidence/performance-local-116a84d608f3.json`) |
+| `pnpm test:security` | Sanitization, secrets, limits, no-tile map/privacy, telemetry and artifact boundaries | authoritative OCI digest at `PG-03`; deployed negatives at `PG-04` | Implemented; 8/8 including `SEC-PACKAGE-AUDIT` pass on the retained authorized networked audit (0 advisories, `docs/security/dependency-audit-local.json`; record `docs/evidence/security-local-116a84d608f3.json`) |
+| `pnpm test:container` | Digest identity, non-root/read-only image, health/API/UI and limits | `PG-02`; authoritative OCI digest at `PG-03`; registry/deployed identity at `PG-04` | Implemented; 7/7 (record `docs/evidence/loopback-container-local-116a84d608f3.json`) |
+| `pnpm oci:build` / `pnpm oci:verify` | Digest-pinned image build and assertion verification | `PG-02`; authoritative CI bundle at `PG-03` | Implemented (`scripts/validation/build-oci.mjs`); local candidate digest `sha256:c802604b…`; CI-built bundle retained at `docs/evidence/oci-digest-bundle-e456dd0cd791.json` |
+| `pnpm bicep:check` | POC Bicep build/lint/policy | `PG-04` | No such command; no Bicep exists on this tree (inert Azure artifacts only) |
+| `pnpm test:azure` | Bootstrap checkpoints, single-user/identity negatives, five-family live smoke, first-deploy abort, later revision+app-config rollback | `PG-04` | No such command; deferred behind `PG-03` and explicit authorization |
+| `pnpm test:evidence` | Schema plus policy/validator positive and adversarial records | `PG-01`, every later gate | Implemented; 17 tests pass (`tests/validation` plus `scripts/validation/validate-evidence-bundle.mjs`) |
+| `pnpm verify` | Every applicable secretless local/CI gate | Evolves by phase | Implemented; exit 0 on this tree |
 
 No command is reported as passed unless it ran against the exact subject, its
 exit status and measured assertions passed, and its output/artifact hash was

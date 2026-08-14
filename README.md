@@ -1,6 +1,6 @@
 # Flight Route Explorer
 
-> **Status: implemented local-first POC.** The repository contains the Fastify BFF, React/Vite UI, five-family real-data adapter, route engine, offline tests, Linux container, and inert Azure artifacts. Azure resources, deployment, CI, and UAT remain intentionally unevidenced and unauthorized.
+> **Status: implemented local-first POC.** The repository contains the Fastify BFF, React/Vite UI, five-family real-data adapter, route engine, offline tests, Linux container, and inert Azure artifacts. Secretless CI executes on pull requests (green at commit `116a84d`; see [What is evidenced now](#what-is-evidenced-now)). Azure resources, deployment, and UAT remain intentionally unevidenced and unauthorized; no push to `master` has been made.
 
 Flight Route Explorer is intended to be a private, single-user, non-operational decision-support demonstration. It visualizes recorded flight routes, resolves reference points exactly where possible, computes modeled great-circle distance, and lets a user compare a recorded route with a local draft. It does not file, dispatch, approve, clear, navigate, or recommend a route.
 
@@ -31,19 +31,20 @@ All 270,789 reference records passed the bounded identifier/coordinate parser du
 
 ### Retained local lane and measurement records
 
-On the merged tree (commit `1c838bd`) the validation lanes below are real commands with retained records under `docs/evidence/`; earlier runs are archived under `docs/evidence/archived/`:
+The validation lanes below are real commands with retained records under `docs/evidence/`. Each record binds the commit that produced it and is re-settled by `pnpm run verify`; superseded records are archived under `docs/evidence/archived/`. The CI-built OCI subject is now retained alongside the local candidate:
 
 | Lane | Record | Result |
 |---|---|---|
-| Authorized live five-family run (commit `e78278d4b924`) | [live-lane-e78278d4b924.json](docs/evidence/live-lane-e78278d4b924.json) | 5/5 checks pass; real acquisition, exact-once browse, refresh auth, secret excluded |
-| Loopback five-family lane (fixture-backed mechanics) | [loopback-lane-local-1c838bdf6372.json](docs/evidence/loopback-lane-local-1c838bdf6372.json) | 22/22 checks pass (acquisition, browse exact-once, search, rank ties, refresh, fail-closed startup, restart, airway exclusion) |
-| Loopback container lane (no credential, fail-closed boot) | [loopback-container-local-1c838bdf6372.json](docs/evidence/loopback-container-local-1c838bdf6372.json) | 7/7 checks pass; digest-pinned base, non-root, no secret env |
-| Security measurement (hermetic) | [security-local-1c838bdf6372.json](docs/evidence/security-local-1c838bdf6372.json) | 7/8 pass; `SEC-PACKAGE-AUDIT` blocked (pending an authorized networked audit) |
-| Performance measurement (fixture-backed loopback) | [performance-local-1c838bdf6372.json](docs/evidence/performance-local-1c838bdf6372.json) | 8/8 pass against the documented policy objectives; live/CI values pending |
-| Workspace lint (import boundaries, script hygiene) | [lint-local-1c838bdf6372.json](docs/evidence/lint-local-1c838bdf6372.json) | 3/3 checks pass |
-| Local OCI subject candidate | [oci-subject-local.json](docs/evidence/oci-subject-local.json) | Recorded digest `sha256:2adbe935…`; explicitly unverified until the authoritative CI subject is recorded |
+| Authorized live five-family run (tree `116a84d`) | [live-lane-116a84d608f3.json](docs/evidence/live-lane-116a84d608f3.json) | 5/5 checks pass; real acquisition, exact-once browse, refresh auth, secret excluded |
+| Loopback five-family lane (fixture-backed mechanics) | [loopback-lane-local-116a84d608f3.json](docs/evidence/loopback-lane-local-116a84d608f3.json) | 23/23 checks pass (acquisition, browse exact-once, search, rank ties, refresh, fail-closed startup, restart, airway exclusion, draft TTL/rate-limit mechanics) |
+| Loopback container lane (no credential, fail-closed boot) | [loopback-container-local-116a84d608f3.json](docs/evidence/loopback-container-local-116a84d608f3.json) | 7/7 checks pass; digest-pinned base, non-root, no secret env |
+| Security measurement (hermetic) | [security-local-116a84d608f3.json](docs/evidence/security-local-116a84d608f3.json) | 8/8 pass; `SEC-PACKAGE-AUDIT` passed on the retained authorized networked audit (0 advisories, [dependency-audit-local.json](docs/security/dependency-audit-local.json)) |
+| Performance measurement (fixture-backed loopback) | [performance-local-116a84d608f3.json](docs/evidence/performance-local-116a84d608f3.json) | 8/8 pass against the documented policy objectives; live/CI values pending |
+| Workspace lint (import boundaries, script hygiene) | [lint-local-116a84d608f3.json](docs/evidence/lint-local-116a84d608f3.json) | 3/3 checks pass |
+| Local OCI subject candidate | [oci-subject-local.json](docs/evidence/oci-subject-local.json) | Local digest `sha256:c802604b…`; the local build candidate for `PG-03` |
+| Authoritative CI-built OCI subject (PR #38 merge ref `e456dd0c`) | [oci-digest-bundle-e456dd0cd791.json](docs/evidence/oci-digest-bundle-e456dd0cd791.json) | CI digest `sha256:8d978f18…`; all image assertions pass; CI Trivy scan 0 HIGH/CRITICAL ([report](docs/security/trivy-scan-ci-e456dd0c.json)) |
 
-Offline and browser lanes currently pass on this tree: 140 offline tests (`pnpm run test:offline`), 15 accessibility tests, 16 E2E tests, and 8 responsive tests. The per-criterion and per-gate status of all this evidence is recorded in the [POC capability and gate-status matrix](docs/status/poc-capability-and-gate-matrix.md).
+Offline and browser lanes currently pass on this tree: 214 offline tests (`pnpm run test:offline`), 17 adversarial security tests (`pnpm run test:adversarial`), 15 accessibility tests, 16 E2E tests, and 8 responsive tests. The per-criterion and per-gate status of all this evidence is recorded in the [POC capability and gate-status matrix](docs/status/poc-capability-and-gate-matrix.md).
 
 ## Binding implementation contract
 
@@ -101,7 +102,7 @@ pnpm run validate
 
 `pnpm run validate:config` checks root JSON/YAML/TypeScript configuration and the placeholder environment contract. `pnpm run validate` runs configuration and policy validation, workspace typechecks, package tests, the offline suite, evidence validation, lint, and the Linux container smoke lane. `pnpm run build` builds the Vite UI and backend/package TypeScript outputs. The real-data lane is intentionally separate from offline validation and requires the ignored local `.env` credential.
 
-The named lanes in the plan are now implemented commands on this tree: `test:offline` (140 tests), `test:a11y`, `test:e2e`, `test:responsive`, `test:integration` (loopback lane), `test:security`, `test:performance`, `test:container`, `test:evidence`, `test:live` (executed once in an authorized run with a retained record), `oci:build`/`oci:verify`, and `verify`. The plan's `test:unit` and `test:property` names do not exist as commands; unit- and property-style coverage lives in the offline suite and package tests. A command counts as passed only when its retained record includes the exact subject, result, measurements, and artifact hashes, per [validation and evidence](docs/testing/evidence-and-validation.md).
+The named lanes in the plan are now implemented commands on this tree: `test:offline` (214 tests), `test:adversarial` (17 tests), `test:a11y`, `test:e2e`, `test:responsive`, `test:integration` (loopback lane), `test:security`, `test:performance`, `test:container`, `test:evidence`, `test:live` (executed in authorized runs with retained records), `oci:build`/`oci:verify`, and `verify`. The plan's `test:unit` and `test:property` names do not exist as commands; unit- and property-style coverage lives in the offline suite and package tests. A command counts as passed only when its retained record includes the exact subject, result, measurements, and artifact hashes, per [validation and evidence](docs/testing/evidence-and-validation.md).
 
 ## Azure write boundary
 
@@ -119,4 +120,4 @@ AI-assisted tools were used for requirements analysis, design exploration, imple
 
 The discovery record confirms successful responses only. It did not deliberately induce throttling or upstream failures, observed no pagination metadata or Flight response rate-limit/retry headers, and makes no quota, retry, or failure-behavior claim. No executed Challenge Data Use Record is present (a [template](docs/data-use/data-use-record.md) and the [authorization gate](docs/data-use/data-use-authorization-gate.md) are defined, decision pending), so HTTP `200` and possession of a key do not authorize reviewer redistribution of live CAAS-derived data.
 
-Not evidenced: authoritative CI-built OCI digest and CI execution, Azure resources, deployment, rollback drills, UAT execution, package-audit results (networked audit pending), or production approval. The local implementation is a non-operational demonstration only; public or broad organizational use remains prohibited until the separate production gate is approved.
+Not evidenced: Azure resources, deployment, rollback drills, UAT execution, or production approval. Secretless CI executes on pull requests and is green at commit `116a84d`: `ci-secretless-validation` (offline evidence validation, Semgrep, gitleaks secret scan, dependency audit), `oci-subject-build` (image assertions + Trivy), and `POC deployment artifact validation`; the CI-built subject digest is retained at [docs/evidence/oci-digest-bundle-e456dd0cd791.json](docs/evidence/oci-digest-bundle-e456dd0cd791.json). CI has run for pull requests only — no push to `master` has occurred. The local implementation is a non-operational demonstration only; public or broad organizational use remains prohibited until the separate production gate is approved.

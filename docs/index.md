@@ -55,13 +55,15 @@ evidence; they do not prove Azure deployment or production operational controls.
 ## Evidence
 
 - [Secret-free PG-00 live API discovery manifest](evidence/pg-00-live-api-discovery.json)
-- [Authorized live five-family lane run (`e78278d4b924`)](evidence/live-lane-e78278d4b924.json)
-- [Loopback five-family lane, current tree (`1c838bdf6372`, 22 checks)](evidence/loopback-lane-local-1c838bdf6372.json)
-- [Loopback container lane, current tree (`1c838bdf6372`, 7 checks)](evidence/loopback-container-local-1c838bdf6372.json)
-- [Security measurement lane, current tree (`1c838bdf6372`; package audit blocked)](evidence/security-local-1c838bdf6372.json)
-- [Performance measurement lane, current tree (`1c838bdf6372`)](evidence/performance-local-1c838bdf6372.json)
-- [Workspace lint lane, current tree (`1c838bdf6372`)](evidence/lint-local-1c838bdf6372.json)
+- [Authorized live five-family lane run (`116a84d608f3`, 5 checks)](evidence/live-lane-116a84d608f3.json)
+- [Loopback five-family lane, current tree (`116a84d608f3`, 23 checks)](evidence/loopback-lane-local-116a84d608f3.json)
+- [Loopback container lane, current tree (`116a84d608f3`, 7 checks)](evidence/loopback-container-local-116a84d608f3.json)
+- [Security measurement lane, current tree (`116a84d608f3`, 8/8; package audit passed, 0 advisories)](evidence/security-local-116a84d608f3.json)
+- [Performance measurement lane, current tree (`116a84d608f3`)](evidence/performance-local-116a84d608f3.json)
+- [Workspace lint lane, current tree (`116a84d608f3`)](evidence/lint-local-116a84d608f3.json)
 - [Local OCI subject manifest (`PG-03` candidate, unverified)](evidence/oci-subject-local.json)
+- [Authoritative CI-built OCI subject bundle (PR #38 merge ref `e456dd0c`, CI digest `sha256:8d978f18…`)](evidence/oci-digest-bundle-e456dd0cd791.json)
+- [CI Trivy scan report for the authoritative subject (0 HIGH/CRITICAL)](../security/trivy-scan-ci-e456dd0c.json)
 - [Older lane records (archived)](evidence/archived/)
 - [Gate evidence manifest schema](../deploy/evidence-manifest.schema.json)
 
@@ -79,7 +81,10 @@ and evidenced, what is implemented but not yet gate-evidenced, and what remains
 planned, deferred, or blocked on authorization.
 
 Independent exact-hash reviews of plan version `1.4-rc4` and design version
-`1.2-rc4` report no unresolved P0/P1. `PG-00` remains blocked only by:
+`1.2-rc4` report no unresolved P0/P1. Plan `1.4-rc5` (command-matrix tree
+status, supply-chain scope, `PLAN-R-18` eligibility API) and design `1.2-rc5`
+(no-tile SVG map boundary) await independent exact-hash re-review. `PG-00`
+remains blocked only by:
 
 - an explicitly authorized exact-hash Git commit; and
 - a later explicit implementation request.
@@ -94,6 +99,9 @@ billing cutoff and expiry tags do not delete resources. Azure teardown targets
 requiring explicit teardown approval or separately authorized retention. No
 cloud resource, provider registration, app registration, secret, or deployment
 is evidenced by these documents. The local implementation is committed in the
-repository, but no later gate (authoritative CI-built OCI digest, Azure, or
-production) is claimed as evidenced; CI execution and UAT execution remain
-un-evidenced.
+repository. Secretless CI executes on pull requests and is green at commit
+`116a84d` (evidence validation, Semgrep, gitleaks secret scan, dependency
+audit, image build with Trivy scan); the CI-built subject digest is retained at
+[`docs/evidence/oci-digest-bundle-e456dd0cd791.json`](evidence/oci-digest-bundle-e456dd0cd791.json).
+Azure, production, and UAT execution remain un-evidenced; CI has run for pull
+requests only — no push to `master` has occurred.
