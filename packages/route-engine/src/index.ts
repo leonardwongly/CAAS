@@ -108,7 +108,16 @@ export function resolveExactReference(
     (reference.kind === "unknown" || reference.kind === location.kind) &&
     candidateTokens(location).includes(token),
   );
-  const uniqueMatches = [...new Map(matches.map((location) => [location.id, location])).values()];
+  // Dedupe only exact duplicates (same id, kind, and coordinate). Distinct
+  // locations sharing one id are a real duplicate-identifier group and must
+  // surface as ambiguity — never resolved last-wins, which flips with input
+  // order.
+  const seen = new Map<string, Location>();
+  for (const location of matches) {
+    const key = `${location.id}|${location.kind}|${location.coordinate.lat}|${location.coordinate.lon}`;
+    if (!seen.has(key)) seen.set(key, location);
+  }
+  const uniqueMatches = [...seen.values()];
 
   if (uniqueMatches.length === 0) {
     return { status: "gap", reference, reason: "not-found" };
@@ -359,10 +368,13 @@ export function createRouteCandidate(
   destination: Location,
   legs: RouteCandidate["legs"],
 ): RouteCandidate {
-  const hasLegDistances = legs.every((leg) => leg.distanceNm !== undefined);
-  const distanceNm = hasLegDistances
-    ? sumDistanceNm(legs.map((leg) => leg.distanceNm!))
-    : haversineDistanceNm(origin.coordinate, destination.coordinate);
+  // Never infer: a leg without a computed distance must fail closed, not be
+  // replaced by a direct origin-to-destination great-circle estimate that
+  // ignores every recorded waypoint (design §0.3 "never infer by proximity").
+  if (!legs.every((leg) => leg.distanceNm !== undefined)) {
+    throw new RangeError("createRouteCandidate requires every leg to carry a computed distanceNm; a direct great-circle substitution is prohibited.");
+  }
+  const distanceNm = sumDistanceNm(legs.map((leg) => leg.distanceNm!));
   return RouteCandidateSchema.parse({
     id,
     origin: { value: origin.id, kind: origin.kind },

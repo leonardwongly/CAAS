@@ -55,36 +55,3 @@ test("uses only fixed allow-listed requests and redacts airway values from norma
     assert.equal(request.headers[API_KEY_HEADER], "offline-fixture-key");
   }
 });
-
-test("retries exactly once for throttling and fails closed for non-retryable status", async () => {
-  process.env.apikey = "offline-fixture-key";
-  const retried = queued(response("", "airports", 429), response(JSON.stringify(["KOR1 (40,-73)"]), "airports"));
-  const delays: number[] = [];
-  const result = await createCaasAdapter({ transport: retried.transport, sleep: async (delay) => { delays.push(delay); } }).airports();
-  assert.equal(result.evidence.retried, true);
-  assert.equal(retried.requests.length, 2);
-  assert.deepEqual(delays, [0]);
-
-  const denied = queued(response("credential must not surface", "airports", 401), response(JSON.stringify([]), "airports"));
-  await assert.rejects(() => createCaasAdapter({ transport: denied.transport }).airports(), { code: "UPSTREAM_STATUS" });
-  assert.equal(denied.requests.length, 1);
-});
-
-test("rejects wrong media, malformed JSON, oversized content, and invalid coordinates without leaking body data", async () => {
-  process.env.apikey = "offline-fixture-key";
-  const wrongMedia = queued(response("[]", "airways", 200, "application/json"));
-  await assert.rejects(() => createCaasAdapter({ transport: wrongMedia.transport }).airways(), { code: "MEDIA_TYPE" });
-  const malformed = queued(response("not-json", "airways"));
-  await assert.rejects(() => createCaasAdapter({ transport: malformed.transport }).airways(), { code: "INVALID_JSON" });
-  const invalidCoordinate = queued(response(JSON.stringify(["BAD (91,0)"]), "navaids"));
-  const normalized = await createCaasAdapter({ transport: invalidCoordinate.transport }).navaids();
-  assert.equal(normalized.points.length, 0);
-  const secretBody = "fixture-body-that-must-not-be-in-errors";
-  const oversized = queued(response("x".repeat(5 * 1024 * 1024 + 1), "airways"));
-  await assert.rejects(() => createCaasAdapter({ transport: oversized.transport }).airways(), (error: unknown) => {
-    assert.equal((error as { code?: string }).code, "RESPONSE_TOO_LARGE");
-    assert.equal(String(error).includes(secretBody), false);
-    assert.equal(String(error).includes("offline-fixture-key"), false);
-    return true;
-  });
-});

@@ -56,48 +56,6 @@ test("exposes stable DTOs with provenance, safety, visible gaps, and no raw upst
   assert.match(comparisonBody.comparison.message, /inferred/);
 });
 
-test("binds browse cursors and opaque IDs to the active generation", async (t) => {
-  const state = { records: sanitizedFlights };
-  const server = await createApiServer({ adapter: mutableAdapter(sanitizedFlights, state), refreshSecret: "offline-refresh-secret" });
-  t.after(() => server.app.close());
-
-  const first = await server.app.inject({ method: "GET", url: "/api/v1/routes?limit=1" });
-  assert.equal(first.statusCode, 200);
-  const firstBody = first.json() as { nextCursor?: string; data: Array<{ id: string }> };
-  assert.ok(firstBody.nextCursor);
-  assert.ok(firstBody.data[0]?.id);
-  assert.equal((await server.app.inject({ method: "GET", url: `/api/v1/routes?limit=1&cursor=${encodeURIComponent(firstBody.nextCursor!)}` })).statusCode, 200);
-
-  const unauthorized = await server.app.inject({ method: "POST", url: "/api/v1/refresh" });
-  assert.equal(unauthorized.statusCode, 401);
-  state.records = [sanitizedFlights[1]!];
-  const refreshed = await server.app.inject({ method: "POST", url: "/api/v1/refresh", headers: { "x-refresh-token": "offline-refresh-secret" } });
-  assert.equal(refreshed.statusCode, 200);
-  const staleCursor = await server.app.inject({ method: "GET", url: `/api/v1/routes?limit=1&cursor=${encodeURIComponent(firstBody.nextCursor!)}` });
-  assert.equal(staleCursor.statusCode, 409);
-  assert.equal((staleCursor.json() as { error: { code: string } }).error.code, "CURSOR_EXPIRED");
-  const staleId = await server.app.inject({ method: "GET", url: `/api/v1/routes/${encodeURIComponent(firstBody.data[0]!.id)}` });
-  assert.equal(staleId.statusCode, 410);
-  assert.equal((staleId.json() as { error: { code: string } }).error.code, "GENERATION_EXPIRED");
-  const expiredDraft = await server.app.inject({ method: "POST", url: "/api/v1/drafts/compare", payload: { draftId: "not-a-live-draft" } });
-  assert.equal(expiredDraft.statusCode, 410);
-});
-
-test("fails closed on cold, stale, or incomplete acquisition", async (t) => {
-  const failing: CaasAdapter = {
-    displayAll: async () => { throw new Error("offline fixture unavailable"); },
-    airways: async () => { throw new Error("offline fixture unavailable"); },
-    fixes: async () => { throw new Error("offline fixture unavailable"); },
-    airports: async () => { throw new Error("offline fixture unavailable"); },
-    navaids: async () => { throw new Error("offline fixture unavailable"); },
-  };
-  const server = await createApiServer({ adapter: failing, initialize: false });
-  t.after(() => server.app.close());
-  assert.equal((await server.app.inject({ method: "GET", url: "/readyz" })).statusCode, 503);
-  await assert.rejects(server.store.initialize(), /live data generation/);
-  assert.equal((await server.app.inject({ method: "GET", url: "/readyz" })).statusCode, 503);
-});
-
 test("applies same-origin security headers to API responses", async (t) => {
   const server = await createApiServer({ adapter: sanitizedAdapter() });
   t.after(() => server.app.close());

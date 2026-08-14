@@ -1,19 +1,13 @@
 // Cross-checks the evidence policy layer: the policy registry gates, the
 // semantic validator binding, and that tampered manifests are rejected.
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 import { parse as parseYaml } from "yaml";
 import { validateManifest } from "../../scripts/validation/validate-offline.mjs";
-import { VALIDATOR_VERSION } from "../../scripts/validation/validate-evidence-bundle.mjs";
 
 const root = resolve(import.meta.dirname, "../..");
-
-function digest(value: string) {
-  return createHash("sha256").update(value).digest("hex");
-}
 
 interface MandatoryCheck { id: string; operator: string; units: string | null; }
 interface GatePolicy { mandatory: MandatoryCheck[]; }
@@ -37,12 +31,9 @@ test("policy registry defines PG-01 and PG-03 mandatory checks with allowed oper
   assert.equal(policy.execution.exactSubject.required, true);
 });
 
-test("semantic validator self-binding is versioned and stable", async () => {
-  const validator = await readFile(resolve(root, "scripts/validation/validate-evidence-bundle.mjs"), "utf8");
-  assert.equal(typeof VALIDATOR_VERSION, "string");
-  assert.ok(VALIDATOR_VERSION.length > 0);
-  assert.equal(digest(validator).length, 64);
-});
+// The validator self-binding (manifest validatorSha256 === live file hash) is
+// asserted by tests/validation/oci-bundle-structure.test.ts; a tautological
+// non-empty-string/64-hex-chars check formerly lived here and was removed.
 
 test("validateManifest rejects a tampered gate manifest", async () => {
   const fixture = JSON.parse(await readFile(resolve(root, "tests/fixtures/evidence-manifest.json"), "utf8"));

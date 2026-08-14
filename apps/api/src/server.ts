@@ -49,6 +49,9 @@ const MAX_SAME_ENDPOINT_CANDIDATES = 500;
 // fails closed and requires a narrower term instead of dumping matches.
 const AMBIGUITY_PAGE = 50;
 const AMBIGUITY_HARD_TOTAL = 500;
+// Plan §6.1: browser response hard limit 2 MiB — a larger payload fails
+// closed with a bounded error instead of emitting an over-limit body.
+const MAX_BROWSER_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_DRAFT_ENTRIES = 512;
 const MAX_SEARCH_LENGTH = 64;
 const MAX_ERROR_MESSAGE = 160;
@@ -535,7 +538,9 @@ export class GenerationStore {
 
   getDraft(id: string, snapshot: Snapshot): RouteDraft {
     const decoded = readScoped(id, snapshot);
-    if (!decoded || decoded.g !== snapshot.id || decoded.t !== "draft" || typeof decoded.e !== "number" || decoded.e <= this.now() || typeof decoded.n !== "string") {
+    // Inclusive boundary, like decodeScoped/cursorOffset: at exactly the
+    // unusable instant the generation is still servable ("stale").
+    if (!decoded || decoded.g !== snapshot.id || decoded.t !== "draft" || typeof decoded.e !== "number" || decoded.e < this.now() || typeof decoded.n !== "string") {
       throw new ApiHttpError(410, "DRAFT_EXPIRED", "The draft is no longer available.");
     }
     const entry = this.drafts.get(id);
@@ -1086,12 +1091,32 @@ function withWarmDeadline(
 }
 
 export async function createApiServer(options: ApiServerOptions = {}): Promise<{ app: FastifyInstance; store: GenerationStore }> {
-  const now = options.now ?? Date.now;
+  // Monotonic clock: an NTP step-back must never revive expired tokens or an
+  // unusable generation (fail-closed invalidation is irreversible within a
+  // process lifetime).
+  const rawNow = options.now ?? Date.now;
+  let latestNow = Number.NEGATIVE_INFINITY;
+  const now = () => {
+    const current = rawNow();
+    latestNow = Math.max(latestNow, current);
+    return latestNow;
+  };
   const adapter = options.adapter ?? createCaasAdapter(options.transport ? { transport: options.transport } : {});
   const deadlineMs = options.warmRequestDeadlineMs ?? DEFAULT_WARM_DEADLINE_MS;
   const warm = (handler: (request: FastifyRequest, reply: FastifyReply, signal?: AbortSignal) => Promise<unknown>) => withWarmDeadline(handler, deadlineMs);
   const store = new GenerationStore(adapter, now);
   const app = Fastify({ logger: options.logger ?? false, maxParamLength: 2048, bodyLimit: 64 * 1024 });
+  app.addHook("onSend", async (_request, reply, payload) => {
+    // Plan §6.1: browser responses are hard-limited to 2 MiB. Crossing the
+    // limit fails closed with a bounded error; a larger payload is never
+    // emitted as a 200 body.
+    const size = typeof payload === "string" ? Buffer.byteLength(payload, "utf8") : Buffer.isBuffer(payload) ? payload.length : 0;
+    if (size > MAX_BROWSER_RESPONSE_BYTES) {
+      reply.code(500);
+      return JSON.stringify({ error: { code: "RESPONSE_TOO_LARGE", message: "The response exceeded the 2 MiB browser limit; request a narrower or paginated view." } });
+    }
+    return payload;
+  });
   app.addHook("onSend", async (_request, reply, payload) => {
     reply
       .header("content-security-policy", "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; style-src 'self'")

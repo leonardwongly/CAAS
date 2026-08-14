@@ -84,6 +84,9 @@ export function createLiveTransport(): CaasTransport {
       request.signal?.addEventListener("abort", forwardAbort, { once: true });
       let receivedStatus: number | undefined;
       try {
+        // A pre-aborted signal must never reach the network; the "abort"
+        // listener below never fires for a signal that is already aborted.
+        if (request.signal?.aborted) throw new CaasAdapterError("CANCELLED", "The upstream request was cancelled.", { family: request.family });
         const response = await fetch(request.url, {
           method: "GET",
           headers: request.headers,

@@ -26,9 +26,24 @@
       "procedure": "Cost query ActualCost, MonthToDate (docs/operations/azure-post-demo-verification.md C-1)",
       "startedAt": "YYYY-MM-DDTHH:MM:SSZ",
       "endedAt": "YYYY-MM-DDTHH:MM:SSZ",
-      "threshold": { "rule": "actual spend below USD 45", "operator": "less-than-or-equal", "expected": 45, "units": "USD" },
-      "measurement": { "summary": "Measured current-month actual cost", "value": 0, "units": "USD", "sampleCount": 1 },
-      "artifacts": [{ "path": "docs/evidence/<cost-query-artifact>.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }],
+      "threshold": {
+        "rule": "actual spend below USD 45",
+        "operator": "less-than-or-equal",
+        "expected": 45,
+        "units": "USD"
+      },
+      "measurement": {
+        "summary": "Measured current-month actual cost",
+        "value": 0,
+        "units": "USD",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "docs/evidence/<cost-query-artifact>.json",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
       "result": "blocked",
       "failureFallback": "Record deviation; request teardown/retention authority before further cost"
     },
@@ -38,9 +53,24 @@
       "procedure": "Forecast cost query vs seven-day forecast USD 34.66 (docs/operations/azure-post-demo-verification.md C-2)",
       "startedAt": "YYYY-MM-DDTHH:MM:SSZ",
       "endedAt": "YYYY-MM-DDTHH:MM:SSZ",
-      "threshold": { "rule": "forecast consistent with USD 34.66 reference", "operator": "less-than-or-equal", "expected": 45, "units": "USD" },
-      "measurement": { "summary": "Measured forecast cost", "value": 0, "units": "USD", "sampleCount": 1 },
-      "artifacts": [{ "path": "docs/evidence/<forecast-query-artifact>.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }],
+      "threshold": {
+        "rule": "forecast consistent with USD 34.66 reference",
+        "operator": "less-than-or-equal",
+        "expected": 45,
+        "units": "USD"
+      },
+      "measurement": {
+        "summary": "Measured forecast cost",
+        "value": 0,
+        "units": "USD",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "docs/evidence/<forecast-query-artifact>.json",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
       "result": "blocked",
       "failureFallback": "Record explanation; if forecast >= USD 45 request authority"
     },
@@ -50,9 +80,27 @@
       "procedure": "Budget/alerts state and notifications at USD 25 / 37.50 / 45 (docs/operations/azure-post-demo-verification.md C-3)",
       "startedAt": "YYYY-MM-DDTHH:MM:SSZ",
       "endedAt": "YYYY-MM-DDTHH:MM:SSZ",
-      "threshold": { "rule": "thresholds 50 / 75 / 90 percent of USD 50 with mandatory contact", "operator": "set-equals", "expected": [50, 75, 90], "units": "percent" },
-      "measurement": { "summary": "Configured notification thresholds and received alert evidence", "value": [], "sampleCount": 1 },
-      "artifacts": [{ "path": "docs/evidence/<budget-show-output>.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }],
+      "threshold": {
+        "rule": "thresholds 50 / 75 / 90 percent of USD 50 with mandatory contact",
+        "operator": "set-equals",
+        "expected": [
+          50,
+          75,
+          90
+        ],
+        "units": "percent"
+      },
+      "measurement": {
+        "summary": "Configured notification thresholds and received alert evidence",
+        "value": [],
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "docs/evidence/<budget-show-output>.json",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
       "result": "blocked",
       "failureFallback": "Record missing notifications; escalate to operator decision"
     },
@@ -62,9 +110,23 @@
       "procedure": "Resource-level cost by resource group/tag; policy resources.prohibited empty (docs/operations/azure-post-demo-verification.md C-4)",
       "startedAt": "YYYY-MM-DDTHH:MM:SSZ",
       "endedAt": "YYYY-MM-DDTHH:MM:SSZ",
-      "threshold": { "rule": "no prohibited resource types in POC scope", "operator": "set-equals", "expected": [], "units": "resource-types" },
-      "measurement": { "summary": "Resource types present in the POC scope", "value": [], "sampleCount": 1 },
-      "artifacts": [{ "path": "docs/evidence/<attribution-query-artifact>.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }],
+      "threshold": {
+        "rule": "no prohibited resource types in POC scope",
+        "operator": "set-equals",
+        "expected": [],
+        "units": "resource-types"
+      },
+      "measurement": {
+        "summary": "Resource types present in the POC scope",
+        "value": [],
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "docs/evidence/<attribution-query-artifact>.json",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
       "result": "blocked",
       "failureFallback": "Investigate unexpected spend before teardown"
     },
@@ -74,9 +136,25 @@
       "procedure": "az containerapp auth show allowedPrincipals.identities (docs/operations/azure-post-demo-verification.md A-1)",
       "startedAt": "YYYY-MM-DDTHH:MM:SSZ",
       "endedAt": "YYYY-MM-DDTHH:MM:SSZ",
-      "threshold": { "rule": "exactly one allowed principal, no deployment identity", "operator": "set-equals", "expected": ["<user-object-id>"], "units": "object-ids" },
-      "measurement": { "summary": "Allowed principals observed", "value": [], "sampleCount": 1 },
-      "artifacts": [{ "path": "docs/evidence/<auth-show-output>.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }],
+      "threshold": {
+        "rule": "exactly one allowed principal, no deployment identity",
+        "operator": "set-equals",
+        "expected": [
+          "<user-object-id>"
+        ],
+        "units": "object-ids"
+      },
+      "measurement": {
+        "summary": "Allowed principals observed",
+        "value": [],
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "docs/evidence/<auth-show-output>.json",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
       "result": "blocked",
       "failureFallback": "Revoke drift before any teardown write"
     },
@@ -86,9 +164,27 @@
       "procedure": "deploy/azure-identity-negative-checks.mjs --live NEG-01..NEG-03 (docs/operations/azure-post-demo-verification.md A-2)",
       "startedAt": "YYYY-MM-DDTHH:MM:SSZ",
       "endedAt": "YYYY-MM-DDTHH:MM:SSZ",
-      "threshold": { "rule": "absent from allowed principals; no Key Vault read; AcrPush + exact-app only", "operator": "set-equals", "expected": ["acrpull-absent", "kv-denied", "minimal-grants"], "units": "negative-checks" },
-      "measurement": { "summary": "Negative check outcomes", "value": [], "sampleCount": 1 },
-      "artifacts": [{ "path": "docs/evidence/<negative-checks-output>.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }],
+      "threshold": {
+        "rule": "absent from allowed principals; no Key Vault read; AcrPush + exact-app only",
+        "operator": "set-equals",
+        "expected": [
+          "acrpull-absent",
+          "kv-denied",
+          "minimal-grants"
+        ],
+        "units": "negative-checks"
+      },
+      "measurement": {
+        "summary": "Negative check outcomes",
+        "value": [],
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "docs/evidence/<negative-checks-output>.json",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
       "result": "blocked",
       "failureFallback": "Revoke drift before any teardown write"
     },
@@ -98,14 +194,29 @@
       "procedure": "Per-resource verification T-1..T-8 (docs/operations/azure-post-demo-verification.md section 3)",
       "startedAt": "YYYY-MM-DDTHH:MM:SSZ",
       "endedAt": "YYYY-MM-DDTHH:MM:SSZ",
-      "threshold": { "rule": "resources removed or retention-authorized", "operator": "set-equals", "expected": [], "units": "remaining-resources" },
-      "measurement": { "summary": "Resources remaining after teardown (empty = all removed or authorized)", "value": [], "sampleCount": 1 },
-      "artifacts": [{ "path": "docs/evidence/<teardown-verification-artifact>.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }],
+      "threshold": {
+        "rule": "resources removed or retention-authorized",
+        "operator": "set-equals",
+        "expected": [],
+        "units": "remaining-resources"
+      },
+      "measurement": {
+        "summary": "Resources remaining after teardown (empty = all removed or authorized)",
+        "value": [],
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "docs/evidence/<teardown-verification-artifact>.json",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
       "result": "blocked",
       "failureFallback": "Retention-authorized resources recorded with authority; missing authority blocks the step (result blocked)"
     }
   ],
   "blockingIssues": [],
   "gateResult": "blocked",
-  "failureFallback": "No teardown is claimed by this template; a completed manifest records each check's result and failureFallback with retained artifacts"
+  "failureFallback": "No teardown is claimed by this template; a completed manifest records each check's result and failureFallback with retained artifacts",
+  "templateStatus": "pending"
 }

@@ -169,8 +169,11 @@ export const CoordinateInputSchema = z.preprocess((value) => {
   }
   return value;
 }, z.object({
-  lat: z.union([finiteNumber, z.string().trim().min(1)]).transform((value) => Number(value)),
-  lon: z.union([finiteNumber, z.string().trim().min(1)]).transform((value) => Number(value)),
+  // Canonical decimal strings only: Number() would coerce "0x1A", "0o11",
+  // "0b101", and "1e1" into in-range coordinates, violating the
+  // IDENTIFIER (latitude,longitude) decimal grammar.
+  lat: z.union([finiteNumber, z.string().trim().min(1).refine((value) => /^-?\d+(?:\.\d+)?$/.test(value), "Coordinate strings must be canonical decimal numbers.")]).transform((value) => Number(value)),
+  lon: z.union([finiteNumber, z.string().trim().min(1).refine((value) => /^-?\d+(?:\.\d+)?$/.test(value), "Coordinate strings must be canonical decimal numbers.")]).transform((value) => Number(value)),
 }).pipe(CoordinateSchema));
 
 export type CoordinateInput = z.input<typeof CoordinateInputSchema>;

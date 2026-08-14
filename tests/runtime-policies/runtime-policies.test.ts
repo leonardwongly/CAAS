@@ -5,7 +5,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { createApiServer } from "../../apps/api/src/index.ts";
 import { RANK_ONE_LABEL } from "../../packages/contracts/src/index.ts";
-import { LIVE_FRESH_MS, LIVE_UNUSABLE_MS, REFERENCE_FRESH_MS, REFERENCE_UNUSABLE_MS } from "../../packages/upstream-caas/src/index.ts";
+// The §6.2 freshness-window constants themselves are pinned by
+// packages/upstream-caas/test/freshness.test.ts (the package owns its
+// constants); this suite pins the server-side deadline and the runtime
+// behaviors instead.
 import { sanitizedAdapter } from "../fixtures/sanitized-caas.ts";
 import { searchCallsigns } from "../../apps/web/src/api.ts";
 
@@ -17,11 +20,7 @@ const serverSource = readFileSync(resolve(ROOT, "apps/api/src/server.ts"), "utf8
 /** Candidate-qualifying copy must never call a candidate valid, recommended, safe, cleared, or best. */
 const FORBIDDEN_QUALIFIERS = /\b(valid|recommended|safe|cleared|best)\b/i;
 
-test("pins the plan §6.2 freshness windows and the 5-second warm request deadline", () => {
-  assert.equal(LIVE_FRESH_MS, 5 * 60 * 1000, "live generation stays fresh for at most 5 minutes");
-  assert.equal(LIVE_UNUSABLE_MS, 30 * 60 * 1000, "live generation becomes unusable after 30 minutes");
-  assert.equal(REFERENCE_FRESH_MS, 24 * 60 * 60 * 1000, "reference generation stays fresh for at most 24 hours");
-  assert.equal(REFERENCE_UNUSABLE_MS, 7 * 24 * 60 * 60 * 1000, "reference generation becomes unusable after 7 days");
+test("pins the plan §6.2 5-second warm request deadline", () => {
   assert.match(serverSource, /DEFAULT_WARM_DEADLINE_MS = 5 \* 1000/, "warm API requests must have a 5-second hard deadline");
 });
 

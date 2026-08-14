@@ -40,7 +40,6 @@ test("a fresh generation is ready and its live unusable boundary is the 30-minut
   assert.equal(store.status, "ready");
   assert.equal(store.readiness().ready, true);
   assert.equal(snapshot.unusableAtMs - snapshot.retrievedAtMs, LIVE_UNUSABLE_MS, "live generation is unusable 30 minutes after acquisition");
-  assert.equal(snapshot.unusableAtMs - snapshot.retrievedAtMs, 30 * 60 * 1000);
 
   clock += 30 * 60 * 1000; // exactly at the live unusable instant: still servable (stale, inclusive boundary)
   assert.equal(store.readiness().ready, true, "the generation stays servable through the stale window");
@@ -112,18 +111,10 @@ test("a successful refresh invalidates prior-generation cursors while retaining 
   }
 });
 
-test("generations never persist across a store instance (no cross-restart reuse)", async () => {
-  const firstStore = new GenerationStore(sanitizedAdapter(), () => 1_700_000_000_000);
-  const secondStore = new GenerationStore(sanitizedAdapter(), () => 1_700_000_000_000);
-  const [first, second] = await Promise.all([firstStore.initialize(), secondStore.initialize()]);
-  assert.notEqual(first.id, second.id, "every process/instance acquires a fresh generation UUID");
-
-  const draftId = firstStore.rememberDraft({ origin: "KOR1", via: ["MIDPT"], selections: [], destination: "KDS1" }, first);
-  assert.throws(() => secondStore.getDraft(draftId, second), (error: unknown) => {
-    assert.equal((error as { code?: string }).code, "DRAFT_EXPIRED", "tokens minted by another instance fail closed");
-    return true;
-  });
-});
+// Cross-restart token isolation is proven end-to-end at HTTP level by
+// tests/runtime-policies/runtime-policies.test.ts (old cursor -> 409, old
+// route -> 410, old draft -> 410 across restarted servers); the duplicate
+// store-level copy formerly lived here and was removed.
 
 test("draft tokens bind to their generation and are invalidated by refresh", async () => {
   const state = { records: sanitizedFlights };

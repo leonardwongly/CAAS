@@ -45,7 +45,7 @@ export async function validateEvidenceBundle() {
   for (const [gateId, gate] of Object.entries(policy?.checks ?? {})) {
     for (const check of gate.mandatory ?? []) {
       if (!policyRegistry.has(gateId)) policyRegistry.set(gateId, []);
-      policyRegistry.get(gateId).push({ id: check.id, operator: check.operator, units: check.units });
+      policyRegistry.get(gateId).push({ id: check.id, operator: check.operator, units: check.units, expected: check.expected });
     }
   }
 
@@ -116,16 +116,36 @@ export async function validateEvidenceBundle() {
   for (const name of files) {
     const filePath = resolve(evidenceDirectory, name);
     const file = `docs/evidence/${name}`;
-    const record = JSON.parse(await readFile(filePath, "utf8"));
+    // A concurrent writer (e.g. parallel adversarial tests exercising the
+    // lanes) can expose a half-written file; report it under the file's own
+    // name and continue rather than aborting the whole scan.
+    let record;
+    try {
+      record = JSON.parse(await readFile(filePath, "utf8"));
+    } catch (error) {
+      errors.push(`${file}: evidence record is not readable JSON (${error instanceof Error ? error.message : String(error)})`);
+      continue;
+    }
     // Template records (explicit `template: true` marker or a .template.json
     // filename) declare the shape of a future evidence artifact. They record no
     // event, claim no result, and carry placeholder paths/timestamps by design;
     // they are classified as pending templates and never structurally scored.
-    // A completed manifest must drop the marker and the filename suffix.
-    if (record.template === true || name.endsWith(".template.json")) {
+    // A completed gate/lane/measurement record must NOT keep the marker: it
+    // would otherwise escape all scoring.
+    const isTemplateMarked = record.template === true || name.endsWith(".template.json");
+    // A legitimate template declares itself fully: template: true AND
+    // templateStatus: "pending" AND the .template.json filename suffix. A
+    // completed record keeping only part of the marker (e.g. template: true on
+    // a .json gate manifest, or a .template.json name without the marker) is
+    // an authoring defect and must error, never be silently skipped.
+    const isLegitTemplate = record.template === true && record.templateStatus === "pending" && name.endsWith(".template.json");
+    if (isLegitTemplate) {
       skipped += 1;
       templateCount += 1;
       continue;
+    }
+    if (isTemplateMarked) {
+      errors.push(`${file}: completed evidence record must not carry the template marker (template: true / .template.json); legitimate templates must set templateStatus: "pending" and use the .template.json suffix`);
     }
     if (record.recordKind === "discovery" || (record.gateId === undefined && record.checks === undefined)) {
       skipped += 1;
@@ -142,12 +162,19 @@ export async function validateEvidenceBundle() {
       }
       const mandatory = policyRegistry.get(record.gateId) ?? [];
       const present = new Map(record.checks.map((check) => [check.checkId, check]));
+      const knownIds = new Set(mandatory.map((required) => required.id));
+      for (const check of record.checks) {
+        if (!knownIds.has(check.checkId)) errors.push(`${file}: unknown check ${check.checkId} for ${record.gateId} (policy rule reject-unknown-checks)`);
+      }
       for (const required of mandatory) {
         const check = present.get(required.id);
         if (!check) { errors.push(`${file}: missing mandatory check ${required.id} for ${record.gateId}`); continue; }
         const threshold = check.threshold ?? {};
         if (threshold.operator !== required.operator || (required.units !== null && required.units !== undefined && threshold.units !== required.units)) {
           errors.push(`${file}: check ${required.id} operator/units drift (expected ${required.operator}/${required.units})`);
+        }
+        if (required.expected !== undefined && threshold.expected !== required.expected) {
+          errors.push(`${file}: check ${required.id} expected drift (policy pins ${required.expected}, manifest claims ${String(threshold.expected)})`);
         }
       }
     } else if (record.recordKind === "lane-results" || record.recordKind === "measurement-results") {

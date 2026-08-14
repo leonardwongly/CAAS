@@ -27,6 +27,16 @@ async function runChecks() {
   const adapter = createCaasAdapter({ transport });
   const server = await createApiServer({ adapter });
   await server.app.listen({ port: 0, host: "127.0.0.1" });
+  // Any exception mid-run must close the listening server so the process can
+  // exit; the outer catch records the failure as a fail check.
+  try {
+    return await runChecksOn(server, transport);
+  } finally {
+    await server.app.close();
+  }
+}
+
+async function runChecksOn(server, transport) {
   const address = server.app.server.address();
   const base = `http://127.0.0.1:${address.port}`;
   const startedAt = isoNow();
@@ -218,8 +228,6 @@ async function runChecks() {
   collector.pass("LANE-SECURITY-HEADERS", "same-origin security headers", "All documented response security headers are present on API responses.", startedAt, isoNow(),
     securityHeaders.every((name) => headerSample.headers[name] !== undefined), "boolean", securityHeaders.length, artifactsFor());
 
-  await server.app.close();
-
   // 15. Cold startup fails closed when any mandatory family is unusable.
   const failingTransport = createMockTransport(fixtureBodies(), { failAll: true });
   const failingAdapter = createCaasAdapter({ transport: failingTransport });
@@ -245,7 +253,17 @@ async function runChecks() {
 }
 
 const startedAt = isoNow();
-const { responses, transport } = await runChecks();
+// A mid-run crash must still leave evidence: record a fail check and write
+// the lane-results record before exiting non-zero (mirrors live-lane.mjs).
+let responses = [];
+let transport;
+try {
+  const result = await runChecks();
+  responses = result.responses;
+  transport = result.transport;
+} catch (error) {
+  collector.fail("LANE-RUN-CRASH", "lane execution", "Every lane check must complete; an exception fails the lane loudly instead of losing the evidence record.", startedAt, isoNow(), error instanceof Error ? error.message : String(error));
+}
 const endedAt = isoNow();
 
 const record = {
@@ -278,7 +296,7 @@ const fileSha = await (async () => {
   return sha256Hex(await readFile(absolute, "utf8"));
 })();
 console.log(`Loopback lane record written to ${recordPath} (sha256 ${fileSha})`);
-console.log(`Upstream request families seen: ${[...new Set(transport.state.requests.map((request) => request.family))].join(", ")}`);
+if (transport) console.log(`Upstream request families seen: ${[...new Set(transport.state.requests.map((request) => request.family))].join(", ")}`);
 console.log(`Response bodies captured for exclusion scanning: ${responses.length}`);
 
 reportAndExit(collector, "LOOPBACK FIVE-FAMILY LANE (fixture-backed mechanics)");

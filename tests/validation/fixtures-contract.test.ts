@@ -25,6 +25,6 @@ test("fixture CAAS_CONTRACT mirrors every family policy exactly", () => {
   }
 });
 
-test("fixture reference datasets use the bound IDENTIFIER (lat,lon) form", () => {
-  assert.match("MIDPT (35,-90)", /^[A-Z0-9]{3,5} \(-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?\)$/);
-});
+// The IDENTIFIER (lat,lon) grammar itself is enforced functionally by the
+// normalizers (failure-surfacing.test.ts rejects malformed reference points);
+// a self-fulfilling regex-on-a-literal test formerly lived here and was removed.

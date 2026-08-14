@@ -96,7 +96,13 @@ function liveAerodromeValue(value: unknown): string | null {
 function endpointValue(record: JsonRecord, parentKey: "departure" | "arrival", childKey: "departureAerodrome" | "destinationAerodrome", legacyKeys: readonly string[]): string | null {
   if (Object.prototype.hasOwnProperty.call(record, parentKey)) {
     const parent = asRecord(record[parentKey]);
-    if (parent && Object.prototype.hasOwnProperty.call(parent, childKey)) return liveAerodromeValue(parent[childKey]);
+    if (parent && Object.prototype.hasOwnProperty.call(parent, childKey)) {
+      const nested = liveAerodromeValue(parent[childKey]);
+      // A valid nested value wins. An invalid one (null, non-string,
+      // over-length) is null-as-absent: fall through to the legacy keys
+      // instead of silently dropping a valid sibling field.
+      if (nested) return nested;
+    }
   }
   return firstReferenceValue(record, legacyKeys);
 }
