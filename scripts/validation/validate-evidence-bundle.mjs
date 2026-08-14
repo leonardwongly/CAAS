@@ -105,6 +105,27 @@ export async function validateEvidenceBundle() {
     if (!Number.isInteger(summary.checks) || !Number.isInteger(summary.passed) || !Number.isInteger(summary.failed) || !Number.isInteger(blocked) || summary.passed + summary.failed + blocked !== summary.checks || summary.checks !== record.checks.length) {
       errors.push(`${file}: summary inconsistent with checks`);
     }
+    // Record-level artifacts are evidence too: same path/hash rules as
+    // per-check artifacts (placeholder shorthands allowed, traversal never).
+    if (!Array.isArray(record.artifacts)) {
+      errors.push(`${file}: record artifacts missing`);
+    } else {
+      for (const artifact of record.artifacts) await validateArtifact(file, "record", artifact);
+    }
+  }
+
+  async function validateArtifact(file, owner, artifact) {
+    if (artifact?.path === "raw" || artifact?.path === "spawn" || artifact?.sha256 === "redacted-location-only" || artifact?.sha256 === "none") return;
+    if (!artifact || typeof artifact.path !== "string" || artifact.path.includes("..") || !/^[a-f0-9]{64}$/.test(artifact.sha256 ?? "")) {
+      errors.push(`${file}: ${owner} artifact invalid`);
+      return;
+    }
+    try {
+      const contents = await readFile(resolve(root, artifact.path));
+      if (digest(contents) !== artifact.sha256) errors.push(`${file}: artifact hash mismatch ${artifact.path}`);
+    } catch {
+      errors.push(`${file}: artifact missing ${artifact.path}`);
+    }
   }
 
   const files = (await readdir(evidenceDirectory)).filter((name) => name.endsWith(".json") && !name.startsWith(".")).sort();
@@ -147,7 +168,23 @@ export async function validateEvidenceBundle() {
     if (isTemplateMarked) {
       errors.push(`${file}: completed evidence record must not carry the template marker (template: true / .template.json); legitimate templates must set templateStatus: "pending" and use the .template.json suffix`);
     }
-    if (record.recordKind === "discovery" || (record.gateId === undefined && record.checks === undefined)) {
+    if (record.recordKind === "discovery") {
+      skipped += 1;
+      continue;
+    }
+    if (record.recordKind === "oci-digest-bundle") {
+      // Digest bundles are scored: digest format, source hashes, and the
+      // bound code-under-test commit must be present and well-formed.
+      const imageDigest = record.image?.digest ?? record.image?.imageId;
+      if (typeof imageDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(imageDigest)) errors.push(`${file}: oci-digest-bundle image digest invalid`);
+      if (typeof record.subject?.identifiers?.commit !== "string" || !/^[a-f0-9]{7,40}$/.test(record.subject.identifiers.commit)) errors.push(`${file}: oci-digest-bundle subject commit invalid`);
+      const sourceHashes = record.sourceHashes ?? {};
+      if (typeof sourceHashes !== "object" || Array.isArray(sourceHashes) || !Object.values(sourceHashes).every((value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value))) {
+        errors.push(`${file}: oci-digest-bundle sourceHashes must map source paths to sha256 digests`);
+      }
+      continue;
+    }
+    if (record.gateId === undefined && record.checks === undefined) {
       skipped += 1;
       continue;
     }
@@ -173,8 +210,8 @@ export async function validateEvidenceBundle() {
         if (threshold.operator !== required.operator || (required.units !== null && required.units !== undefined && threshold.units !== required.units)) {
           errors.push(`${file}: check ${required.id} operator/units drift (expected ${required.operator}/${required.units})`);
         }
-        if (required.expected !== undefined && threshold.expected !== required.expected) {
-          errors.push(`${file}: check ${required.id} expected drift (policy pins ${required.expected}, manifest claims ${String(threshold.expected)})`);
+        if (required.expected !== undefined && JSON.stringify(threshold.expected) !== JSON.stringify(required.expected)) {
+          errors.push(`${file}: check ${required.id} expected drift (policy pins ${JSON.stringify(required.expected)}, manifest claims ${JSON.stringify(threshold.expected)})`);
         }
       }
     } else if (record.recordKind === "lane-results" || record.recordKind === "measurement-results") {

@@ -43,9 +43,23 @@ function formatRankDistance(value: number | undefined): string {
   return value === undefined ? "Not supplied" : `${value.toFixed(6)} NM`;
 }
 
+const CODE_MESSAGES: Readonly<Record<string, string>> = {
+  TOO_MANY_CANDIDATES: "Too many route options for this airport pair. Try a more specific flight.",
+  TOO_MANY_MATCHES: "This reference matches too many locations. Use a narrower search term.",
+  UPSTREAM_UNAVAILABLE: "Live route data is unavailable right now. Try refreshing in a moment.",
+  GENERATION_STALE: "The live data generation has expired. Refresh live data to reacquire it.",
+  REQUEST_DEADLINE_EXCEEDED: "The route service timed out. Try again.",
+};
+
 function apiMessage(error: unknown): string {
-  if (error instanceof ApiError && error.code === "TOO_MANY_CANDIDATES") return "Too many route options for this airport pair. Try a more specific flight.";
-  if (error instanceof ApiError) return error.message;
+  if (error instanceof ApiError) {
+    // Some 503 envelopes (readiness/startup) carry a machine-readable code
+    // without a human message; never surface a bare "Request failed (503)".
+    const fallback = `Request failed (${error.status})`;
+    if (error.code && CODE_MESSAGES[error.code]) return CODE_MESSAGES[error.code]!;
+    if (error.message && error.message !== fallback) return error.message;
+    return fallback;
+  }
   return error instanceof Error ? error.message : "The route service could not be reached.";
 }
 
@@ -136,6 +150,9 @@ function App() {
   }, []);
 
   function updateQuery(query: string) {
+    // Abort any in-flight search: matches from an older query must never land
+    // under the newly typed text.
+    searchRequest.current?.abort();
     setSearch({ query, matches: [], loading: false, searched: false });
   }
 
@@ -176,6 +193,10 @@ function App() {
       setRouteError(undefined);
       return;
     }
+    // Clear the previous flight's options immediately: stale candidates must
+    // never stay rendered or selectable under the newly selected flight.
+    setOptions([]);
+    setRouteError(undefined);
     const controller = new AbortController();
     const requestId = ++routeRequest.current;
     setRouteLoading(true);
@@ -304,9 +325,9 @@ function App() {
           {mapOnly && <button ref={restoreControlsRef} className="restore-controls" type="button" onClick={leaveMapOnly} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leaveMapOnly(); } }}>Restore controls</button>}
           {!mapOnly && primarySurface !== "none" && <aside className="map-drawer" role="region" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : "Local route editor"}>
             <div className="drawer-header"><p className="eyebrow">{primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : "EDIT COPY"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>
-            {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} rankLabel={rankLabel} onRetry={() => { setRouteReload((current) => current + 1); requestAnimationFrame(() => document.getElementById("options-heading")?.focus()); }} onSelect={(option) => { setSelectedRoute(option); setStatus(`Selected ${option.label ?? "route option"}.`); closeSurface("routes"); }} />}
-            {primarySurface === "route-data" && selectedRoute && <RouteDetails route={selectedRoute} onStartDraft={() => { setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} />}
-            {primarySurface === "editor" && selectedRoute && draftActive && <DraftEditor draft={draft} baseline={selectedRoute} loading={draftLoading} error={draftError} onUpdate={(via) => void updateDraft(via)} onClose={() => { resetDraftState(); closeSurface("editor"); }} />}
+            {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} rankLabel={rankLabel} onRetry={() => { setRouteReload((current) => current + 1); requestAnimationFrame(() => document.getElementById("options-heading")?.focus()); }} onSelect={(option) => { resetDraftState(); setSelectedRoute(option); setStatus(`Selected ${option.label ?? "route option"}.`); closeSurface("routes"); }} />}
+            {primarySurface === "route-data" && selectedRoute && <RouteDetails route={selectedRoute} onStartDraft={() => { setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); requestAnimationFrame(() => document.getElementById("draft-heading")?.focus()); }} />}
+            {primarySurface === "editor" && selectedRoute && draftActive && <DraftEditor draft={draft} baseline={selectedRoute} loading={draftLoading} error={draftError} onUpdate={(via, selections) => void updateDraft(via, selections)} onClose={() => { resetDraftState(); closeSurface("editor"); }} />}
           </aside>}
           {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected recorded route</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
           <div className="sr-status" role="status" aria-live="polite">{routeLoading ? "Loading route options." : status}</div>
@@ -337,7 +358,7 @@ function SearchBox({ selected, state, onFocus, onQuery, onSearch, onSelect }: { 
     <div className={`search-block ${hasResults ? "is-active" : ""}`}>
       <label htmlFor="flight-search">Flight number or code</label>
       <div className="search-input-row">
-        <input ref={inputRef} id="flight-search" role="combobox" value={state.query} onFocus={onFocus} onChange={(event) => onQuery(event.target.value)} onKeyDown={(event) => {
+        <input ref={inputRef} id="flight-search" role="combobox" value={state.query} maxLength={64} onFocus={onFocus} onChange={(event) => onQuery(event.target.value)} onKeyDown={(event) => {
           if (event.key === "ArrowDown" && hasResults) { event.preventDefault(); setActiveIndex((index) => Math.min(index + 1, state.matches.length - 1)); }
           else if (event.key === "ArrowUp" && hasResults) { event.preventDefault(); setActiveIndex((index) => Math.max(index - 1, 0)); }
           else if (event.key === "Enter") { event.preventDefault(); if (activeIndex >= 0 && state.matches[activeIndex]) select(state.matches[activeIndex]); else onSearch(); }
@@ -396,7 +417,14 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string>();
   const lookupRequest = useRef(0);
-  const via = draft?.draft.via ?? [];
+  // Optimistic via mirror: commits during an in-flight validation must not be
+  // computed from (and silently drop) the stale server response.
+  const committedRef = useRef<string[] | null>(null);
+  const via = committedRef.current ?? draft?.draft.via ?? [];
+  useEffect(() => {
+    if (draft === undefined) { committedRef.current = null; return; }
+    if (committedRef.current !== null && JSON.stringify(draft.draft.via) === JSON.stringify(committedRef.current)) committedRef.current = null;
+  }, [draft]);
   const selections = draft?.draft.selections ?? [];
   const delta = draft?.comparison.distanceDeltaNm;
   const percentage = draft?.comparison.percentageDistanceDelta;
@@ -421,7 +449,9 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
 
   function commitMatch(match: PointMatch) {
     lookupRequest.current += 1;
-    onUpdate([...via, match.identifier], match.locationId ? [...selections, { sequence: via.length, locationId: match.locationId }] : selections);
+    const nextVia = [...via, match.identifier];
+    committedRef.current = nextVia;
+    onUpdate(nextVia, match.locationId ? [...selections, { sequence: via.length, locationId: match.locationId }] : selections);
     setQuery("");
     setMatches([]);
     setActiveIndex(-1);
@@ -438,8 +468,9 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
     try {
       const found = await lookupPoint(value);
       if (requestId !== lookupRequest.current) return; // a newer lookup superseded this one
-      setMatches(found);
-      if (!found.length) setLookupError("No exact reference point was returned. Free-form points cannot be added.");
+      setMatches(found.matches);
+      if (!found.matches.length) setLookupError("No exact reference point was returned. Free-form points cannot be added.");
+      else if (found.truncated) setLookupError("More than 50 exact matches exist for this reference. Narrow the search term.");
     } catch (lookupFailure) {
       if (requestId !== lookupRequest.current) return;
       setLookupError(apiMessage(lookupFailure));
@@ -457,7 +488,7 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
       else if (event.key === "ArrowUp" && hasMatches) { event.preventDefault(); setActiveIndex((index) => Math.max(index - 1, 0)); }
       else if (event.key === "Enter") { event.preventDefault(); if (activeIndex >= 0 && matches[activeIndex]) commitMatch(matches[activeIndex]!); else void findReference(); }
       else if (event.key === "Escape") { event.preventDefault(); setMatches([]); setLookupError(undefined); setActiveIndex(-1); }
-    }} aria-expanded={hasMatches} aria-controls={hasMatches ? matchResultsId : undefined} aria-activedescendant={activeIndex >= 0 ? `draft-match-${activeIndex}` : undefined} aria-autocomplete="list" placeholder="Search an exact fix, NAVAID, or airport" autoComplete="off" /><button className="search-button" type="button" onClick={() => void findReference()} disabled={lookupLoading || !query.trim()} aria-label="Find exact reference point">{lookupLoading ? <span className="spinner" /> : "Find"}</button></div>{lookupError && <p className="field-error" role="alert">{lookupError}</p>}<div className="sr-status" role="status" aria-live="polite">{lookupLoading ? "Looking up exact reference points." : matches.length ? `${matches.length} exact reference point${matches.length === 1 ? "" : "s"} available.` : ""}</div>
+    }} aria-expanded={hasMatches} aria-controls={hasMatches ? matchResultsId : undefined} aria-activedescendant={activeIndex >= 0 ? `draft-match-${activeIndex}` : undefined} aria-autocomplete="list" maxLength={64} placeholder="Search an exact fix, NAVAID, or airport" autoComplete="off" /><button className="search-button" type="button" onClick={() => void findReference()} disabled={lookupLoading || !query.trim()} aria-label="Find exact reference point">{lookupLoading ? <span className="spinner" /> : "Find"}</button></div>{lookupError && <p className="field-error" role="alert">{lookupError}</p>}<div className="sr-status" role="status" aria-live="polite">{lookupLoading ? "Looking up exact reference points." : matches.length ? `${matches.length} exact reference point${matches.length === 1 ? "" : "s"} available.` : ""}</div>
       {hasMatches && <div className="reference-picker" id={matchResultsId} role="listbox" aria-label="Resolved reference-point search results">{matches.map((match, index) => <div role="option" id={`draft-match-${index}`} aria-selected={activeIndex === index} className={activeIndex === index ? "is-active" : undefined} tabIndex={-1} key={`${match.identifier}-${match.coordinate.lat}-${match.coordinate.lon}`} onMouseDown={(event) => event.preventDefault()} onClick={() => commitMatch(match)}><span><strong>{match.identifier}</strong><small>{match.kind} · {match.coordinate.lat.toFixed(4)}, {match.coordinate.lon.toFixed(4)}{match.duplicateGroup ? " · multiple exact coordinates" : ""}</small></span><span>{match.duplicateGroup ? "Choose exact location" : "Add"}</span></div>)}</div>}
     </div>
     <div className="draft-points"><div className="group-heading"><h3>Intermediate points</h3><button className="text-button" type="button" onClick={() => onUpdate([], [])} disabled={!via.length || loading}>Reset to endpoint-only draft</button></div>{via.length ? <ol role="list">{via.map((point, index) => <li key={`${point}-${index}`}><span><strong>{point}</strong><small>{selectedAt(index) ? "Exact coordinate selected from the ambiguous group." : "Manual-direct segments are not airways."}</small></span><span className="draft-row-actions"><button type="button" onClick={() => onUpdate(via.map((value, position) => position === index - 1 ? point : position === index ? via[index - 1]! : value), remapMove(index, -1))} disabled={loading || index === 0} aria-label={`Move ${point} up`}>Move up</button><button type="button" onClick={() => onUpdate(via.map((value, position) => position === index + 1 ? point : position === index ? via[index + 1]! : value), remapMove(index, 1))} disabled={loading || index === via.length - 1} aria-label={`Move ${point} down`}>Move down</button><button type="button" onClick={() => onUpdate(via.filter((_, position) => position !== index), remapRemove(index))} disabled={loading} aria-label={`Remove ${point}`}>Remove</button></span></li>)}</ol> : <p className="muted-copy">No intermediate points. This draft uses a direct modeled endpoint-to-endpoint segment.</p>}</div>
@@ -485,8 +516,8 @@ function RouteMap({ route, callsign }: { route?: RouteOption | undefined; callsi
     };
     if (!route?.origin && !route?.destination) { setEndpoints({}); return () => controller.abort(); }
     void Promise.all([
-      route?.origin ? lookupPoint(route.origin, controller.signal).then(exact).catch(() => undefined) : Promise.resolve(undefined),
-      route?.destination ? lookupPoint(route.destination, controller.signal).then(exact).catch(() => undefined) : Promise.resolve(undefined),
+      route?.origin ? lookupPoint(route.origin, controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
+      route?.destination ? lookupPoint(route.destination, controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
     ]).then(([departurePoint, arrivalPoint]) => {
       if (!controller.signal.aborted) setEndpoints({ departure: departurePoint, arrival: arrivalPoint });
     });

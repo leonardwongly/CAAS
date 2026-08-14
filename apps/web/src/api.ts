@@ -463,14 +463,21 @@ function normalizePointMatch(value: unknown): PointMatch | undefined {
   };
 }
 
-export async function lookupPoint(reference: string, signal?: AbortSignal): Promise<PointMatch[]> {
+export type PointLookupResult = {
+  matches: PointMatch[];
+  /** Present when the ambiguity page bound (50) was reached and more matches exist. */
+  truncated: boolean;
+};
+
+export async function lookupPoint(reference: string, signal?: AbortSignal): Promise<PointLookupResult> {
   const payload = await request(`/api/v1/points/${encodeURIComponent(reference)}`, signal ? { signal } : {});
-  if (!isRecord(payload)) return [];
+  if (!isRecord(payload)) return { matches: [], truncated: false };
   const values = Array.isArray(payload.matches) ? payload.matches : payload.data ? [payload.data] : [];
-  return values.flatMap((value) => {
+  const matches = values.flatMap((value) => {
     const match = normalizePointMatch(value);
     return match ? [match] : [];
   });
+  return { matches, truncated: typeof payload.nextCursor === "string" };
 }
 
 /**

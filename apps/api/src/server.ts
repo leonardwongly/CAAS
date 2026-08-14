@@ -767,13 +767,17 @@ function routeProjection(
 }
 
 function operationalProxy(projection: RouteProjection, rank?: number): Record<string, unknown> {
-  const eligible = projection.complete && projection.distanceNm !== undefined && projection.rankDistanceNm !== undefined && rank !== undefined;
+  // A complete candidate with modeled distances is eligible whether or not a
+  // competition rank was computed for this surface (the route-detail view has
+  // no population to rank against); only genuinely incomplete geometry is
+  // ineligible.
+  const eligible = projection.complete && projection.distanceNm !== undefined && projection.rankDistanceNm !== undefined;
   return Object.freeze({
     mode: "operational-proxy",
     eligible,
     criterion: "minimum-modeled-distance-nm",
     summary: OPERATIONAL_PROXY_SUMMARY,
-    ...(eligible ? { rank } : { exclusion: "Route geometry is incomplete or unresolved." }),
+    ...(eligible ? { ...(rank !== undefined ? { rank } : {}) } : { exclusion: "Route geometry is incomplete or unresolved." }),
   });
 }
 
