@@ -149,12 +149,12 @@ if (isMain) {
   const { verify } = parseArgs(process.argv.slice(2));
 
   const dockerfile = await readFile(dockerfilePath, "utf8");
-  const pinnedBasePattern = /^FROM node:22\.14\.0-bookworm-slim@sha256:[0-9a-f]{64} AS (dependencies|runtime)$/m;
+  const pinnedBasePattern = /^FROM node:22\.23\.2-bookworm-slim@sha256:[0-9a-f]{64} AS (dependencies|runtime)$/m;
   const pinnedBases = dockerfile.match(/@sha256:[0-9a-f]{64}/g) ?? [];
   if (verify) {
     if (pinnedBases.length < 2) throw new Error("oci verify failed: containers/Dockerfile must pin both stages by digest");
   } else if (!pinnedBasePattern.test(dockerfile)) {
-    throw new Error("oci build failed: containers/Dockerfile must pin node:22.14.0-bookworm-slim by digest for every stage");
+    throw new Error("oci build failed: containers/Dockerfile must pin node:22.23.2-bookworm-slim by digest for every stage");
   }
 
   if (!verify) {

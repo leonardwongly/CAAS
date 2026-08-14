@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:22.14.0-bookworm-slim@sha256:1c18d9ab3af4585870b92e4dbc5cac5a0dc77dd13df1a5905cea89fc720eb05b AS dependencies
+FROM node:22.23.2-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS dependencies
 WORKDIR /workspace
 
 RUN corepack enable && corepack prepare pnpm@11.5.2 --activate
@@ -16,7 +16,7 @@ FROM dependencies AS build
 COPY . .
 RUN pnpm run build
 
-FROM node:22.14.0-bookworm-slim@sha256:1c18d9ab3af4585870b92e4dbc5cac5a0dc77dd13df1a5905cea89fc720eb05b AS runtime
+FROM node:22.23.2-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production \
@@ -37,7 +37,14 @@ COPY --from=build /workspace/packages/route-engine/package.json ./packages/route
 COPY --from=build /workspace/packages/upstream-caas/package.json ./packages/upstream-caas/package.json
 # Production dependencies only: the runtime image must not carry the dev/test
 # toolchain (vite, vitest, jsdom, typescript, test doubles) that built it.
-RUN corepack enable && corepack prepare pnpm@11.5.2 --activate && pnpm install --prod --frozen-lockfile
+# The lockfile/workspace metadata are build-time inputs: removing them after
+# the install keeps the image's dependency surface honest (vulnerability
+# scanners would otherwise flag dev-toolchain ranges from the shipped
+# lockfile that are not installed).
+RUN corepack enable && corepack prepare pnpm@11.5.2 --activate && pnpm install --prod --frozen-lockfile \
+    && corepack disable \
+    && rm -rf /root/.cache/node/corepack /usr/local/lib/node_modules/corepack /usr/local/lib/node_modules/npm /usr/local/bin/corepack /usr/local/bin/npm /usr/local/bin/npx \
+    && rm pnpm-lock.yaml pnpm-workspace.yaml
 COPY --from=build /workspace/apps/api ./apps/api
 COPY --from=build /workspace/apps/web/dist ./apps/web/dist
 COPY --from=build /workspace/packages ./packages

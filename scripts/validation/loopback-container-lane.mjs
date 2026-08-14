@@ -30,7 +30,7 @@ function dockerInspect(template, imageId) {
 
 const dockerfile = await readFile(resolve(root, "containers/Dockerfile"), "utf8");
 const digestPinCount = (dockerfile.match(/@sha256:[0-9a-f]{64}/g) ?? []).length;
-collector.pass("CONTAINER-BASE-DIGEST-PINNED", "base image digest-pinned", "Every base-image stage pins node:22.14.0-bookworm-slim by digest for reproducibility.", startedAt, isoNow(), digestPinCount >= 2, "stages", digestPinCount, artifactsFor());
+collector.pass("CONTAINER-BASE-DIGEST-PINNED", "base image digest-pinned", "Every base-image stage pins node:22.23.2-bookworm-slim by digest for reproducibility.", startedAt, isoNow(), digestPinCount >= 2, "stages", digestPinCount, artifactsFor());
 
 const imageTag = "flight-route-explorer:release-evidence";
 let imageId;

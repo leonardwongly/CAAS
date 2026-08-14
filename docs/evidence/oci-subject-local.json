@@ -11,9 +11,9 @@
   "subject": {
     "type": "oci",
     "identifiers": {
-      "digest": "sha256:f9c75f3bd5238a9a5f49e6b0fbe9e0c0376dc94660d2219fa54d8ecc34ac109f",
-      "commit": "0e3322ff4a98",
-      "tarSha256": "4da949191ab9e0316b1ab95f774deacfebdba4c86bd923e51a62eb0cfdbd9411"
+      "digest": "sha256:c802604baca360f7e9ca9fbf931db701c7bf5ee21fef2df8758fc052fa8accc9",
+      "commit": "b9f3f72519d6",
+      "tarSha256": "535daec5dbf20f8c1bf137fb94115000e6efd165f0ca3bb29c6fd82ba2c5ff51"
     },
     "environment": "local-build-candidate"
   },
@@ -22,8 +22,8 @@
       "checkId": "PG03-EXACT-DIGEST",
       "mandatory": true,
       "procedure": "The subject must be the single authoritative CI-built OCI image; the locally built candidate is recorded here with its real digest and remains unverified until the authoritative CI subject is recorded.",
-      "startedAt": "2026-08-14T14:54:36.025Z",
-      "endedAt": "2026-08-14T14:54:36.026Z",
+      "startedAt": "2026-08-14T15:12:08.318Z",
+      "endedAt": "2026-08-14T15:12:08.318Z",
       "threshold": {
         "rule": "measured value hash-equals expected",
         "operator": "hash-equals",
@@ -32,7 +32,7 @@
       },
       "measurement": {
         "summary": "exact subject digest is the verified OCI subject",
-        "value": "sha256:f9c75f3bd5238a9a5f49e6b0fbe9e0c0376dc94660d2219fa54d8ecc34ac109f",
+        "value": "sha256:c802604baca360f7e9ca9fbf931db701c7bf5ee21fef2df8758fc052fa8accc9",
         "units": "digest",
         "sampleCount": 1
       },
@@ -47,11 +47,11 @@
         },
         {
           "path": "containers/Dockerfile",
-          "sha256": "b523d9d7b6b61396dd9b41265727b184ff24baa0fe22139f213e8c938c5ed82e"
+          "sha256": "418811c3c2821bf0a8f7a5f1f7c5effe21578d2ca35c60674fe5c5a7687be6cc"
         },
         {
           "path": "scripts/validation/build-oci.mjs",
-          "sha256": "9ac46824f4ae15fb03a0105f6aa97d4a54db2d385a0f16cc2d0e7122fd98a5b2"
+          "sha256": "49079c523ba0304bce14e0f83b8412b818c015d170f22ea8a54cc7450394d02d"
         },
         {
           "path": "scripts/validation/validate-evidence-bundle.mjs",
@@ -62,8 +62,8 @@
           "sha256": "1a325ed07ecf15f46845d0c5c01e92a4e53e975bbb5920bbcb9d5a0d767747f8"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-0e3322ff4a98.json",
-          "sha256": "c62d556e9127487f91b95c87b5a2d892f122da52ab890a41afa6d4fa3701ab0b"
+          "path": "docs/evidence/oci-digest-bundle-b9f3f72519d6.json",
+          "sha256": "1bd4800dfbdabd047bddd02200e910f2b320ebda6d6a85c427340fe1449d2472"
         }
       ],
       "result": "blocked",
@@ -73,8 +73,8 @@
       "checkId": "PG03-LOOPBACK-REAL-DATA",
       "mandatory": true,
       "procedure": "The verified subject must pass the loopback gate with real data (authorized live run). Mechanics pass fixture-backed (docs/evidence/loopback-lane-local.json); the authorized live run is pending (docs/evidence/live-lane-<sha>.json, mode pending-authorized-execution).",
-      "startedAt": "2026-08-14T14:54:36.025Z",
-      "endedAt": "2026-08-14T14:54:36.026Z",
+      "startedAt": "2026-08-14T15:12:08.318Z",
+      "endedAt": "2026-08-14T15:12:08.318Z",
       "threshold": {
         "rule": "measured value equals expected",
         "operator": "equals",
@@ -98,11 +98,11 @@
         },
         {
           "path": "containers/Dockerfile",
-          "sha256": "b523d9d7b6b61396dd9b41265727b184ff24baa0fe22139f213e8c938c5ed82e"
+          "sha256": "418811c3c2821bf0a8f7a5f1f7c5effe21578d2ca35c60674fe5c5a7687be6cc"
         },
         {
           "path": "scripts/validation/build-oci.mjs",
-          "sha256": "9ac46824f4ae15fb03a0105f6aa97d4a54db2d385a0f16cc2d0e7122fd98a5b2"
+          "sha256": "49079c523ba0304bce14e0f83b8412b818c015d170f22ea8a54cc7450394d02d"
         },
         {
           "path": "scripts/validation/validate-evidence-bundle.mjs",
@@ -113,8 +113,8 @@
           "sha256": "1a325ed07ecf15f46845d0c5c01e92a4e53e975bbb5920bbcb9d5a0d767747f8"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-0e3322ff4a98.json",
-          "sha256": "c62d556e9127487f91b95c87b5a2d892f122da52ab890a41afa6d4fa3701ab0b"
+          "path": "docs/evidence/oci-digest-bundle-b9f3f72519d6.json",
+          "sha256": "1bd4800dfbdabd047bddd02200e910f2b320ebda6d6a85c427340fe1449d2472"
         }
       ],
       "result": "blocked",
@@ -124,8 +124,8 @@
       "checkId": "PG03-SECRETLESS",
       "mandatory": true,
       "procedure": "The image was built by scripts/validation/build-oci.mjs with no credential in the environment, no registry push, and the image config records no secret environment; the CI workflow is hermetic (no secrets, no Azure operations).",
-      "startedAt": "2026-08-14T14:54:36.025Z",
-      "endedAt": "2026-08-14T14:54:36.026Z",
+      "startedAt": "2026-08-14T15:12:08.318Z",
+      "endedAt": "2026-08-14T15:12:08.318Z",
       "threshold": {
         "rule": "measured value equals expected",
         "operator": "equals",
@@ -149,11 +149,11 @@
         },
         {
           "path": "containers/Dockerfile",
-          "sha256": "b523d9d7b6b61396dd9b41265727b184ff24baa0fe22139f213e8c938c5ed82e"
+          "sha256": "418811c3c2821bf0a8f7a5f1f7c5effe21578d2ca35c60674fe5c5a7687be6cc"
         },
         {
           "path": "scripts/validation/build-oci.mjs",
-          "sha256": "9ac46824f4ae15fb03a0105f6aa97d4a54db2d385a0f16cc2d0e7122fd98a5b2"
+          "sha256": "49079c523ba0304bce14e0f83b8412b818c015d170f22ea8a54cc7450394d02d"
         },
         {
           "path": "scripts/validation/validate-evidence-bundle.mjs",
@@ -164,8 +164,8 @@
           "sha256": "1a325ed07ecf15f46845d0c5c01e92a4e53e975bbb5920bbcb9d5a0d767747f8"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-0e3322ff4a98.json",
-          "sha256": "c62d556e9127487f91b95c87b5a2d892f122da52ab890a41afa6d4fa3701ab0b"
+          "path": "docs/evidence/oci-digest-bundle-b9f3f72519d6.json",
+          "sha256": "1bd4800dfbdabd047bddd02200e910f2b320ebda6d6a85c427340fe1449d2472"
         }
       ],
       "result": "pass",
@@ -175,8 +175,8 @@
       "checkId": "PG03-RESOURCE-SHAPE",
       "mandatory": true,
       "procedure": "non-root runtime user and linux/amd64 verified from docker image inspect of the built image; 1 vcpu and 2 GiB verified by validate:policy from infra/bicep invariants (cpu: 1, memory '2Gi').",
-      "startedAt": "2026-08-14T14:54:36.025Z",
-      "endedAt": "2026-08-14T14:54:36.026Z",
+      "startedAt": "2026-08-14T15:12:08.318Z",
+      "endedAt": "2026-08-14T15:12:08.318Z",
       "threshold": {
         "rule": "the set of measured values equals the expected set",
         "operator": "set-equals",
@@ -210,11 +210,11 @@
         },
         {
           "path": "containers/Dockerfile",
-          "sha256": "b523d9d7b6b61396dd9b41265727b184ff24baa0fe22139f213e8c938c5ed82e"
+          "sha256": "418811c3c2821bf0a8f7a5f1f7c5effe21578d2ca35c60674fe5c5a7687be6cc"
         },
         {
           "path": "scripts/validation/build-oci.mjs",
-          "sha256": "9ac46824f4ae15fb03a0105f6aa97d4a54db2d385a0f16cc2d0e7122fd98a5b2"
+          "sha256": "49079c523ba0304bce14e0f83b8412b818c015d170f22ea8a54cc7450394d02d"
         },
         {
           "path": "scripts/validation/validate-evidence-bundle.mjs",
@@ -225,8 +225,8 @@
           "sha256": "1a325ed07ecf15f46845d0c5c01e92a4e53e975bbb5920bbcb9d5a0d767747f8"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-0e3322ff4a98.json",
-          "sha256": "c62d556e9127487f91b95c87b5a2d892f122da52ab890a41afa6d4fa3701ab0b"
+          "path": "docs/evidence/oci-digest-bundle-b9f3f72519d6.json",
+          "sha256": "1bd4800dfbdabd047bddd02200e910f2b320ebda6d6a85c427340fe1449d2472"
         }
       ],
       "result": "pass",

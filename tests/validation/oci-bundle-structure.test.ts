@@ -12,8 +12,8 @@ const root = resolve(import.meta.dirname, "../..");
 
 test("containers/Dockerfile pins both base stages by digest", async () => {
   const dockerfile = await readFile(resolve(root, "containers/Dockerfile"), "utf8");
-  const pinned = dockerfile.match(/FROM node:22\.14\.0-bookworm-slim@sha256:[0-9a-f]{64} AS (?:dependencies|runtime)/g) ?? [];
-  assert.equal(pinned.length, 2, "both stages must pin node:22.14.0-bookworm-slim by digest");
+  const pinned = dockerfile.match(/FROM node:22\.23\.2-bookworm-slim@sha256:[0-9a-f]{64} AS (?:dependencies|runtime)/g) ?? [];
+  assert.equal(pinned.length, 2, "both stages must pin node:22.23.2-bookworm-slim by digest");
 });
 
 test("containers/Dockerfile installs production dependencies only in the runtime stage", async () => {
