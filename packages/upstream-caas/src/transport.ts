@@ -45,9 +45,15 @@ function headerValue(headers: Headers, name: string): string {
 }
 
 async function readResponseBody(response: Response, maxBytes: number, family: CaasFamily): Promise<string> {
+  const rejectOversize = async (): Promise<never> => {
+    // The unread body stream must be cancelled: an abandoned stream ties up
+    // the connection (and upstream resources) for the full response length.
+    if (response.body) await response.body.cancel().catch(() => {});
+    throw new CaasAdapterError("RESPONSE_TOO_LARGE", "The upstream response exceeded its bounded size.", { family });
+  };
   const contentLength = response.headers.get("content-length");
   if (contentLength !== null && Number.isFinite(Number(contentLength)) && Number(contentLength) > maxBytes) {
-    throw new CaasAdapterError("RESPONSE_TOO_LARGE", "The upstream response exceeded its bounded size.", { family });
+    await rejectOversize();
   }
   if (!response.body) return "";
   const chunks: Uint8Array[] = [];
@@ -55,7 +61,7 @@ async function readResponseBody(response: Response, maxBytes: number, family: Ca
   for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
     total += chunk.byteLength;
     if (total > maxBytes) {
-      throw new CaasAdapterError("RESPONSE_TOO_LARGE", "The upstream response exceeded its bounded size.", { family });
+      await rejectOversize();
     }
     chunks.push(chunk);
   }

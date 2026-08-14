@@ -43,6 +43,13 @@ function formatRankDistance(value: number | undefined): string {
   return value === undefined ? "Not supplied" : `${value.toFixed(6)} NM`;
 }
 
+/** A malformed timestamp must never render the literal "Invalid Date". */
+function formatRetrievedAt(value: string | undefined): string {
+  if (value === undefined) return "unknown time";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "unknown time" : parsed.toLocaleTimeString();
+}
+
 const CODE_MESSAGES: Readonly<Record<string, string>> = {
   TOO_MANY_CANDIDATES: "Too many route options for this airport pair. Try a more specific flight.",
   TOO_MANY_MATCHES: "This reference matches too many locations. Use a narrower search term.",
@@ -72,9 +79,9 @@ function refreshFailureMessage(error: unknown): string {
     const live = generation?.live;
     if (live?.retrievedAt) {
       if (live.state === "unusable") {
-        return `Live data refresh failed and the prior generation is no longer usable (retrieved ${new Date(live.retrievedAt).toLocaleTimeString()}). No live data is serving requests — retry refresh.`;
+        return `Live data refresh failed and the prior generation is no longer usable (retrieved ${formatRetrievedAt(live.retrievedAt)}). No live data is serving requests — retry refresh.`;
       }
-      return `Live data refresh failed. The prior generation (retrieved ${new Date(live.retrievedAt).toLocaleTimeString()}, ${live.state ?? "state unknown"}) is still serving requests.`;
+      return `Live data refresh failed. The prior generation (retrieved ${formatRetrievedAt(live.retrievedAt)}, ${live.state ?? "state unknown"}) is still serving requests.`;
     }
   }
   return apiMessage(error);
@@ -276,7 +283,7 @@ function App() {
       setGeneration(result.generation);
       setReadinessError(undefined);
       resetAll();
-      setStatus(`Live data refreshed. New generation retrieved at ${new Date(result.generation.retrievedAt).toLocaleTimeString()}; selection cleared.`);
+      setStatus(`Live data refreshed. New generation retrieved at ${formatRetrievedAt(result.generation.retrievedAt)}; selection cleared.`);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       setRefreshError(refreshFailureMessage(error));
@@ -301,7 +308,7 @@ function App() {
 
       {(generation || refreshError || readinessError) && (
         <div className="generation-strip" role="region" aria-label="Live data freshness">
-          {generation && <span className={`status-chip freshness-chip freshness-${generation.live.state}`}>Live data {generation.live.state} · retrieved {new Date(generation.live.retrievedAt).toLocaleTimeString()}</span>}
+          {generation && <span className={`status-chip freshness-chip freshness-${generation.live.state}`}>Live data {generation.live.state} · retrieved {formatRetrievedAt(generation.live.retrievedAt)}</span>}
           {(refreshError || readinessError) && <span className="refresh-error" role="alert">{refreshError ?? readinessError}</span>}
           <button className="quiet-button" type="button" onClick={() => void runRefresh()} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh live data"}</button>
         </div>

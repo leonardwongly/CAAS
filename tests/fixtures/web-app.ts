@@ -41,13 +41,10 @@ export type StubOptions = {
   /**
    * Serve readiness and route-options envelopes without a generation
    * summary. Both are contract-valid (generation is optional in api.ts).
-   * The axe lane sets this because the merged apps/web/src/App.tsx renders
-   * the generation strip between the header and main without a landmark
-   * role, which is a genuine axe `region` violation on every state once a
-   * generation is present (tracked as a finding; flip this back to the real
-   * contract once the strip sits inside a landmark).
    */
   noGeneration?: boolean | undefined;
+  /** Serve a generation whose timestamps are malformed (never render "Invalid Date"). */
+  malformedTimestamps?: boolean | undefined;
 };
 
 export type CapturedCall = { method: string; url: string };
@@ -259,7 +256,19 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     }
     // Readiness on mount and live refresh.
     if (method === "GET" && url === "/api/v1/readiness") {
-      return jsonResponse(options.noGeneration ? { status: "ready" } : { status: "ready", generation });
+      if (options.noGeneration) return jsonResponse({ status: "ready" });
+      if (options.malformedTimestamps) {
+        return jsonResponse({
+          status: "ready",
+          generation: {
+            ...generation,
+            retrievedAt: "not-a-date",
+            live: { ...generation.live, retrievedAt: "not-a-date", freshUntil: "not-a-date", staleUntil: "not-a-date" },
+            reference: { ...generation.reference, retrievedAt: "not-a-date", freshUntil: "not-a-date", staleUntil: "not-a-date" },
+          },
+        });
+      }
+      return jsonResponse({ status: "ready", generation });
     }
     if (method === "POST" && url === "/api/v1/refresh") {
       return jsonResponse({ status: "refreshed", generation: { ...generation, id: "gen-2", retrievedAt: "2026-08-14T01:00:00.000Z", live: { ...generation.live, retrievedAt: "2026-08-14T01:00:00.000Z" } } });

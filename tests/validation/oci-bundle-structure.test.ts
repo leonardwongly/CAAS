@@ -16,6 +16,12 @@ test("containers/Dockerfile pins both base stages by digest", async () => {
   assert.equal(pinned.length, 2, "both stages must pin node:22.14.0-bookworm-slim by digest");
 });
 
+test("containers/Dockerfile installs production dependencies only in the runtime stage", async () => {
+  const dockerfile = await readFile(resolve(root, "containers/Dockerfile"), "utf8");
+  assert.match(dockerfile, /pnpm install --prod --frozen-lockfile/, "the runtime stage must install production dependencies only");
+  assert.ok(!dockerfile.includes("COPY --from=build /workspace/node_modules"), "the runtime stage must not copy the dev-toolchain node_modules from the build stage");
+});
+
 test("build-oci.mjs and the digest bundle generator are the only OCI entry points", async () => {
   const scripts = await readdir(resolve(root, "scripts/validation"));
   assert.ok(scripts.includes("build-oci.mjs"));

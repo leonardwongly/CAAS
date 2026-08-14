@@ -651,7 +651,10 @@ function selectedLocation(snapshot: Snapshot, selection: RouteDraftSelection, re
   if (decoded.g !== snapshot.id || typeof decoded.e !== "number" || decoded.e < now() || typeof decoded.n !== "string") {
     throw new ApiHttpError(410, "GENERATION_EXPIRED", "The explicit coordinate selection belongs to an older data generation.");
   }
-  if (decoded.t !== "location" || typeof decoded.i !== "number" || !Number.isInteger(decoded.i) || decoded.i < 0) {
+  // Both the per-point "location" token and the ambiguity-group "duplicate"
+  // token resolve through the same snapshot location index; minting both and
+  // consuming only one would leave a dead issuance surface.
+  if ((decoded.t !== "location" && decoded.t !== "duplicate") || typeof decoded.i !== "number" || !Number.isInteger(decoded.i) || decoded.i < 0) {
     throw new ApiHttpError(400, "TOKEN_INVALID", "The explicit coordinate selection is not a service-issued location selection.");
   }
   if (!verifySelectionSignature(selection.locationId, snapshot)) {

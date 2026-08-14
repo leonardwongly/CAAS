@@ -30,7 +30,14 @@ RUN groupadd --system app && useradd --system --gid app --home-dir /app --no-cre
     && chmod 1777 /tmp
 COPY --from=build /workspace/package.json ./package.json
 COPY --from=build /workspace/pnpm-workspace.yaml ./pnpm-workspace.yaml
-COPY --from=build /workspace/node_modules ./node_modules
+COPY --from=build /workspace/pnpm-lock.yaml ./pnpm-lock.yaml
+COPY --from=build /workspace/apps/api/package.json ./apps/api/package.json
+COPY --from=build /workspace/packages/contracts/package.json ./packages/contracts/package.json
+COPY --from=build /workspace/packages/route-engine/package.json ./packages/route-engine/package.json
+COPY --from=build /workspace/packages/upstream-caas/package.json ./packages/upstream-caas/package.json
+# Production dependencies only: the runtime image must not carry the dev/test
+# toolchain (vite, vitest, jsdom, typescript, test doubles) that built it.
+RUN corepack enable && corepack prepare pnpm@11.5.2 --activate && pnpm install --prod --frozen-lockfile
 COPY --from=build /workspace/apps/api ./apps/api
 COPY --from=build /workspace/apps/web/dist ./apps/web/dist
 COPY --from=build /workspace/packages ./packages
