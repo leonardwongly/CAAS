@@ -15,7 +15,7 @@ export default defineConfig({
       // app uses for deterministic focus return (design §15.2).
       jsdom: { url: "http://localhost/", pretendToBeVisual: true },
     },
-    include: ["a11y/**/*.test.tsx", "e2e/**/*.test.tsx", "responsive/**/*.test.ts", "responsive/**/*.test.tsx"],
+    include: ["a11y/**/*.test.tsx", "e2e/**/*.test.tsx", "responsive/**/*.test.ts", "responsive/**/*.test.tsx", "adversarial/**/*.test.tsx"],
     setupFiles: ["./setup-dom.ts"],
     css: false,
   },

@@ -39,13 +39,15 @@ export class CheckCollector {
   constructor() {
     this.checks = [];
     this.failures = 0;
-    this.blocked = 0;
+    // Named blockedCount: a this.blocked property shadows the prototype
+    // blocked() method and makes it uncallable (TypeError).
+    this.blockedCount = 0;
   }
 
   add({ checkId, name, procedure, startedAt, endedAt, result, measurement, artifacts = [], exception = undefined, failureFallback = "Fail the lane loudly and keep the gate blocked." }) {
     this.checks.push({ checkId, name, procedure, startedAt, endedAt, result, measurement, artifacts, ...(exception ? { exception } : {}), failureFallback });
     if (result === "fail") this.failures += 1;
-    if (result === "blocked") this.blocked += 1;
+    if (result === "blocked") this.blockedCount += 1;
   }
 
   pass(checkId, name, procedure, startedAt, endedAt, value, units, sampleCount = 1, artifacts = []) {
@@ -68,7 +70,7 @@ export class CheckCollector {
   }
 
   summary() {
-    return { checks: this.checks.length, passed: this.checks.length - this.failures - this.blocked, blocked: this.blocked, failed: this.failures };
+    return { checks: this.checks.length, passed: this.checks.length - this.failures - this.blockedCount, blocked: this.blockedCount, failed: this.failures };
   }
 
   exitCode() {

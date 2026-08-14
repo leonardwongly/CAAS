@@ -45,6 +45,10 @@ const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_WARM_DEADLINE_MS = 5 * 1000;
 const MAX_LIMIT = 100;
 const MAX_SAME_ENDPOINT_CANDIDATES = 500;
+// Plan §6.1: ambiguity page 50 results; hard total 500 — above it the API
+// fails closed and requires a narrower term instead of dumping matches.
+const AMBIGUITY_PAGE = 50;
+const AMBIGUITY_HARD_TOTAL = 500;
 const MAX_DRAFT_ENTRIES = 512;
 const MAX_SEARCH_LENGTH = 64;
 const MAX_ERROR_MESSAGE = 160;
@@ -689,13 +693,18 @@ function routeProjection(
   occurrences.push({ point: { label: displayReference(destination), coordinate: destination.coordinate, sequence: Number.MAX_SAFE_INTEGER } });
 
   // Remove only route points directly adjacent to the corresponding endpoint.
-  const firstRouteOccurrence = occurrences[1];
-  const firstEndpoint = occurrences[0];
-  if (firstRouteOccurrence && firstEndpoint && "point" in firstRouteOccurrence && "point" in firstEndpoint && isSameCoordinate(firstEndpoint.point.coordinate, firstRouteOccurrence.point.coordinate)) occurrences.splice(1, 1);
-  const last = occurrences.length - 2;
-  const lastRouteOccurrence = occurrences[last];
-  const lastEndpoint = occurrences[occurrences.length - 1];
-  if (last > 0 && lastRouteOccurrence && lastEndpoint && "point" in lastRouteOccurrence && "point" in lastEndpoint && isSameCoordinate(lastRouteOccurrence.point.coordinate, lastEndpoint.point.coordinate)) occurrences.splice(last, 1);
+  // Guard: with zero route elements the only occurrences are the two endpoints
+  // themselves; a co-located origin/destination is a real zero-distance leg and
+  // must never be spliced away (it is not a duplicate route point).
+  if (occurrences.length > 2) {
+    const firstRouteOccurrence = occurrences[1];
+    const firstEndpoint = occurrences[0];
+    if (firstRouteOccurrence && firstEndpoint && "point" in firstRouteOccurrence && "point" in firstEndpoint && isSameCoordinate(firstEndpoint.point.coordinate, firstRouteOccurrence.point.coordinate)) occurrences.splice(1, 1);
+    const last = occurrences.length - 2;
+    const lastRouteOccurrence = occurrences[last];
+    const lastEndpoint = occurrences[occurrences.length - 1];
+    if (last > 0 && lastRouteOccurrence && lastEndpoint && "point" in lastRouteOccurrence && "point" in lastEndpoint && isSameCoordinate(lastRouteOccurrence.point.coordinate, lastEndpoint.point.coordinate)) occurrences.splice(last, 1);
+  }
 
   const waypoints = Object.freeze(occurrences.map((occurrence) => "gap" in occurrence
     ? Object.freeze({ sequence: occurrence.gap.sequence, status: "gap" as const, reason: occurrence.gap.reason })
@@ -1302,8 +1311,8 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
 
   const exactLookup = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
-    const query = queryObject(request, ["reference", "kind"]);
-    const body = request.method === "POST" ? bodyObject(request, ["reference", "kind"]) : {};
+    const query = queryObject(request, ["reference", "kind", "cursor"]);
+    const body = request.method === "POST" ? bodyObject(request, ["reference", "kind", "cursor"]) : {};
     const raw = (request.params as { reference?: unknown }).reference ?? query.reference ?? body.reference;
     const reference = requiredString(raw, "INVALID_REFERENCE", "A bounded point reference is required.");
     const kind = query.kind ?? body.kind ?? "unknown";
@@ -1314,7 +1323,19 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
       return reply.send({ status: "resolved", data: publicLocation(snapshot, index, idsForLocation(snapshot, result.match)), generation: generationSummary(snapshot, now()) });
     }
     if (result.status === "ambiguous") {
-      return reply.send({ status: "ambiguous", matches: result.matches.map((match) => { const index = snapshot.locations.findIndex((location) => location.id === match.id); return publicLocation(snapshot, index, idsForLocation(snapshot, match)); }), generation: generationSummary(snapshot, now()) });
+      const total = result.matches.length;
+      if (total > AMBIGUITY_HARD_TOTAL) throw new ApiHttpError(400, "TOO_MANY_MATCHES", `The reference matches more than ${AMBIGUITY_HARD_TOTAL} locations. Use a narrower term.`);
+      const context = token(reference);
+      const cursor = query.cursor ?? body.cursor;
+      const offset = cursor === undefined ? 0 : cursorOffset(cursor, snapshot, context, AMBIGUITY_PAGE, "ambiguity-cursor", now);
+      const page = result.matches.slice(offset, offset + AMBIGUITY_PAGE);
+      const nextOffset = offset + page.length;
+      return reply.send({
+        status: "ambiguous",
+        matches: page.map((match) => { const index = snapshot.locations.findIndex((location) => location.id === match.id); return publicLocation(snapshot, index, idsForLocation(snapshot, match)); }),
+        ...(nextOffset < total ? { nextCursor: scopedToken(snapshot, "ambiguity-cursor", { o: nextOffset, q: context, l: AMBIGUITY_PAGE }) } : {}),
+        generation: generationSummary(snapshot, now()),
+      });
     }
     return reply.code(404).send({ status: "gap", error: { code: "POINT_NOT_FOUND", message: "The point reference was not found." }, generation: generationSummary(snapshot, now()) });
   };

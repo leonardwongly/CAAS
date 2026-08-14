@@ -145,7 +145,20 @@ function normalizeRouteElement(value: unknown, index: number): FlightRouteElemen
     ?? (firstCoordinateValue(record, ["coordinate", "coord", "coordinates"]) ?? coordinateValue(record));
   if (!identifier && !coordinate) return null;
   const sequenceValue = firstValue(record, ["seqNum", "sequence", "seq", "order", "index"]);
-  const sequence = sequenceValue === undefined ? index : Number(sequenceValue);
+  // §10.4: each seqNum must be a non-negative safe integer. Null follows the
+  // null-as-absent convention (fall back to the array index). Booleans and
+  // non-canonical strings must never be coerced — Number(false)=0, Number("0x10")=16
+  // would fabricate sequences.
+  let sequence: number;
+  if (sequenceValue === undefined || sequenceValue === null) {
+    sequence = index;
+  } else if (typeof sequenceValue === "number") {
+    sequence = sequenceValue;
+  } else if (typeof sequenceValue === "string" && /^\d+$/.test(sequenceValue)) {
+    sequence = Number(sequenceValue);
+  } else {
+    return null;
+  }
   if (!Number.isInteger(sequence) || sequence < 0 || sequence > MAX_ROUTE_ELEMENTS) return null;
   return { sequence, ...(identifier ? { identifier } : {}), ...(coordinate ? { coordinate } : {}) };
 }

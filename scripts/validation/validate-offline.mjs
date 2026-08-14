@@ -106,6 +106,7 @@ export async function validateManifest(manifest, baseDirectory = root) {
     if (!["pass", "fail", "blocked"].includes(check.result)) errors.push(issue(`check ${check.checkId} result is invalid`));
     if (check.threshold?.operator && check.measurement && deriveCheck(check) !== (check.result === "pass")) errors.push(issue(`caller result drift: ${check.checkId}`));
     if (check.exception && (!isObject(check.exception) || typeof check.exception.reason !== "string" || !Number.isFinite(Date.parse(check.exception.expiresAt)) || typeof check.exception.gateBlocking !== "boolean")) errors.push(issue(`check ${check.checkId} exception is invalid`));
+    if (check.exception && isObject(check.exception) && Date.parse(check.exception.expiresAt) < Date.now()) errors.push(issue(`check ${check.checkId} exception has expired (${check.exception.expiresAt}); policy rule reject-expired-exceptions requires rejection`));
     rejectUnknown(check.exception, new Set(["reason", "expiresAt", "gateBlocking"]), `check ${check.checkId} exception`, errors);
   }
   for (const item of manifest?.blockingIssues ?? []) {
@@ -114,9 +115,10 @@ export async function validateManifest(manifest, baseDirectory = root) {
   }
   const openBlocking = (manifest?.blockingIssues ?? []).some((item) => isObject(item) && ["P0", "P1"].includes(item.priority) && item.status === "open");
   const blockingException = (manifest?.checks ?? []).some((check) => check.exception?.gateBlocking === true);
-  const derivedGate = openBlocking || blockingException ? "blocked" : (manifest?.checks ?? []).some((check) => check.result === "blocked") ? "blocked" : (manifest?.checks ?? []).some((check) => check.result === "fail") ? "fail" : "pass";
+  const expiredException = (manifest?.checks ?? []).some((check) => isObject(check.exception) && Date.parse(check.exception.expiresAt) < Date.now());
+  const derivedGate = openBlocking || blockingException || expiredException ? "blocked" : (manifest?.checks ?? []).some((check) => check.result === "blocked") ? "blocked" : (manifest?.checks ?? []).some((check) => check.result === "fail") ? "fail" : "pass";
   if (manifest?.gateResult !== derivedGate) errors.push(`caller gate result drift: expected ${derivedGate}`);
-  if (manifest?.gateResult === "pass" && ((manifest?.checks ?? []).some((check) => check.result !== "pass") || openBlocking || blockingException)) errors.push("passing gate contains blocking evidence");
+  if (manifest?.gateResult === "pass" && ((manifest?.checks ?? []).some((check) => check.result !== "pass") || openBlocking || blockingException || expiredException)) errors.push("passing gate contains blocking evidence");
   return errors;
 }
 

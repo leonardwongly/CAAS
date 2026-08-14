@@ -284,15 +284,28 @@ async function request(path: string, options: RequestInit = {}): Promise<unknown
 export async function searchCallsigns(query: string, signal?: AbortSignal): Promise<CallsignMatch[]> {
   // Plan §2.4: the query travels in the POST body only; no callsign or flight
   // identifier ever appears in the request URL.
-  const payload = await request("/api/v1/callsigns/search", {
-    method: "POST",
-    ...(signal ? { signal } : {}),
-    body: JSON.stringify({ query }),
-  });
-  return unwrap(payload).flatMap((item) => {
-    const match = normalizeMatch(item);
-    return match ? [match] : [];
-  });
+  // Plan §6: search must never silently truncate — the server pages matches
+  // (default 50 per page) with a nextCursor; page to the terminal cursor so
+  // the returned list is the complete match set.
+  const matches: CallsignMatch[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const payload = await request("/api/v1/callsigns/search", {
+      method: "POST",
+      ...(signal ? { signal } : {}),
+      body: JSON.stringify({ query, ...(cursor === undefined ? {} : { cursor }) }),
+    });
+    const record = isRecord(payload) ? payload : undefined;
+    const page = (Array.isArray(record?.data) ? record.data : []).flatMap((item) => {
+      const match = normalizeMatch(item);
+      return match ? [match] : [];
+    });
+    matches.push(...page);
+    const nextCursor = record?.nextCursor;
+    if (typeof nextCursor !== "string" || page.length === 0) break;
+    cursor = nextCursor;
+  }
+  return matches;
 }
 
 export type GenerationTier = {

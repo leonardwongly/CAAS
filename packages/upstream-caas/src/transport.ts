@@ -82,6 +82,7 @@ export function createLiveTransport(): CaasTransport {
       const connectTimer = setTimeout(() => controller.abort(), CONNECT_TIMEOUT_MS);
       const forwardAbort = () => controller.abort(request.signal?.reason);
       request.signal?.addEventListener("abort", forwardAbort, { once: true });
+      let receivedStatus: number | undefined;
       try {
         const response = await fetch(request.url, {
           method: "GET",
@@ -93,8 +94,12 @@ export function createLiveTransport(): CaasTransport {
         if (Date.now() - startedAt >= REQUEST_TIMEOUT_MS) {
           throw new CaasAdapterError("TIMEOUT", "The upstream request timed out.", { family: request.family });
         }
+        receivedStatus = response.status;
         const body = response.ok ? await readResponseBody(response, policy.maxBytes, request.family) : "";
-        if (!response.ok && response.body) await response.body.cancel();
+        // Best-effort cancellation: a stream that already errored rejects
+        // cancel(), and that must not turn a received 429/5xx into a
+        // status-less failure (the adapter keys its bounded retry on status).
+        if (!response.ok && response.body) await response.body.cancel().catch(() => {});
         const headers: Record<string, string> = {};
         response.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
         return { status: response.status, headers, body };
@@ -102,7 +107,7 @@ export function createLiveTransport(): CaasTransport {
         if (error instanceof CaasAdapterError) throw error;
         if (request.signal?.aborted) throw new CaasAdapterError("CANCELLED", "The upstream request was cancelled.", { family: request.family });
         if (controller.signal.aborted) throw new CaasAdapterError("TIMEOUT", "The upstream request timed out.", { family: request.family });
-        throw new CaasAdapterError("UPSTREAM_STATUS", "The upstream request failed.", { family: request.family });
+        throw new CaasAdapterError("UPSTREAM_STATUS", "The upstream request failed.", { family: request.family, ...(receivedStatus !== undefined ? { status: receivedStatus } : {}) });
       } finally {
         clearTimeout(totalTimer);
         clearTimeout(connectTimer);
