@@ -221,6 +221,7 @@ PG-04 manifest and the bootstrap write access revoked
 | Exact-app grant after resource exists | Phase C: role assignment after `az resource show` returns the app |
 | No snapshot/rollback of external data | First-deploy failures deactivate/remove; later failures restore revision + config and reacquire data (drills doc) |
 | Demo within 48 h, teardown 24 h after, 7-day max | Release path section 3 schedule; post-demo verification doc |
+| Deployment hard deadline 10 minutes (plan §6.3) | Phases A-E run within a single 10-minute window; abort threshold 8 minutes without a healthy candidate revision; exceeding the window triggers the abort drill, never an unbounded retry loop |
 
 ## Stop conditions
 

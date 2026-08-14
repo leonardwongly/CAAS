@@ -104,7 +104,10 @@ const manifest = {
     environment: "local-build-candidate",
   },
   checks,
-  blockingIssues: [],
+  // A blocked gate must name what blocks it: every blocked check is listed
+  // as an open P0 blocking issue (P0: no Azure write may occur until it is
+  // resolved on the exact verified subject).
+  blockingIssues: checks.filter((check) => check.result === "blocked").map((check) => ({ id: `${check.checkId}: pending authoritative CI-built OCI subject and authorized live loopback on that exact digest`, priority: "P0", status: "open" })),
   gateResult: "blocked",
   failureFallback: "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject.",
 };

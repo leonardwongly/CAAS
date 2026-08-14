@@ -34,8 +34,11 @@ Pre-filled data for this fixture set:
 
 ## 2. Acceptance criteria (from north-star binding docs)
 
-- AC-POC-LOCAL-01 (design §0): automated accessibility checks exist and run in
-  the repo test lane. → Proved by the vitest lanes; see
+- AC-POC-LOCAL-01 (design §0.6): the "automated accessibility" clause of the
+  loopback-only five-family container gate — automated a11y checks exist and
+  run in the repo test lane; the full criterion also requires the CI OCI
+  digest gate, which stays blocked until the authoritative subject is
+  recorded. → The a11y clause is proved by the vitest lanes; see
   `docs/testing/accessibility-evidence.md` §2.
 - Design §15.2: Map Only mode exists; deterministic focus return on close and
   on restore; desktop drawers are nonmodal (no focus trap); triggers expose

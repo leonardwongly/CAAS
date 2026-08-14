@@ -38,7 +38,7 @@ All lanes run from the worktree root. Commands and real results:
 pnpm run test:a11y        # vitest run --config vitest.config.ts a11y
 #   Test Files 2 passed, Tests 15 passed
 pnpm run test:e2e         # vitest run --config vitest.config.ts e2e
-#   Test Files 2 passed, Tests 15 passed
+#   Test Files 2 passed, Tests 16 passed
 pnpm run test:responsive  # vitest run --config vitest.config.ts responsive
 #   Test Files 1 passed, Tests 8 passed
 pnpm run validate:config  # "Root JSON, YAML, TypeScript config, and environment placeholders are valid."
