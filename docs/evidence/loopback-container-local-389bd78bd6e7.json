@@ -1,0 +1,186 @@
+{
+  "recordKind": "lane-results",
+  "lane": "loopback-container-lane",
+  "subject": {
+    "type": "oci",
+    "identifiers": {
+      "digest": "sha256:f9c75f3bd5238a9a5f49e6b0fbe9e0c0376dc94660d2219fa54d8ecc34ac109f",
+      "commit": "389bd78bd6e7"
+    },
+    "environment": "local-container-metadata"
+  },
+  "startedAt": "2026-08-14T14:56:01.337Z",
+  "endedAt": "2026-08-14T14:56:01.812Z",
+  "mode": "fail-closed-metadata",
+  "credentialHandling": "no credential supplied to the container; no live origin call attempted",
+  "procedure": "Authorized live container run: build with `pnpm oci:build`, then `docker run --rm -p 8080:8080 -e apikey=<authorized-key> flight-route-explorer:release-evidence` and verify `GET /api/v1/health/ready` reports status ready with all five families; commit the resulting record.",
+  "checks": [
+    {
+      "checkId": "CONTAINER-BASE-DIGEST-PINNED",
+      "name": "base image digest-pinned",
+      "procedure": "Every base-image stage pins node:22.14.0-bookworm-slim by digest for reproducibility.",
+      "startedAt": "2026-08-14T14:56:01.337Z",
+      "endedAt": "2026-08-14T14:56:01.340Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "base image digest-pinned",
+        "value": true,
+        "units": "stages",
+        "sampleCount": 2
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-container-lane.mjs",
+          "sha256": "8e9ea6b37800563bbf007b731a85500366b6cc9c95c362d270aff9c0f8e07d81"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "CONTAINER-IMAGE-PRESENT",
+      "name": "OCI image built",
+      "procedure": "The release-evidence image exists locally (built by scripts/validation/build-oci.mjs).",
+      "startedAt": "2026-08-14T14:56:01.337Z",
+      "endedAt": "2026-08-14T14:56:01.364Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "OCI image built",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-container-lane.mjs",
+          "sha256": "8e9ea6b37800563bbf007b731a85500366b6cc9c95c362d270aff9c0f8e07d81"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "CONTAINER-NON-ROOT",
+      "name": "non-root runtime user",
+      "procedure": "The runtime user is the unprivileged `app` user.",
+      "startedAt": "2026-08-14T14:56:01.337Z",
+      "endedAt": "2026-08-14T14:56:01.406Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "non-root runtime user",
+        "value": true,
+        "units": "user",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-container-lane.mjs",
+          "sha256": "8e9ea6b37800563bbf007b731a85500366b6cc9c95c362d270aff9c0f8e07d81"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "CONTAINER-PORT-8080",
+      "name": "documented port exposed",
+      "procedure": "The image exposes TCP port 8080.",
+      "startedAt": "2026-08-14T14:56:01.337Z",
+      "endedAt": "2026-08-14T14:56:01.406Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "documented port exposed",
+        "value": true,
+        "units": "ports",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-container-lane.mjs",
+          "sha256": "8e9ea6b37800563bbf007b731a85500366b6cc9c95c362d270aff9c0f8e07d81"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "CONTAINER-NO-SECRET-ENV",
+      "name": "no credential in image environment",
+      "procedure": "No apikey/secret/token environment variable is baked into the image.",
+      "startedAt": "2026-08-14T14:56:01.337Z",
+      "endedAt": "2026-08-14T14:56:01.406Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "no credential in image environment",
+        "value": true,
+        "units": "keys",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-container-lane.mjs",
+          "sha256": "8e9ea6b37800563bbf007b731a85500366b6cc9c95c362d270aff9c0f8e07d81"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "CONTAINER-LINUX",
+      "name": "linux image",
+      "procedure": "The image is a Linux image per its metadata (CI builds the amd64 authoritative subject).",
+      "startedAt": "2026-08-14T14:56:01.337Z",
+      "endedAt": "2026-08-14T14:56:01.406Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "linux image",
+        "value": true,
+        "units": "os/arch",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-container-lane.mjs",
+          "sha256": "8e9ea6b37800563bbf007b731a85500366b6cc9c95c362d270aff9c0f8e07d81"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "CONTAINER-FAIL-CLOSED-WITHOUT-CREDENTIAL",
+      "name": "container fails closed without a credential",
+      "procedure": "Without a credential the container must exit non-zero (never start serving); a live call must not be attempted.",
+      "startedAt": "2026-08-14T14:56:01.337Z",
+      "endedAt": "2026-08-14T14:56:01.812Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "container fails closed without a credential",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-container-lane.mjs",
+          "sha256": "8e9ea6b37800563bbf007b731a85500366b6cc9c95c362d270aff9c0f8e07d81"
+        },
+        {
+          "path": "spawn",
+          "sha256": "none",
+          "metadata": {
+            "exit": "1",
+            "durationMs": 406
+          }
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    }
+  ],
+  "summary": {
+    "checks": 7,
+    "passed": 7,
+    "blocked": 0,
+    "failed": 0
+  },
+  "artifacts": [
+    {
+      "path": "scripts/validation/loopback-container-lane.mjs",
+      "sha256": "8e9ea6b37800563bbf007b731a85500366b6cc9c95c362d270aff9c0f8e07d81"
+    }
+  ]
+}
