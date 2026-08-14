@@ -93,33 +93,28 @@ function liveAerodromeValue(value: unknown): string | null {
   return firstBoundedText(record, ["locationId", "icao", "code", "identifier", "id", "name"], MAX_REFERENCE_LENGTH)?.toUpperCase() ?? null;
 }
 
-function endpointValue(record: JsonRecord, parentKey: "departure" | "arrival", childKey: "departureAerodrome" | "destinationAerodrome", legacyKeys: readonly string[]): string | null {
-  if (Object.prototype.hasOwnProperty.call(record, parentKey)) {
-    const parent = asRecord(record[parentKey]);
-    if (parent && Object.prototype.hasOwnProperty.call(parent, childKey)) {
-      const nested = liveAerodromeValue(parent[childKey]);
-      // A valid nested value wins. An invalid one (null, non-string,
-      // over-length) is null-as-absent: fall through to the legacy keys
-      // instead of silently dropping a valid sibling field.
-      if (nested) return nested;
-    }
-  }
-  // Flat legacy keys beat the aerodrome-shaped parent: a valid legacy field
-  // (e.g. departureAirport) must never be shadowed by a junk nested value.
-  const legacy = firstReferenceValue(record, legacyKeys);
-  if (legacy) return legacy;
+const ENDPOINT_CONFLICT = Symbol("endpoint-conflict");
+
+function endpointValue(record: JsonRecord, parentKey: "departure" | "arrival", childKey: "departureAerodrome" | "destinationAerodrome", legacyKeys: readonly string[]): string | null | typeof ENDPOINT_CONFLICT {
+  // Canonical nested value: the childKey inside the parent object, else the
+  // aerodrome-shaped parent object itself (e.g. { locationId: "WSSS" }).
+  let nested: string | null = null;
   if (Object.prototype.hasOwnProperty.call(record, parentKey)) {
     const parent = asRecord(record[parentKey]);
     if (parent) {
-      // Aerodrome-shaped parent without the nested child key and without any
-      // legacy key: the parent object itself carries the reference
-      // (e.g. { locationId: "WSSS" }). Ignoring it would silently drop the
-      // endpoint to null.
-      const direct = liveAerodromeValue(parent);
-      if (direct) return direct;
+      if (Object.prototype.hasOwnProperty.call(parent, childKey)) {
+        const value = liveAerodromeValue(parent[childKey]);
+        if (value) nested = value;
+      }
+      if (!nested) nested = liveAerodromeValue(parent);
     }
   }
-  return null;
+  const legacy = firstReferenceValue(record, legacyKeys);
+  // Contradictory endpoint sources are REJECTED, never arbitrated: no junk
+  // value in either shape may silently shadow a valid value in the other,
+  // in either direction. The record fails with rejectedRecords evidence.
+  if (nested && legacy && nested !== legacy) return ENDPOINT_CONFLICT;
+  return nested ?? legacy;
 }
 
 function routeElementsValue(record: JsonRecord): unknown[] | null | undefined {
@@ -182,7 +177,9 @@ function normalizeRouteElement(value: unknown, index: number): NormalizedRouteEl
     sequenceFallback = true;
   } else if (typeof sequenceValue === "number") {
     sequence = sequenceValue;
-  } else if (typeof sequenceValue === "string" && /^\d+$/.test(sequenceValue)) {
+  } else if (typeof sequenceValue === "string" && /^\d+$/.test(sequenceValue.trim())) {
+    // Whitespace-padded digit strings are trivially recoverable (every other
+    // string field is trimmed): "3 " is not coercion fabrication.
     sequence = Number(sequenceValue);
   } else {
     // Structurally malformed metadata (boolean, hex/exponent strings): the
@@ -206,6 +203,7 @@ function normalizeFlightRecord(value: unknown, index: number): FlightPlanRecord 
   if (!callsign) return null;
   const departure = endpointValue(record, "departure", "departureAerodrome", ["departure", "departureAirport", "origin", "originAirport", "from", "departureCode", "dep", "locationId"]);
   const destination = endpointValue(record, "arrival", "destinationAerodrome", ["destination", "destinationAirport", "arrival", "arrivalAirport", "to", "destinationCode", "dest", "locationId"]);
+  if (departure === ENDPOINT_CONFLICT || destination === ENDPOINT_CONFLICT) return null;
   const routeValues = routeElementsValue(record);
   if (routeValues === null || (routeValues && routeValues.length > MAX_ROUTE_ELEMENTS)) return null;
   const elements = routeValues?.map(normalizeRouteElement);

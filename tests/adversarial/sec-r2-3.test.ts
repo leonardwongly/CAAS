@@ -30,8 +30,29 @@ const execFileAsync = promisify(execFile);
 
 // The lane's guarded extraction is exercised directly — the single code path
 // the build lane itself uses (build-oci.mjs extractBuildContext).
-const { extractBuildContext } = await import("../../scripts/validation/build-oci.mjs");
+const { assertContainedContext, extractBuildContext } = await import("../../scripts/validation/build-oci.mjs");
 const runExtraction = (tarPath: string, contextDir: string): Promise<void> => extractBuildContext(tarPath, contextDir);
+
+test("the post-extraction containment scan rejects escaping symlinks directly, on every platform", async (t) => {
+  // The crafted-archive tests above cannot exercise the backstop on tar
+  // flavors that garble the member themselves (macOS bsdtar demotes the
+  // crafted symlink to a regular file). The backstop must still be pinned
+  // deterministically: feed it an extracted context containing an escaping
+  // symlink and require loud failure.
+  const sandbox = await mkdtemp(join(tmpdir(), "sec-r2-3-"));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const contextDir = join(sandbox, "context");
+  await mkdir(contextDir);
+  await symlink("/etc/passwd", join(contextDir, "evil"));
+  await symlink("../../outside", join(contextDir, "evil-rel"));
+  await symlink("inside-target", join(contextDir, "benign"));
+
+  await assert.rejects(
+    () => assertContainedContext(contextDir),
+    /escaping symlink/,
+    "an extracted context containing an escaping symlink must fail the backstop loudly",
+  );
+});
 
 // Walk contextDir (following no symlinks) and return every symlink whose
 // target resolves outside contextDir.

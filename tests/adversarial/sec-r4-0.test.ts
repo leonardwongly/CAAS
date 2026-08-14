@@ -196,6 +196,58 @@ test("unauthenticated refresh floods are rate-limited; the bound is configurable
   }
 });
 
+test("route options fails fast with 409 RESPONSE_TOO_LARGE over the 2 MiB cap and serves just-under payloads", async () => {
+  // Synthetic adapter: N flights KOR1 -> KDS1, each with 254 unique fixes, so
+  // each candidate DTO is ~50-60 KB. ~50 candidates cross the 2 MiB policy
+  // cap; ~20 stay safely under it.
+  const fixes: Array<readonly [string, number, number]> = Array.from({ length: 300 }, (_, i) => [`FIX${String(i).padStart(3, "0")}`, 10 + (i % 50) * 0.01, 100 + Math.floor(i / 50) * 0.01]);
+  const airports: Array<readonly [string, number, number]> = [["KOR1", 40, -73], ["KDS1", 33, -118]];
+  const evidence = { family: "displayAll" as const, bytes: 128, records: 0, acceptedRecords: 0, rejectedRecords: 0, retried: false, durationMs: 0 };
+  const makeAdapter = (flightCount: number): CaasAdapter => {
+    const records: FlightPlanRecord[] = Array.from({ length: flightCount }, (_, f) => Object.freeze({
+      id: `big-${f}`,
+      callsign: `BIG${f}`,
+      departure: "KOR1",
+      destination: "KDS1",
+      routeElements: Object.freeze(Array.from({ length: 254 }, (_, i) => ({ sequence: i, identifier: fixes[(f * 7 + i * 3) % 300]![0] }))),
+    }));
+    const refIndex = <T extends { identifier: string }>(points: readonly T[]): Map<string, T[]> => {
+      const map = new Map<string, T[]>();
+      for (const point of points) map.set(point.identifier, [...(map.get(point.identifier) ?? []), point]);
+      return map;
+    };
+    const fixPoints = fixes.map(([identifier, lat, lon]) => ({ dataset: "fixes" as const, identifier, coordinate: { lat, lon } }));
+    const airportPoints = airports.map(([identifier, lat, lon]) => ({ dataset: "airports" as const, identifier, coordinate: { lat, lon } }));
+    return {
+      displayAll: async () => ({ records, evidence: { ...evidence, records: flightCount, acceptedRecords: flightCount } }),
+      airways: async () => ({ family: "airways", bytes: 64, records: 2, acceptedRecords: 2, rejectedRecords: 0, uniqueRecords: 1, retried: false, durationMs: 0 }),
+      fixes: async () => ({ dataset: "fixes", points: fixPoints, index: refIndex(fixPoints), evidence: { ...evidence, family: "fixes" } }),
+      airports: async () => ({ dataset: "airports", points: airportPoints, index: refIndex(airportPoints), evidence: { ...evidence, family: "airports" } }),
+      navaids: async () => ({ dataset: "navaids", points: [], index: new Map(), evidence: { ...evidence, family: "navaids" } }),
+    };
+  };
+  const flightIdOf = async (server: { app: { inject: (options: { method: string; url: string }) => Promise<{ json: () => { data: { id: string }[] } }> } }): Promise<string> => {
+    const browse = await server.app.inject({ method: "GET", url: "/api/v1/routes?limit=1" });
+    return browse.json().data[0]!.id;
+  };
+
+  const over = await createApiServer({ adapter: makeAdapter(50) });
+  try {
+    const response = await over.app.inject({ method: "POST", url: "/api/v1/routes/options", payload: { flightId: await flightIdOf(over) } });
+    assert.equal(response.statusCode, 409, "an over-cap candidate set must fail fast with 409");
+    assert.equal((response.json() as { error: { code: string } }).error.code, "RESPONSE_TOO_LARGE");
+  } finally {
+    await over.app.close();
+  }
+  const under = await createApiServer({ adapter: makeAdapter(20) });
+  try {
+    const response = await under.app.inject({ method: "POST", url: "/api/v1/routes/options", payload: { flightId: await flightIdOf(under) } });
+    assert.equal(response.statusCode, 200, "a just-under candidate set must serialize to a 200");
+  } finally {
+    await under.app.close();
+  }
+});
+
 test("opaque Origin: null requests fail the cross-origin defense closed", async () => {
   const server = await createApiServer({ adapter: sanitizedAdapter(), refreshMinIntervalMs: 0 });
   try {
@@ -251,8 +303,17 @@ test("normalizers: invalid seqNums fall back, asserted orders are honored, contr
   const duplicate = wrap([{ aircraftIdentification: "SQ3", departure: "WSSS", arrival: "WMKK", routeElements: [{ seqNum: 0, identifier: "A" }, { seqNum: 0, identifier: "B" }] }]);
   assert.equal(duplicate.records.length, 0, "contradictory asserted sequences reject the record");
 
-  // A valid legacy endpoint field beats a junk nested parent value.
-  const legacyWins = wrap([{ aircraftIdentification: "SQ4", departure: { locationId: "TBD" }, departureAirport: "KOR1", arrival: { locationId: "KDS1" } }]);
-  assert.equal(legacyWins.records.length, 1);
-  assert.equal(legacyWins.records[0]!.departure, "KOR1", "a valid legacy field must never be shadowed by a junk nested value");
+  // Contradictory endpoint sources are REJECTED, never arbitrated — in
+  // either direction. No junk value silently shadows a valid one.
+  const nestedJunk = wrap([{ aircraftIdentification: "SQ5", departureAirport: "KOR1", departure: { departureAerodrome: { locationId: "JUNK" } }, arrival: "WMKK", routeElements: [{ seqNum: 0, identifier: "A" }] }]);
+  assert.equal(nestedJunk.records.length, 0, "junk nested child value conflicting with a valid legacy field rejects the record");
+  assert.equal(nestedJunk.evidence.rejectedRecords, 1, "the conflict is surfaced in evidence");
+  const legacyJunk = wrap([{ aircraftIdentification: "SQ6", departure: { locationId: "WSSS" }, departureAirport: "TBD", arrival: "WMKK", routeElements: [{ seqNum: 0, identifier: "A" }] }]);
+  assert.equal(legacyJunk.records.length, 0, "junk legacy value conflicting with a valid nested parent rejects the record");
+  const parentJunk = wrap([{ aircraftIdentification: "SQ4", departure: { locationId: "TBD" }, departureAirport: "KOR1", arrival: { locationId: "KDS1" } }]);
+  assert.equal(parentJunk.records.length, 0, "junk parent-direct value conflicting with a valid legacy field rejects the record");
+
+  // Whitespace-padded digit seqNums are recovered, not flight-erasing.
+  const padded = wrap([{ aircraftIdentification: "SQ7", departure: "WSSS", arrival: "WMKK", routeElements: [{ seqNum: "3 ", identifier: "A" }, { seqNum: 0, identifier: "B" }] }]);
+  assert.equal(padded.records.length, 1, "a whitespace-padded seqNum must fall back, never erase the flight");
 });

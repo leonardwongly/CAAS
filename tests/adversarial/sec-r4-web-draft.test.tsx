@@ -109,4 +109,39 @@ describe("draft editor optimistic state (sec-r4)", () => {
     expect(screen.queryByText(/Local draft validated/)).toBeNull();
     expect(screen.getByRole("status").textContent).not.toContain("Local draft validated against exact reference data.");
   });
+
+  it("a draft-validation response landing after Clear session never resurrects the draft", async () => {
+    const { releaseDraft } = installApiStub({ deferDraft: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await openEditor(user);
+    await commitReference(user, "MIDPT");
+
+    await user.click(screen.getByRole("button", { name: "Clear session" }));
+    releaseDraft();
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Local route editor" })).toBeNull());
+    expect(screen.queryByText(/Local draft validated/)).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("Session reset.");
+  });
+
+  it("a draft-validation response landing after a flight change never renders under the new baseline", async () => {
+    const { releaseDraft } = installApiStub({ deferDraft: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await openEditor(user);
+    await commitReference(user, "MIDPT");
+
+    // Switch to the OTHER FIXTURE1 flight while the validation is in flight.
+    const input = screen.getByRole("combobox", { name: "Flight number or code" });
+    await user.clear(input);
+    await user.type(input, "FIXTURE1");
+    await user.keyboard("{Enter}");
+    await screen.findByRole("listbox", { name: "Choose an exact flight-plan match" });
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("route options returned"));
+
+    releaseDraft();
+    expect(screen.queryByText(/Local draft validated/)).toBeNull();
+    expect(screen.getByRole("status").textContent).not.toContain("Local draft validated against exact reference data.");
+  });
 });

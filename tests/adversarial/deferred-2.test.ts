@@ -65,15 +65,24 @@ test("nested destinationAerodrome invalid falls back to valid destinationAirport
   assert.equal(result.records[0]!.destination, "KLAX");
 });
 
-test("a VALID nested aerodrome still wins over the legacy sibling (no over-correction)", () => {
-  const result = normalizeDisplayAll(body([{
+test("a VALID nested aerodrome alone still normalizes; a conflicting legacy sibling rejects the record", () => {
+  // Canonical-shape record: the nested aerodrome is the only source.
+  const canonical = normalizeDisplayAll(body([{
     callsign: "VALIDNEST",
+    departure: { departureAerodrome: { locationId: "kdep" } },
+  }]));
+  assert.equal(canonical.records.length, 1);
+  assert.equal(canonical.records[0]!.departure, "KDEP");
+  // Hybrid record with CONFLICTING sources (nested vs legacy disagree):
+  // rejected with evidence — no arbitrary precedence may let junk in either
+  // shape silently shadow a valid value in the other (round-4c).
+  const hybrid = normalizeDisplayAll(body([{
+    callsign: "HYBRID",
     departure: { departureAerodrome: { locationId: "kdep" } },
     departureAirport: "KDEN",
   }]));
-  assert.equal(result.records.length, 1);
-  assert.equal(result.evidence.rejectedRecords, 0);
-  assert.equal(result.records[0]!.departure, "KDEP");
+  assert.equal(hybrid.records.length, 0, "conflicting endpoint sources reject the record");
+  assert.equal(hybrid.evidence.rejectedRecords, 1, "the conflict is surfaced in evidence");
 });
 
 test("nested parent without the child key already falls through to the legacy chain", () => {

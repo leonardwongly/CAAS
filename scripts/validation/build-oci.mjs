@@ -66,12 +66,20 @@ export async function extractBuildContext(contextTar, contextDir) {
     }
   }
   await execFileAsync("tar", ["-xf", contextTar, "-C", contextDir], { cwd: root, maxBuffer: 32 * 1024 * 1024 });
-  // Platform-independent backstop: some tar flavors garble listings whose
-  // member names contain " -> " (e.g. macOS bsdtar reports "Damaged tar
-  // archive" while exiting 0). Whatever the extraction produced, walk the
-  // result WITHOUT following symlinks and reject any symlink whose target
-  // resolves outside the context directory — an escaping symlink must never
-  // reach the docker build context on any platform.
+  await assertContainedContext(contextDir);
+}
+
+/**
+ * Platform-independent backstop for extracted build contexts: some tar
+ * flavors garble listings whose member names contain " -> " (e.g. macOS
+ * bsdtar reports "Damaged tar archive" while exiting 0). Whatever the
+ * extraction produced, walk the result WITHOUT following symlinks and reject
+ * any symlink whose target resolves outside the context directory — an
+ * escaping symlink must never reach the docker build context on any
+ * platform. Exported so the adversarial suite can exercise the backstop
+ * directly, deterministically, on every platform.
+ */
+export async function assertContainedContext(contextDir) {
   const stack = [""];
   while (stack.length > 0) {
     const relative = stack.pop();

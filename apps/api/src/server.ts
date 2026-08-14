@@ -1504,11 +1504,17 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     // accounting can neither over-reject legal responses nor under-count a
     // response into the dead zone.
     const data: unknown[] = [];
+    // Exact accounting includes the reply envelope: the DTO budget is the
+    // 2 MiB policy cap minus the serialized wrapper and array brackets, so
+    // neither a legal response near the cap nor an over-cap response can
+    // slip across the boundary.
+    const envelopeBytes = Buffer.byteLength(JSON.stringify({ ...(hasRankOne ? { rankLabel: RANK_ONE_LABEL } : {}), generation: generationSummary(snapshot, now()) }), "utf8") + '{"data":[]}'.length;
+    const budget = MAX_BROWSER_RESPONSE_BYTES - envelopeBytes;
     let serializedBytes = 0;
     for (const candidate of ordered) {
       const dto = routeDto(snapshot, candidate.projection, candidate.projection.complete ? rankOf(candidate) : undefined);
       serializedBytes += Buffer.byteLength(JSON.stringify(dto), "utf8") + 1;
-      if (serializedBytes > MAX_BROWSER_RESPONSE_BYTES - 4096) {
+      if (serializedBytes > budget) {
         throw new ApiHttpError(409, "RESPONSE_TOO_LARGE", "These endpoints produce too many candidate routes for one browser response. Select a single route and use its detail view.", true);
       }
       data.push(dto);
