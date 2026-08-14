@@ -195,6 +195,9 @@ function App() {
 
   useEffect(() => {
     draftRequest.current?.abort();
+    // Identity invalidation: a validation that already resolved must never
+    // land under the newly selected flight/route baseline.
+    draftRequest.current = undefined;
     setDraft(undefined);
     setDraftActive(false);
     setDraftError(undefined);
@@ -264,6 +267,7 @@ function App() {
   function resetAll() {
     searchRequest.current?.abort();
     draftRequest.current?.abort();
+    draftRequest.current = undefined;
     routeRequest.current += 1;
     setSelectedFlight(undefined);
     setSearch(emptySearch);

@@ -978,6 +978,7 @@ function indexedReferenceResolution(snapshot: Snapshot, value: string, kind: "ai
     if (!distinct.has(key)) distinct.set(key, location);
   }
   const matches = [...distinct.values()];
+  if (matches.length === 0) return { status: "gap", reference, reason: "not-found" };
   if (matches.length === 1) return { status: "resolved", reference, match: matches[0]! };
   return { status: "ambiguous", reference, matches };
 }
@@ -1495,17 +1496,25 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
         left.projection.id.localeCompare(right.projection.id);
     });
     const hasRankOne = ordered.some((candidate) => rankOf(candidate) === 1);
-    // Plan §6.1: the browser response is hard-limited to 2 MiB. Estimate the
-    // serialized size BEFORE constructing DTOs so an over-limit result set
-    // fails fast with an actionable error — instead of minting ~127k HMAC
-    // tokens and serializing tens of MiB only to be dropped by the onSend
-    // guard as a 500 with no recourse (the dead zone ~17-18 candidates).
-    const estimatedBytes = ordered.reduce((total, candidate) => total + (candidate.projection.waypoints.length + candidate.projection.gaps.length) * 260 + 400, 0);
-    if (estimatedBytes > MAX_BROWSER_RESPONSE_BYTES) {
-      throw new ApiHttpError(409, "RESPONSE_TOO_LARGE", "These endpoints produce too many candidate routes for one browser response. Select a single route and use its detail view.", true);
+    // Plan §6.1: the browser response is hard-limited to 2 MiB. Serialize
+    // DTOs incrementally and count the exact bytes, failing fast with an
+    // actionable error as soon as the accumulated serialization would cross
+    // the limit — instead of building the whole payload (minting ~127k HMAC
+    // tokens) and then 500ing in the onSend guard with no recourse. Exact
+    // accounting can neither over-reject legal responses nor under-count a
+    // response into the dead zone.
+    const data: unknown[] = [];
+    let serializedBytes = 0;
+    for (const candidate of ordered) {
+      const dto = routeDto(snapshot, candidate.projection, candidate.projection.complete ? rankOf(candidate) : undefined);
+      serializedBytes += Buffer.byteLength(JSON.stringify(dto), "utf8") + 1;
+      if (serializedBytes > MAX_BROWSER_RESPONSE_BYTES - 4096) {
+        throw new ApiHttpError(409, "RESPONSE_TOO_LARGE", "These endpoints produce too many candidate routes for one browser response. Select a single route and use its detail view.", true);
+      }
+      data.push(dto);
     }
     return reply.send({
-      data: ordered.map((candidate) => routeDto(snapshot, candidate.projection, candidate.projection.complete ? rankOf(candidate) : undefined)),
+      data,
       ...(hasRankOne ? { rankLabel: RANK_ONE_LABEL } : {}),
       generation: generationSummary(snapshot, now()),
     });
@@ -1608,9 +1617,12 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     const parsed = RouteDraftSchema.safeParse(bodyObject(request, ["origin", "destination", "via", "selections"]));
     if (!parsed.success || !parsed.data.origin || !parsed.data.destination) throw new ApiHttpError(400, "INVALID_DRAFT", "A route draft requires non-empty origin and destination endpoints.");
     // A stored draft must be consumable: enforce the same referential
-    // integrity every consumer route enforces, so a 201 draft can never be a
-    // draft that every consumer rejects, and invalid selections never
-    // accumulate in the draft map.
+    // integrity every consumer route enforces — endpoint resolvability AND
+    // selection validity — so a 201 draft can never be a draft that every
+    // consumer rejects, and invalid selections never accumulate in the draft
+    // map.
+    resolveAirportEndpoint(snapshot, parsed.data.origin, "origin");
+    resolveAirportEndpoint(snapshot, parsed.data.destination, "destination");
     selectionMap(parsed.data);
     for (const selection of parsed.data.selections) {
       selectedLocation(snapshot, selection, parsed.data.via[selection.sequence]!, now);

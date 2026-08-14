@@ -96,22 +96,30 @@ function liveAerodromeValue(value: unknown): string | null {
 function endpointValue(record: JsonRecord, parentKey: "departure" | "arrival", childKey: "departureAerodrome" | "destinationAerodrome", legacyKeys: readonly string[]): string | null {
   if (Object.prototype.hasOwnProperty.call(record, parentKey)) {
     const parent = asRecord(record[parentKey]);
+    if (parent && Object.prototype.hasOwnProperty.call(parent, childKey)) {
+      const nested = liveAerodromeValue(parent[childKey]);
+      // A valid nested value wins. An invalid one (null, non-string,
+      // over-length) is null-as-absent: fall through to the legacy keys
+      // instead of silently dropping a valid sibling field.
+      if (nested) return nested;
+    }
+  }
+  // Flat legacy keys beat the aerodrome-shaped parent: a valid legacy field
+  // (e.g. departureAirport) must never be shadowed by a junk nested value.
+  const legacy = firstReferenceValue(record, legacyKeys);
+  if (legacy) return legacy;
+  if (Object.prototype.hasOwnProperty.call(record, parentKey)) {
+    const parent = asRecord(record[parentKey]);
     if (parent) {
-      if (Object.prototype.hasOwnProperty.call(parent, childKey)) {
-        const nested = liveAerodromeValue(parent[childKey]);
-        // A valid nested value wins. An invalid one (null, non-string,
-        // over-length) is null-as-absent: fall through to the legacy keys
-        // instead of silently dropping a valid sibling field.
-        if (nested) return nested;
-      }
-      // Aerodrome-shaped parent without the nested child key: the parent
-      // object itself carries the reference (e.g. { locationId: "WSSS" }).
-      // Ignoring it would silently drop the endpoint to null.
+      // Aerodrome-shaped parent without the nested child key and without any
+      // legacy key: the parent object itself carries the reference
+      // (e.g. { locationId: "WSSS" }). Ignoring it would silently drop the
+      // endpoint to null.
       const direct = liveAerodromeValue(parent);
       if (direct) return direct;
     }
   }
-  return firstReferenceValue(record, legacyKeys);
+  return null;
 }
 
 function routeElementsValue(record: JsonRecord): unknown[] | null | undefined {
@@ -141,10 +149,12 @@ function liveDesignatedPoint(value: unknown): { identifier?: string; coordinate?
   return { ...(identifier ? { identifier } : {}), ...(coordinate ? { coordinate } : {}) };
 }
 
-function normalizeRouteElement(value: unknown, index: number): FlightRouteElement | null {
+type NormalizedRouteElement = FlightRouteElement & { readonly sequenceFallback: boolean };
+
+function normalizeRouteElement(value: unknown, index: number): NormalizedRouteElement | null {
   if (typeof value === "string") {
     const identifier = boundedText(value, MAX_REFERENCE_LENGTH)?.toUpperCase();
-    return identifier ? { sequence: index, identifier } : null;
+    return identifier ? { sequence: index, sequenceFallback: true, identifier } : null;
   }
   const record = asRecord(value);
   if (!record) return null;
@@ -158,22 +168,35 @@ function normalizeRouteElement(value: unknown, index: number): FlightRouteElemen
     ?? (firstCoordinateValue(record, ["coordinate", "coord", "coordinates"]) ?? coordinateValue(record));
   if (!identifier && !coordinate) return null;
   const sequenceValue = firstValue(record, ["seqNum", "sequence", "seq", "order", "index"]);
-  // §10.4: each seqNum must be a non-negative safe integer. Null follows the
-  // null-as-absent convention (fall back to the array index). Booleans and
-  // non-canonical strings must never be coerced — Number(false)=0, Number("0x10")=16
-  // would fabricate sequences.
+  // §10.4: each seqNum must be a non-negative safe integer. Missing, null,
+  // non-canonical, and out-of-range values follow the array-index fallback:
+  // one anomalous metadata value must never erase an entire flight from the
+  // dataset. Booleans and non-canonical strings must never be coerced —
+  // Number(false)=0, Number("0x10")=16 would fabricate sequences. The
+  // fallback flag lets the record-level sequence check distinguish asserted
+  // orders from index-derived ones.
   let sequence: number;
+  let sequenceFallback = false;
   if (sequenceValue === undefined || sequenceValue === null) {
     sequence = index;
+    sequenceFallback = true;
   } else if (typeof sequenceValue === "number") {
     sequence = sequenceValue;
   } else if (typeof sequenceValue === "string" && /^\d+$/.test(sequenceValue)) {
     sequence = Number(sequenceValue);
   } else {
+    // Structurally malformed metadata (boolean, hex/exponent strings): the
+    // record is rejected with evidence — a sequence must never be coerced
+    // (Number(false)=0, Number("0x10")=16 would fabricate positions).
     return null;
   }
-  if (!Number.isInteger(sequence) || sequence < 0 || sequence > MAX_ROUTE_ELEMENTS) return null;
-  return { sequence, ...(identifier ? { identifier } : {}), ...(coordinate ? { coordinate } : {}) };
+  if (!Number.isInteger(sequence) || sequence < 0 || sequence > MAX_ROUTE_ELEMENTS) {
+    // Numeric anomaly (float, negative, out-of-range): the array index
+    // stands in — one bad metadata value must not erase the whole flight.
+    sequence = index;
+    sequenceFallback = true;
+  }
+  return { sequence, sequenceFallback, ...(identifier ? { identifier } : {}), ...(coordinate ? { coordinate } : {}) };
 }
 
 function normalizeFlightRecord(value: unknown, index: number): FlightPlanRecord | null {
@@ -187,15 +210,27 @@ function normalizeFlightRecord(value: unknown, index: number): FlightPlanRecord 
   if (routeValues === null || (routeValues && routeValues.length > MAX_ROUTE_ELEMENTS)) return null;
   const elements = routeValues?.map(normalizeRouteElement);
   if (elements?.some((element) => element === null)) return null;
-  let routeElements = elements as readonly FlightRouteElement[] | undefined;
+  let routeElements = elements as readonly NormalizedRouteElement[] | undefined;
   if (routeElements) {
     const sequences = routeElements.map((element) => element.sequence);
-    const monotonicUnique = new Set(sequences).size === sequences.length && sequences.every((sequence, routeIndex) => routeIndex === 0 || sequence > sequences[routeIndex - 1]!);
-    if (!monotonicUnique) {
-      // A single anomalous seqNum must not erase an entire flight from the
-      // dataset: the array order is the authoritative route order in the live
-      // contract, so renumber sequentially rather than amplifying one bad
-      // metadata value into full-flight data loss.
+    const unique = new Set(sequences).size === sequences.length;
+    const monotonic = sequences.every((sequence, routeIndex) => routeIndex === 0 || sequence > sequences[routeIndex - 1]!);
+    const fallbackUsed = routeElements.some((element) => element.sequenceFallback === true);
+    if (!unique && !fallbackUsed) {
+      // Contradictory EXPLICIT sequence metadata (two asserted identical
+      // positions) has no honest order: reject the record rather than
+      // fabricate one.
+      return null;
+    }
+    if (!monotonic && !fallbackUsed) {
+      // Unique asserted seqNums that disagree with the array order: honor the
+      // asserted order by sorting, then renumber — never silently reverse a
+      // route the upstream metadata asserts.
+      routeElements = [...routeElements].sort((left, right) => left.sequence - right.sequence).map((element, routeIndex) => Object.freeze({ ...element, sequence: routeIndex }));
+    } else if (fallbackUsed) {
+      // Index-derived positions make the array order the authoritative route
+      // order (the fallback position IS the array position): renumber
+      // sequentially so one anomalous metadata value never erases the flight.
       routeElements = routeElements.map((element, routeIndex) => Object.freeze({ ...element, sequence: routeIndex }));
     }
   }
@@ -205,7 +240,8 @@ function normalizeFlightRecord(value: unknown, index: number): FlightPlanRecord 
     callsign: callsign.toUpperCase(),
     departure,
     destination,
-    ...(routeElements ? { routeElements: Object.freeze(routeElements) } : {}),
+    // The internal sequenceFallback marker never leaves the normalizer.
+    ...(routeElements ? { routeElements: Object.freeze(routeElements.map((element): FlightRouteElement => Object.freeze({ sequence: element.sequence, ...(element.identifier ? { identifier: element.identifier } : {}), ...(element.coordinate ? { coordinate: element.coordinate } : {}) }))) } : {}),
   });
 }
 

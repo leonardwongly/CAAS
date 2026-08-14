@@ -172,6 +172,20 @@ export async function validateEvidenceBundle() {
       errors.push(`${file}: completed evidence record must not carry the template marker (template: true / .template.json); legitimate templates must set templateStatus: "pending" and use the .template.json suffix`);
     }
     if (record.recordKind === "discovery") {
+      // A discovery record must never smuggle gate or check material: it is
+      // outside the gate regime, so anything shaped like a gate manifest
+      // that claims discovery is an escape attempt and must fail loudly.
+      if (record.gateId !== undefined || record.checks !== undefined) {
+        errors.push(`${file}: a discovery record must not carry gate or check material`);
+        continue;
+      }
+      skipped += 1;
+      continue;
+    }
+    // The PG-00 aggregate discovery manifest predates the recordKind
+    // taxonomy: it is recognized by its evidenceId + classification shape,
+    // never by silent default.
+    if (record.recordKind === undefined && typeof record.evidenceId === "string" && typeof record.classification === "string" && record.gateId === undefined && record.checks === undefined) {
       skipped += 1;
       continue;
     }

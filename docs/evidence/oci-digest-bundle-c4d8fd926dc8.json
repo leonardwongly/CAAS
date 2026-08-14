@@ -1,0 +1,63 @@
+{
+  "recordKind": "oci-digest-bundle",
+  "subject": {
+    "type": "oci",
+    "identifiers": {
+      "digest": "sha256:4d596421950305ea3b38eed09745cbbe7ddf54fc22c31f2711d7f172fc68bc3f",
+      "commit": "c4d8fd926dc8bf9684efb9e4d9157d3804031a06",
+      "tarSha256": "c9eb91fe9c0f1b11e5053c267e57d68d3a0b108e2d5b1efb5a10ec05832694a4"
+    },
+    "environment": "local-build"
+  },
+  "image": {
+    "tag": "flight-route-explorer:release-evidence",
+    "imageId": "sha256:4d596421950305ea3b38eed09745cbbe7ddf54fc22c31f2711d7f172fc68bc3f",
+    "osArchitecture": {
+      "os": "linux",
+      "architecture": "arm64"
+    },
+    "config": {
+      "user": "app",
+      "workingDir": "/app",
+      "exposedPorts": [
+        "8080/tcp"
+      ],
+      "envKeys": [
+        "HOST",
+        "NODE_ENV",
+        "NODE_VERSION",
+        "PATH",
+        "PORT",
+        "TMPDIR",
+        "WEB_ASSET_DIR",
+        "YARN_VERSION"
+      ]
+    },
+    "artifactTar": {
+      "path": "tmp/flight-route-explorer-oci.tar",
+      "sha256": "c9eb91fe9c0f1b11e5053c267e57d68d3a0b108e2d5b1efb5a10ec05832694a4",
+      "bytes": 404380672
+    }
+  },
+  "sourceHashes": {
+    "dockerfile": "b523d9d7b6b61396dd9b41265727b184ff24baa0fe22139f213e8c938c5ed82e",
+    "buildScript": "31f28f5321f9c2d5b19756dc75e4a1ab3f541c47ffb1e0ef57eed8882fb6fd59"
+  },
+  "reproducibility": {
+    "baseImagePinnedByDigest": true,
+    "installFrozenLockfile": true,
+    "networkAtBuildTime": "pnpm registry fetch inside the build; no live CAAS call and no cloud write",
+    "registryPush": "never performed by this script"
+  },
+  "buildMetadata": {
+    "builder": "29.7.2",
+    "contextSource": "working-tree",
+    "startedAt": "2026-08-14T10:07:15.762Z"
+  },
+  "assertions": {
+    "nonRootUser": true,
+    "noSecretEnv": true,
+    "exposes8080": true,
+    "linuxImage": true
+  }
+}

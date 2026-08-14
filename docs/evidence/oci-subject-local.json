@@ -5,15 +5,15 @@
     "policyVersion": "1.0.0-poc",
     "policySha256": "364d9f13247f104bc749eec5d2e85c0c7c8ba128dd2f0839d47ac1d953496100",
     "validatorVersion": "release-evidence-validator-v1",
-    "validatorSha256": "0621b9fb779b4e598a415d049031a0948322250b1a734f4c8a394417bab1c37b",
+    "validatorSha256": "d0bcf141c7efd6d2517f59d0321629ea9d16c7128d2ffc1923e76d47532c1ba1",
     "evaluationMode": "semantic-validator"
   },
   "subject": {
     "type": "oci",
     "identifiers": {
-      "digest": "sha256:6976291395e6ec887f277b1cbf0e9b6f0023ea65fe95bfb07c43fc7a2d01177a",
-      "commit": "0c6245e50f97",
-      "tarSha256": "b25661c3421ff4f5bf1b5eed79238df4ca219ef1298affdb4bf61773f3e0cad9"
+      "digest": "sha256:4d596421950305ea3b38eed09745cbbe7ddf54fc22c31f2711d7f172fc68bc3f",
+      "commit": "c4d8fd926dc8",
+      "tarSha256": "c9eb91fe9c0f1b11e5053c267e57d68d3a0b108e2d5b1efb5a10ec05832694a4"
     },
     "environment": "local-build-candidate"
   },
@@ -22,8 +22,8 @@
       "checkId": "PG03-EXACT-DIGEST",
       "mandatory": true,
       "procedure": "The subject must be the single authoritative CI-built OCI image; the locally built candidate is recorded here with its real digest and remains unverified until the authoritative CI subject is recorded.",
-      "startedAt": "2026-08-14T04:42:18.316Z",
-      "endedAt": "2026-08-14T04:42:18.317Z",
+      "startedAt": "2026-08-14T10:07:15.860Z",
+      "endedAt": "2026-08-14T10:07:15.860Z",
       "threshold": {
         "rule": "measured value hash-equals expected",
         "operator": "hash-equals",
@@ -32,7 +32,7 @@
       },
       "measurement": {
         "summary": "exact subject digest is the verified OCI subject",
-        "value": "sha256:6976291395e6ec887f277b1cbf0e9b6f0023ea65fe95bfb07c43fc7a2d01177a",
+        "value": "sha256:4d596421950305ea3b38eed09745cbbe7ddf54fc22c31f2711d7f172fc68bc3f",
         "units": "digest",
         "sampleCount": 1
       },
@@ -51,19 +51,19 @@
         },
         {
           "path": "scripts/validation/build-oci.mjs",
-          "sha256": "42dcc2143e506bc5ec2ab8d2059acc1e84c47edcd6991e4bff093b7d1c8f4410"
+          "sha256": "31f28f5321f9c2d5b19756dc75e4a1ab3f541c47ffb1e0ef57eed8882fb6fd59"
         },
         {
           "path": "scripts/validation/validate-evidence-bundle.mjs",
-          "sha256": "0621b9fb779b4e598a415d049031a0948322250b1a734f4c8a394417bab1c37b"
+          "sha256": "d0bcf141c7efd6d2517f59d0321629ea9d16c7128d2ffc1923e76d47532c1ba1"
         },
         {
           "path": ".github/workflows/oci-subject-build.yml",
           "sha256": "e9a6286c6e7b31bbf1cc7bddcf400adb009351609d8c10b139f3005a1b1936f5"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-0c6245e50f97.json",
-          "sha256": "dc7dbe5d20add561fdf7a20564de1d36430f139817efb0d2ac7b7a042562021f"
+          "path": "docs/evidence/oci-digest-bundle-c4d8fd926dc8.json",
+          "sha256": "5e99806d1f1befcd8a54131436141a0c5269d150e74eb1accffe15799f4fb003"
         }
       ],
       "result": "blocked",
@@ -73,8 +73,8 @@
       "checkId": "PG03-LOOPBACK-REAL-DATA",
       "mandatory": true,
       "procedure": "The verified subject must pass the loopback gate with real data (authorized live run). Mechanics pass fixture-backed (docs/evidence/loopback-lane-local.json); the authorized live run is pending (docs/evidence/live-lane-<sha>.json, mode pending-authorized-execution).",
-      "startedAt": "2026-08-14T04:42:18.316Z",
-      "endedAt": "2026-08-14T04:42:18.317Z",
+      "startedAt": "2026-08-14T10:07:15.860Z",
+      "endedAt": "2026-08-14T10:07:15.860Z",
       "threshold": {
         "rule": "measured value equals expected",
         "operator": "equals",
@@ -102,19 +102,19 @@
         },
         {
           "path": "scripts/validation/build-oci.mjs",
-          "sha256": "42dcc2143e506bc5ec2ab8d2059acc1e84c47edcd6991e4bff093b7d1c8f4410"
+          "sha256": "31f28f5321f9c2d5b19756dc75e4a1ab3f541c47ffb1e0ef57eed8882fb6fd59"
         },
         {
           "path": "scripts/validation/validate-evidence-bundle.mjs",
-          "sha256": "0621b9fb779b4e598a415d049031a0948322250b1a734f4c8a394417bab1c37b"
+          "sha256": "d0bcf141c7efd6d2517f59d0321629ea9d16c7128d2ffc1923e76d47532c1ba1"
         },
         {
           "path": ".github/workflows/oci-subject-build.yml",
           "sha256": "e9a6286c6e7b31bbf1cc7bddcf400adb009351609d8c10b139f3005a1b1936f5"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-0c6245e50f97.json",
-          "sha256": "dc7dbe5d20add561fdf7a20564de1d36430f139817efb0d2ac7b7a042562021f"
+          "path": "docs/evidence/oci-digest-bundle-c4d8fd926dc8.json",
+          "sha256": "5e99806d1f1befcd8a54131436141a0c5269d150e74eb1accffe15799f4fb003"
         }
       ],
       "result": "blocked",
@@ -124,8 +124,8 @@
       "checkId": "PG03-SECRETLESS",
       "mandatory": true,
       "procedure": "The image was built by scripts/validation/build-oci.mjs with no credential in the environment, no registry push, and the image config records no secret environment; the CI workflow is hermetic (no secrets, no Azure operations).",
-      "startedAt": "2026-08-14T04:42:18.316Z",
-      "endedAt": "2026-08-14T04:42:18.317Z",
+      "startedAt": "2026-08-14T10:07:15.860Z",
+      "endedAt": "2026-08-14T10:07:15.860Z",
       "threshold": {
         "rule": "measured value equals expected",
         "operator": "equals",
@@ -153,19 +153,19 @@
         },
         {
           "path": "scripts/validation/build-oci.mjs",
-          "sha256": "42dcc2143e506bc5ec2ab8d2059acc1e84c47edcd6991e4bff093b7d1c8f4410"
+          "sha256": "31f28f5321f9c2d5b19756dc75e4a1ab3f541c47ffb1e0ef57eed8882fb6fd59"
         },
         {
           "path": "scripts/validation/validate-evidence-bundle.mjs",
-          "sha256": "0621b9fb779b4e598a415d049031a0948322250b1a734f4c8a394417bab1c37b"
+          "sha256": "d0bcf141c7efd6d2517f59d0321629ea9d16c7128d2ffc1923e76d47532c1ba1"
         },
         {
           "path": ".github/workflows/oci-subject-build.yml",
           "sha256": "e9a6286c6e7b31bbf1cc7bddcf400adb009351609d8c10b139f3005a1b1936f5"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-0c6245e50f97.json",
-          "sha256": "dc7dbe5d20add561fdf7a20564de1d36430f139817efb0d2ac7b7a042562021f"
+          "path": "docs/evidence/oci-digest-bundle-c4d8fd926dc8.json",
+          "sha256": "5e99806d1f1befcd8a54131436141a0c5269d150e74eb1accffe15799f4fb003"
         }
       ],
       "result": "pass",
@@ -175,8 +175,8 @@
       "checkId": "PG03-RESOURCE-SHAPE",
       "mandatory": true,
       "procedure": "non-root runtime user and linux/amd64 verified from docker image inspect of the built image; 1 vcpu and 2 GiB verified by validate:policy from infra/bicep invariants (cpu: 1, memory '2Gi').",
-      "startedAt": "2026-08-14T04:42:18.316Z",
-      "endedAt": "2026-08-14T04:42:18.317Z",
+      "startedAt": "2026-08-14T10:07:15.860Z",
+      "endedAt": "2026-08-14T10:07:15.860Z",
       "threshold": {
         "rule": "the set of measured values equals the expected set",
         "operator": "set-equals",
@@ -214,19 +214,19 @@
         },
         {
           "path": "scripts/validation/build-oci.mjs",
-          "sha256": "42dcc2143e506bc5ec2ab8d2059acc1e84c47edcd6991e4bff093b7d1c8f4410"
+          "sha256": "31f28f5321f9c2d5b19756dc75e4a1ab3f541c47ffb1e0ef57eed8882fb6fd59"
         },
         {
           "path": "scripts/validation/validate-evidence-bundle.mjs",
-          "sha256": "0621b9fb779b4e598a415d049031a0948322250b1a734f4c8a394417bab1c37b"
+          "sha256": "d0bcf141c7efd6d2517f59d0321629ea9d16c7128d2ffc1923e76d47532c1ba1"
         },
         {
           "path": ".github/workflows/oci-subject-build.yml",
           "sha256": "e9a6286c6e7b31bbf1cc7bddcf400adb009351609d8c10b139f3005a1b1936f5"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-0c6245e50f97.json",
-          "sha256": "dc7dbe5d20add561fdf7a20564de1d36430f139817efb0d2ac7b7a042562021f"
+          "path": "docs/evidence/oci-digest-bundle-c4d8fd926dc8.json",
+          "sha256": "5e99806d1f1befcd8a54131436141a0c5269d150e74eb1accffe15799f4fb003"
         }
       ],
       "result": "pass",

@@ -31,6 +31,12 @@ test("POST /api/v1/drafts rejects selections no consumer could ever use", async 
     const junk = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { ...base, via: ["MIDPT"], selections: [{ sequence: 0, locationId: "AAAA" }] } });
     assert.equal(junk.statusCode, 400, "a forged selection token must be rejected at store time");
     assert.equal((junk.json() as { error: { code: string } }).error.code, "TOKEN_INVALID");
+
+    // Endpoint resolvability is part of the same invariant: a 201 draft with
+    // unresolvable endpoints would be rejected by every consumer.
+    const unknownAirport = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { origin: "KOR1", destination: "XXXNOPE", via: [] } });
+    assert.equal(unknownAirport.statusCode, 404, "an unresolvable destination must be rejected at store time");
+    assert.equal((unknownAirport.json() as { error: { code: string } }).error.code, "AIRPORT_NOT_FOUND");
   } finally {
     await server.app.close();
   }
@@ -109,6 +115,29 @@ test("expired draft tokens are reclaimed: capacity cannot be exhausted for a gen
     assert.equal(expired.statusCode, 410, "the expired draft must no longer resolve");
     const after = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { origin: "KOR1", destination: "KDS1", via: [] } });
     assert.equal(after.statusCode, 201, "a new draft must succeed after the expired one is reclaimed");
+  } finally {
+    await server.app.close();
+  }
+});
+
+test("rememberDraft prunes expired slots even when no consumer ever touches them", async () => {
+  // Fill all 512 slots (never calling compare, so getDraft can never
+  // reclaim), age past the TTL, then create one more: it must succeed only
+  // because rememberDraft itself prunes expired entries. Without the prune
+  // loop this returns 429 for the generation's lifetime.
+  const clock = { t: 1_000_000 };
+  const server = await createApiServer({ adapter: sanitizedAdapter(), now: () => clock.t });
+  try {
+    const payload = { origin: "KOR1", destination: "KDS1", via: [] };
+    for (let i = 0; i < 512; i += 1) {
+      const response = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload });
+      assert.equal(response.statusCode, 201, `draft ${i + 1} must store`);
+    }
+    const full = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload });
+    assert.equal(full.statusCode, 429, "the 513th draft hits capacity");
+    clock.t += 16 * 60 * 1000;
+    const reclaimed = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload });
+    assert.equal(reclaimed.statusCode, 201, "expired drafts must be reclaimed by rememberDraft itself");
   } finally {
     await server.app.close();
   }
@@ -200,4 +229,30 @@ test("normalizers: flat endpoint objects carrying only locationId resolve, and o
   assert.equal(record.departure, "WSSS", "locationId-only departure must resolve");
   assert.equal(record.destination, "WMKK", "locationId-only destination must resolve");
   assert.deepEqual(record.routeElements?.map((element) => element.sequence), [0, 1, 2], "array order renumbers the anomalous sequences");
+});
+
+test("normalizers: invalid seqNums fall back, asserted orders are honored, contradictions are rejected", async () => {
+  const { normalizeDisplayAll } = await import("../../packages/upstream-caas/src/normalizers.ts");
+  const wrap = (records: unknown) => normalizeDisplayAll(JSON.stringify({ flights: records }));
+
+  // A negative, float, or over-range seqNum must not erase the flight: the
+  // element falls back to its array index.
+  const invalid = wrap([{ aircraftIdentification: "SQ1", departure: "WSSS", arrival: "WMKK", routeElements: [{ seqNum: -1, identifier: "A" }, { seqNum: 1.5, identifier: "B" }, { seqNum: 255, identifier: "C" }] }]);
+  assert.equal(invalid.records.length, 1, "one invalid seqNum must not erase the whole flight");
+  assert.deepEqual(invalid.records[0]!.routeElements?.map((element) => element.sequence), [0, 1, 2], "invalid seqNums fall back to array order");
+
+  // Unique asserted seqNums that disagree with array order: the asserted
+  // order is honored by sorting — never silently reversed.
+  const reversed = wrap([{ aircraftIdentification: "SQ2", departure: "WSSS", arrival: "WMKK", routeElements: [{ seqNum: 1, identifier: "BBBB" }, { seqNum: 0, identifier: "AAAA" }] }]);
+  assert.equal(reversed.records.length, 1);
+  assert.deepEqual(reversed.records[0]!.routeElements?.map((element) => element.identifier), ["AAAA", "BBBB"], "asserted seqNum order is honored");
+
+  // Contradictory explicit seqNums (duplicates) are rejected, never fabricated.
+  const duplicate = wrap([{ aircraftIdentification: "SQ3", departure: "WSSS", arrival: "WMKK", routeElements: [{ seqNum: 0, identifier: "A" }, { seqNum: 0, identifier: "B" }] }]);
+  assert.equal(duplicate.records.length, 0, "contradictory asserted sequences reject the record");
+
+  // A valid legacy endpoint field beats a junk nested parent value.
+  const legacyWins = wrap([{ aircraftIdentification: "SQ4", departure: { locationId: "TBD" }, departureAirport: "KOR1", arrival: { locationId: "KDS1" } }]);
+  assert.equal(legacyWins.records.length, 1);
+  assert.equal(legacyWins.records[0]!.departure, "KOR1", "a valid legacy field must never be shadowed by a junk nested value");
 });
