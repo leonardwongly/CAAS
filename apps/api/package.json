@@ -13,6 +13,6 @@
     "@flight-route-explorer/contracts": "workspace:*",
     "@flight-route-explorer/route-engine": "workspace:*",
     "@flight-route-explorer/upstream-caas": "workspace:*",
-    "fastify": "5.3.3"
+    "fastify": "5.12.0"
   }
 }

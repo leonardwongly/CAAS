@@ -1316,7 +1316,8 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     // server fault.
     const statusCode = typeof (error as { statusCode?: unknown }).statusCode === "number" ? (error as { statusCode: number }).statusCode : undefined;
     if (statusCode !== undefined && statusCode >= 400 && statusCode < 500) {
-      return reply.code(statusCode).send({ error: { code: statusCode === 413 ? "REQUEST_TOO_LARGE" : "INVALID_REQUEST", message: error.message.slice(0, MAX_ERROR_MESSAGE) } });
+      const clientMessage = error instanceof Error ? error.message.slice(0, MAX_ERROR_MESSAGE) : "The request is invalid.";
+      return reply.code(statusCode).send({ error: { code: statusCode === 413 ? "REQUEST_TOO_LARGE" : "INVALID_REQUEST", message: clientMessage } });
     }
     return reply.code(500).send({ error: { code: "INTERNAL_ERROR", message: "The route service encountered an internal error." } });
   });

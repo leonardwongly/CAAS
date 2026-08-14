@@ -4,7 +4,9 @@
 # (scripts/validation/build-oci.mjs against the digest-pinned Dockerfile),
 # records the image ID and artifact hashes, and uploads the digest bundle.
 # No credential is available in this workflow: the build never pushes to a
-# registry and never touches a secret. The bundle it uploads is the subject
+# registry and never touches a secret. The vulnerability-scan step fetches
+# the Trivy database per run (the one deliberately non-deterministic input,
+# like the semgrep rule registry). The bundle it uploads is the subject
 # evidence for PG-03-EXACT-DIGEST; this workflow is triggered only by an
 # authorized push or pull request, never manually.
 name: oci-subject-build
@@ -27,9 +29,19 @@ jobs:
         run: node scripts/validation/build-oci.mjs
       - name: Verify image assertions
         run: node scripts/validation/build-oci.mjs --verify
-      - name: Upload digest bundle
+      - name: Scan the built subject for HIGH/CRITICAL vulnerabilities
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/work" -w /work \
+            ghcr.io/aquasecurity/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 image \
+            --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            --format json --no-progress flight-route-explorer:release-evidence > trivy-scan.json
+      - name: Upload digest bundle and scan report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: oci-digest-bundle
-          path: docs/evidence/oci-digest-bundle-*.json
+          path: |
+            docs/evidence/oci-digest-bundle-*.json
+            trivy-scan.json
           if-no-files-found: error

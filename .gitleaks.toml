@@ -1,0 +1,30 @@
+# Gitleaks config for the secret-scan CI job (offline `gitleaks dir .`).
+#
+# Extends the built-in default rules; every entry is a deliberate
+# placeholder, prose phrase, or documented test double that the
+# generic-api-key entropy rule matches. No entry allowlists a real
+# credential shape, a file path, or the gitignored local .env — a committed
+# .env must still fail the scan loudly.
+#
+# If a line here is reworded, the allowlist stops matching and the scan
+# re-flags it: re-evaluate, never broaden blindly.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+    [[rules.allowlists]]
+    regexTarget = "match"
+    regexes = [
+      # design.md:158 — Azure rollback prose ("secret-reference, scale/environment").
+      '''secret-reference, scale/environment''',
+      # implementation-plan.md:1126 — capability prose ("APIs, route/distance/ranking").
+      '''APIs, route/distance/ranking''',
+      # historical archive:1208 — prose ("CAAS-key binding, normalizer/contract/policy").
+      '''CAAS-key binding, normalizer/contract/policy''',
+      # sec-3.test.tsx:42 — documented fake: "A plausible signed token shape
+      # (base64url body `.` base64url HMAC), like scopedToken in server.ts".
+      '''SIGNED_FLIGHT_TOKEN = "eyJnIjoiZ2VuLTEiLCJ0IjoiZmxpZ2h0IiwiaSI6MTJ9\.7wQq9Zk0r2cVb1nXm8Yp3aT5sD6fG7hJ8kL9zX0cVbN"''',
+    ]

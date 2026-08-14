@@ -38,6 +38,6 @@
   "devDependencies": {
     "@types/node": "22.15.3",
     "typescript": "5.8.3",
-    "yaml": "2.7.0"
+    "yaml": "2.9.0"
   }
 }

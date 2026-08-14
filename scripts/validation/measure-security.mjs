@@ -2,8 +2,9 @@
 // repository for credential material, verifies no .env is tracked, verifies the
 // .env.example contains only placeholders, verifies response security headers
 // on the fixture-backed loopback server, and re-asserts image metadata
-// (non-root, no secret env) when the image is built locally. Networked checks
-// (package audit against the registry) are recorded as pending with procedure,
+// (non-root, no secret env) when the image is built locally. The networked
+// package audit is never run here: its committed record
+// (docs/security/dependency-audit-local.json) is read and bound by sha256,
 // never invented.
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -105,13 +106,42 @@ if (imageId) {
   });
 }
 
-// 6. Networked package audit is pending (hermetic constraint), with procedure.
-collector.add({
-  checkId: "SEC-PACKAGE-AUDIT", name: "dependency audit against registry", procedure: "Pending an authorized networked run: `pnpm audit --prod` against the frozen pnpm-lock.yaml (pnpm 11.5.2), commit the resulting record. Not run here because the validation lanes are hermetic/offline.",
-  startedAt, endedAt: isoNow(), result: "blocked",
-  measurement: { summary: "pending authorized networked audit", value: null, units: "vulnerabilities", sampleCount: 1 },
-  artifacts: artifactsFor(), failureFallback: "Keep the security gate blocked until a real audit records a result.",
-});
+// 6. Networked package audit: the authorized local run's record is committed
+// at docs/security/dependency-audit-local.json (the raw `pnpm audit --prod
+// --json` output, pnpm 11.5.2, frozen pnpm-lock.yaml). The lane stays
+// hermetic — it reads the committed record, never the network. The CI
+// dependency-audit job re-runs the same invocation on every push and PR.
+const AUDIT_RECORD = "docs/security/dependency-audit-local.json";
+let auditCheck;
+try {
+  const auditText = await readFile(resolve(root, AUDIT_RECORD), "utf8");
+  const audit = JSON.parse(auditText);
+  const advisories = Object.keys(audit.advisories ?? {}).length;
+  const vulnerabilities = audit.metadata?.vulnerabilities ?? {};
+  auditCheck = advisories === 0 ? {
+    checkId: "SEC-PACKAGE-AUDIT", name: "dependency audit against registry",
+    procedure: `Authorized networked run (pnpm 11.5.2): \`pnpm audit --prod --json\` against the frozen pnpm-lock.yaml, with the committed record bound by sha256. The CI dependency-audit job re-runs the identical invocation on every push and PR.`,
+    startedAt, endedAt: isoNow(), result: "pass",
+    measurement: { summary: `${advisories} advisories in production dependencies at audit time`, value: 0, units: "vulnerabilities", sampleCount: 1 },
+    artifacts: artifactsFor([{ path: AUDIT_RECORD, sha256: sha256Hex(auditText) }]),
+    failureFallback: "Keep the security gate failed until a clean audit result is recorded.",
+  } : {
+    checkId: "SEC-PACKAGE-AUDIT", name: "dependency audit against registry",
+    procedure: `Authorized networked run (pnpm 11.5.2): \`pnpm audit --prod --json\` against the frozen pnpm-lock.yaml. The committed record reports ${advisories} advisories (${JSON.stringify(vulnerabilities)}) and must not pass until they are remediated.`,
+    startedAt, endedAt: isoNow(), result: "fail",
+    measurement: { summary: `${advisories} advisories in production dependencies at audit time`, value: advisories, units: "vulnerabilities", sampleCount: 1 },
+    artifacts: artifactsFor([{ path: AUDIT_RECORD, sha256: sha256Hex(auditText) }]),
+    failureFallback: "Remediate or document every advisory before the security gate can pass.",
+  };
+} catch {
+  auditCheck = {
+    checkId: "SEC-PACKAGE-AUDIT", name: "dependency audit against registry", procedure: `Pending an authorized networked run: \`pnpm audit --prod\` against the frozen pnpm-lock.yaml (pnpm 11.5.2), commit the resulting record at ${AUDIT_RECORD}. Not run here because the validation lanes are hermetic/offline.`,
+    startedAt, endedAt: isoNow(), result: "blocked",
+    measurement: { summary: "pending authorized networked audit", value: null, units: "vulnerabilities", sampleCount: 1 },
+    artifacts: artifactsFor(), failureFallback: "Keep the security gate blocked until a real audit records a result.",
+  };
+}
+collector.add(auditCheck);
 
 const record = {
   recordKind: "measurement-results",
