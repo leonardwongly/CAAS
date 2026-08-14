@@ -88,6 +88,13 @@ function ustarMember({ name, content }: { name: string; content: string }) {
   return Buffer.concat([header, paddedData]);
 }
 
+// Symlink member (typeflag "2"): the data area carries the link target.
+function ustarSymlink({ name, target }: { name: string; target: string }) {
+  const member = ustarMember({ name, content: target });
+  member[156] = "2".charCodeAt(0);
+  return member;
+}
+
 function ustarEnd() {
   return Buffer.alloc(1024, 0);
 }
@@ -127,6 +134,35 @@ test("git-archive context extraction rejects symlinks whose targets escape the c
     0,
     `no symlink may escape contextDir, found: ${escaping.map((e) => `${e.rel} -> ${e.target}`).join(", ") || "none"}`,
   );
+});
+
+test("a symlink member whose NAME contains ' -> ' cannot mask an escaping target", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "sec-r2-3-"));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+
+  const contextDir = join(sandbox, "context");
+  await mkdir(contextDir);
+  // The listing line becomes: `lrwxr-xr-x ... evil -> hidden -> /etc/passwd`.
+  // A naive `split(" -> ")[1]` would read the target as "hidden" (contained)
+  // while tar materializes the real escaping target /etc/passwd.
+  const craftedTar = join(sandbox, "arrow-name.tar");
+  await writeFile(
+    craftedTar,
+    Buffer.concat([
+      ustarSymlink({ name: "evil -> hidden", target: "/etc/passwd" }),
+      ustarEnd(),
+    ]),
+  );
+
+  let threw = false;
+  try {
+    await runExtraction(craftedTar, contextDir);
+  } catch {
+    threw = true;
+  }
+  assert.ok(threw, "an unparseable ' -> ' sequence must fail the lane loudly");
+  const escaping = await escapingSymlinks(contextDir);
+  assert.equal(escaping.length, 0, "no escaping symlink may materialize");
 });
 
 test("crafted tar with ..-escaping and absolute members stays contained in the context dir", async (t) => {

@@ -96,12 +96,19 @@ function liveAerodromeValue(value: unknown): string | null {
 function endpointValue(record: JsonRecord, parentKey: "departure" | "arrival", childKey: "departureAerodrome" | "destinationAerodrome", legacyKeys: readonly string[]): string | null {
   if (Object.prototype.hasOwnProperty.call(record, parentKey)) {
     const parent = asRecord(record[parentKey]);
-    if (parent && Object.prototype.hasOwnProperty.call(parent, childKey)) {
-      const nested = liveAerodromeValue(parent[childKey]);
-      // A valid nested value wins. An invalid one (null, non-string,
-      // over-length) is null-as-absent: fall through to the legacy keys
-      // instead of silently dropping a valid sibling field.
-      if (nested) return nested;
+    if (parent) {
+      if (Object.prototype.hasOwnProperty.call(parent, childKey)) {
+        const nested = liveAerodromeValue(parent[childKey]);
+        // A valid nested value wins. An invalid one (null, non-string,
+        // over-length) is null-as-absent: fall through to the legacy keys
+        // instead of silently dropping a valid sibling field.
+        if (nested) return nested;
+      }
+      // Aerodrome-shaped parent without the nested child key: the parent
+      // object itself carries the reference (e.g. { locationId: "WSSS" }).
+      // Ignoring it would silently drop the endpoint to null.
+      const direct = liveAerodromeValue(parent);
+      if (direct) return direct;
     }
   }
   return firstReferenceValue(record, legacyKeys);
@@ -174,16 +181,23 @@ function normalizeFlightRecord(value: unknown, index: number): FlightPlanRecord 
   if (!record) return null;
   const callsign = firstBoundedText(record, ["aircraftIdentification", "callsign", "callSign", "flightCallsign", "flightCallSign"], MAX_REFERENCE_LENGTH);
   if (!callsign) return null;
-  const departure = endpointValue(record, "departure", "departureAerodrome", ["departure", "departureAirport", "origin", "originAirport", "from", "departureCode", "dep"]);
-  const destination = endpointValue(record, "arrival", "destinationAerodrome", ["destination", "destinationAirport", "arrival", "arrivalAirport", "to", "destinationCode", "dest"]);
+  const departure = endpointValue(record, "departure", "departureAerodrome", ["departure", "departureAirport", "origin", "originAirport", "from", "departureCode", "dep", "locationId"]);
+  const destination = endpointValue(record, "arrival", "destinationAerodrome", ["destination", "destinationAirport", "arrival", "arrivalAirport", "to", "destinationCode", "dest", "locationId"]);
   const routeValues = routeElementsValue(record);
   if (routeValues === null || (routeValues && routeValues.length > MAX_ROUTE_ELEMENTS)) return null;
   const elements = routeValues?.map(normalizeRouteElement);
   if (elements?.some((element) => element === null)) return null;
-  const routeElements = elements as FlightRouteElement[] | undefined;
+  let routeElements = elements as readonly FlightRouteElement[] | undefined;
   if (routeElements) {
     const sequences = routeElements.map((element) => element.sequence);
-    if (new Set(sequences).size !== sequences.length || sequences.some((sequence, routeIndex) => routeIndex > 0 && sequence <= sequences[routeIndex - 1]!)) return null;
+    const monotonicUnique = new Set(sequences).size === sequences.length && sequences.every((sequence, routeIndex) => routeIndex === 0 || sequence > sequences[routeIndex - 1]!);
+    if (!monotonicUnique) {
+      // A single anomalous seqNum must not erase an entire flight from the
+      // dataset: the array order is the authoritative route order in the live
+      // contract, so renumber sequentially rather than amplifying one bad
+      // metadata value into full-flight data loss.
+      routeElements = routeElements.map((element, routeIndex) => Object.freeze({ ...element, sequence: routeIndex }));
+    }
   }
   const suppliedId = firstBoundedText(record, ["id", "flightId", "uuid", "recordId"], MAX_REFERENCE_LENGTH);
   return Object.freeze({

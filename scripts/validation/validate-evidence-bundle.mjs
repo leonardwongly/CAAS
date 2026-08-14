@@ -87,17 +87,11 @@ export async function validateEvidenceBundle() {
       if (check.result !== "fail" && (!Array.isArray(check.artifacts) || check.artifacts.length < 1)) { errors.push(`${file}: check ${check.checkId} has no artifacts`); continue; }
       if (check.result === "fail") continue;
       for (const artifact of check.artifacts) {
-        if (artifact?.path === "raw" || artifact?.path === "spawn" || artifact?.sha256 === "redacted-location-only" || artifact?.sha256 === "none") continue;
-        if (!artifact || typeof artifact.path !== "string" || artifact.path.includes("..") || !/^[a-f0-9]{64}$/.test(artifact.sha256 ?? "")) {
-          errors.push(`${file}: check ${check.checkId} artifact invalid`);
-          continue;
-        }
-        try {
-          const contents = await readFile(resolve(root, artifact.path));
-          if (digest(contents) !== artifact.sha256) errors.push(`${file}: artifact hash mismatch ${artifact.path}`);
-        } catch {
-          errors.push(`${file}: artifact missing ${artifact.path}`);
-        }
+        // Same containment discipline as record-level artifacts: absolute
+        // paths, traversal, symlinks, and non-regular files are rejected
+        // WITHOUT opening them — never a host-file hash oracle and never a
+        // hang on a special file.
+        await validateArtifact(file, `check ${check.checkId}`, artifact);
       }
     }
     const summary = record.summary ?? {};
@@ -194,7 +188,12 @@ export async function validateEvidenceBundle() {
       continue;
     }
     if (record.gateId === undefined && record.checks === undefined) {
-      skipped += 1;
+      // No legitimate completed evidence record reaches this branch:
+      // discovery, templates, oci-digest-bundles, lane/measurement records,
+      // and gate manifests are all classified above. A completed record that
+      // reclassifies itself (e.g. an unknown recordKind) must fail loudly,
+      // never escape scoring by being silently skipped.
+      errors.push(`${file}: unclassified evidence record (no gateId, no checks; recordKind ${record.recordKind ?? "missing"})`);
       continue;
     }
     if (typeof record.gateId === "string") {

@@ -66,11 +66,35 @@ test("the web client uses the generation-bound selection protocol", () => {
   assert.ok(apiSource.includes("/api/v1/routes/compare"), "validateDraft must post to the two-operand comparison endpoint");
   assert.ok(apiSource.includes("baselineId"), "validateDraft must send the selected baseline route id");
   assert.ok(apiSource.includes("selections"), "validateDraft must send explicit selections");
-  // The request body carries only references and server-issued tokens — never coordinates.
-  assert.ok(apiSource.includes("JSON.stringify({ baselineId, targetDraft: { origin, destination, via, selections } })"), "validateDraft must not send coordinates");
   assert.ok(appSource.includes("Exact coordinate selected from the ambiguous group."), "the editor must surface bound selections");
   assert.ok(appSource.includes("Choose exact location"), "ambiguous matches must offer an explicit choice");
   assert.ok(appSource.includes("Session reset."), "the reset copy was updated to avoid a cleared connotation");
   assert.ok(!appSource.includes("Session cleared."), "the old reset copy must be gone");
   assert.ok(!appSource.includes("It cannot be added until the service supports an explicit coordinate selection"), "the old blocking error must be gone");
+});
+
+test("validateDraft posts references and selection tokens, never coordinates, in the comparison body", async (t) => {
+  // Behavioral pin (no whitespace-sensitive source literal): capture the
+  // actual request body produced by the client and assert its exact shape.
+  const { validateDraft } = await import("../../apps/web/src/api.ts");
+  const captured: Array<{ url: string; method?: string | undefined; body?: string | undefined }> = [];
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+    captured.push({ url: typeof input === "string" ? input : String((input as { url?: string })?.url ?? input), method: init?.method, body: typeof init?.body === "string" ? init.body : undefined });
+    return { ok: true, status: 200, json: async () => ({ target: { id: "r1", flightId: "f1", callsign: "SQ321", status: "complete", legs: [], gaps: [], distanceNm: 1, rankDistanceNm: 1 }, comparison: { status: "complete", message: "" }, generation: { id: "g1" } }) } as unknown as Response;
+  }) as typeof fetch;
+  await validateDraft("WSSS", "WMKK", ["VMR"], [{ sequence: 0, locationId: "loc.sig" }], "flight-token");
+  const call = captured[0];
+  assert.ok(call, "validateDraft must issue exactly one request");
+  assert.equal(call?.url, "/api/v1/routes/compare");
+  assert.equal(call?.method, "POST");
+  const body = JSON.parse(call?.body ?? "{}") as Record<string, unknown>;
+  assert.deepEqual(Object.keys(body).sort(), ["baselineId", "targetDraft"], "the body carries only the baseline id and the target draft");
+  assert.equal(body.baselineId, "flight-token");
+  const target = body.targetDraft as Record<string, unknown>;
+  assert.deepEqual(Object.keys(target).sort(), ["destination", "origin", "selections", "via"], "the target draft carries only references and selection tokens");
+  assert.deepEqual(target.via, ["VMR"]);
+  assert.deepEqual(target.selections, [{ sequence: 0, locationId: "loc.sig" }]);
+  assert.ok(JSON.stringify(body).includes("latitude") === false && JSON.stringify(body).includes("lat") === false, "no coordinate field may appear in the comparison request body");
 });

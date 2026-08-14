@@ -45,9 +45,15 @@ export type StubOptions = {
   noGeneration?: boolean | undefined;
   /** Serve a generation whose timestamps are malformed (never render "Invalid Date"). */
   malformedTimestamps?: boolean | undefined;
+  /**
+   * Hold every draft-validation (POST /api/v1/routes/compare) response until
+   * the returned releaseDraft() is called, so rapid-consecutive-edit races
+   * can be exercised deterministically. Responses release in FIFO order.
+   */
+  deferDraft?: boolean | undefined;
 };
 
-export type CapturedCall = { method: string; url: string };
+export type CapturedCall = { method: string; url: string; body?: string | undefined };
 
 const searchMatches = [
   { id: "flight-1", flightId: "flight-1", callsign: "FIXTURE1", departure: "KOR1", destination: "KDS1", routePointCount: 3 },
@@ -216,12 +222,13 @@ function bodyOf(init?: RequestInit): Record<string, unknown> {
  * and returns the captured calls plus the underlying mock. Use
  * `vi.unstubAllGlobals()` in cleanup.
  */
-export function installApiStub(options: StubOptions = {}): { calls: CapturedCall[]; fetchMock: ReturnType<typeof vi.fn> } {
+export function installApiStub(options: StubOptions = {}): { calls: CapturedCall[]; fetchMock: ReturnType<typeof vi.fn>; releaseDraft: () => void } {
   const calls: CapturedCall[] = [];
+  const draftResolvers: Array<() => void> = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<StubResponse> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = (init?.method ?? "GET").toUpperCase();
-    calls.push({ method, url });
+    calls.push({ method, url, ...(typeof init?.body === "string" ? { body: init.body } : {}) });
 
     // Callsign search: POST with the query in the body only; the query never
     // appears in the request URL (plan §2.4).
@@ -252,6 +259,9 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     if (method === "POST" && url === "/api/v1/routes/compare") {
       if (options.failDraft) return jsonResponse({ error: { message: "Draft validation unavailable (stub).", code: "DRAFT_FAIL" } }, 500);
       const targetDraft = bodyOf(init).targetDraft as Record<string, unknown> | undefined;
+      if (options.deferDraft) {
+        return new Promise<StubResponse>((resolve) => { draftResolvers.push(() => resolve(jsonResponse({ target: draftCompareTarget, comparison: draftCompareComparison }))); });
+      }
       return jsonResponse({ target: draftCompareTarget, comparison: draftCompareComparison });
     }
     // Readiness on mount and live refresh.
@@ -276,5 +286,9 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     return jsonResponse({ error: { message: `Unhandled stub request ${method} ${url}.`, code: "STUB" } }, 404);
   });
   vi.stubGlobal("fetch", fetchMock);
-  return { calls, fetchMock };
+  return {
+    calls,
+    fetchMock,
+    releaseDraft: () => { while (draftResolvers.length > 0) draftResolvers.shift()?.(); },
+  };
 }

@@ -32,7 +32,8 @@
     "oci:build": "node scripts/validation/build-oci.mjs && node scripts/validation/oci-subject-manifest.mjs",
     "oci:verify": "node scripts/validation/build-oci.mjs --verify",
     "verify": "pnpm run validate:config && pnpm run validate:policy && pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run test:offline && pnpm run test:evidence && pnpm run test:integration && pnpm run test:security && pnpm run test:container && pnpm run test:performance && pnpm run test:live && pnpm run container:smoke && pnpm run validate:evidence",
-    "validate": "pnpm run validate:config && pnpm run validate:policy && pnpm run typecheck && pnpm run test && pnpm run test:offline && pnpm run test:evidence && pnpm run lint && pnpm run container:smoke"
+    "validate": "pnpm run validate:config && pnpm run validate:policy && pnpm run typecheck && pnpm run test && pnpm run test:offline && pnpm run test:evidence && pnpm run lint && pnpm run container:smoke",
+    "test:adversarial": "pnpm --filter @flight-route-explorer/tests run test:adversarial"
   },
   "devDependencies": {
     "@types/node": "22.15.3",

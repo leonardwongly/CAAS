@@ -10,7 +10,8 @@
     "test:upstream-bounds": "node --test --experimental-strip-types upstream-bounds/*.test.ts",
     "test:a11y": "vitest run --config vitest.config.ts a11y",
     "test:e2e": "vitest run --config vitest.config.ts e2e",
-    "test:responsive": "vitest run --config vitest.config.ts responsive"
+    "test:responsive": "vitest run --config vitest.config.ts responsive",
+    "test:adversarial": "vitest run --config vitest.config.ts adversarial"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",

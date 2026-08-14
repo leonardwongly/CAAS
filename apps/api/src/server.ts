@@ -63,6 +63,7 @@ function securityHeaders(reply: FastifyReply): FastifyReply {
     .header("permissions-policy", "geolocation=(), microphone=(), camera=()");
 }
 const MAX_DRAFT_ENTRIES = 512;
+const DRAFT_TTL_MS = 15 * 60 * 1000;
 const MAX_SEARCH_LENGTH = 64;
 const MAX_ERROR_MESSAGE = 160;
 const PUBLIC_PROVENANCE = "CAAS normalized live generation";
@@ -79,6 +80,12 @@ export interface ApiServerOptions {
   readonly assetDirectory?: string;
   readonly refreshSecret?: string;
   readonly logger?: boolean;
+  // Minimum interval between refresh starts, in milliseconds. Defaults to
+  // 30s so an unauthenticated client cannot burn upstream quota with a
+  // refresh flood (each refresh is a full ~170 MiB five-family acquisition).
+  // Test fixtures and the loopback lane set it to 0 to exercise back-to-back
+  // refreshes.
+  readonly refreshMinIntervalMs?: number;
 }
 
 export interface StartServerOptions extends ApiServerOptions {
@@ -196,6 +203,7 @@ interface ScopedToken {
   readonly l?: unknown;
   readonly o?: unknown;
   readonly n?: unknown;
+  readonly k?: unknown;
 }
 
 export class ApiHttpError extends Error {
@@ -247,11 +255,11 @@ function base64(value: string | Buffer): string {
   return Buffer.from(value).toString("base64url");
 }
 
-function scopedToken(snapshot: Snapshot, type: string, values: Record<string, unknown> = {}): string {
+function scopedToken(snapshot: Snapshot, type: string, values: Record<string, unknown> = {}, expiresAt?: number): string {
   const body = base64(JSON.stringify({
     g: snapshot.id,
     t: type,
-    e: snapshot.unusableAtMs,
+    e: expiresAt ?? snapshot.unusableAtMs,
     n: randomToken(),
     ...values,
   }));
@@ -327,7 +335,11 @@ function publicName(location: Location): string {
 
 function flightMatchesAirport(snapshot: Snapshot, reference: string | null, airport: Location): boolean {
   if (reference === null || !reference.trim()) return false;
-  const result = resolveExactReference({ value: reference }, snapshot.airportLocations);
+  // Index-backed resolution: a full scan of the ~13k airport list per flight
+  // endpoint (with per-record zod parsing) is O(flights × airports) and
+  // blocks the event loop past the warm deadline. The locationTokens index
+  // resolves in O(matches) with identical exact-match semantics.
+  const result = indexedReferenceResolution(snapshot, reference, "airport");
   return result.status === "resolved" && result.match.id === airport.id;
 }
 
@@ -472,7 +484,17 @@ export class GenerationStore {
     this.state = "loading";
     try {
       const snapshot = await acquireSnapshot(this.adapter, this.now);
-      if (sequence !== this.refreshSequence) return snapshot;
+      if (sequence !== this.refreshSequence) {
+        // Superseded by a later-started initialize: never install over it,
+        // but a store left without any snapshot keeps this complete
+        // acquisition rather than staying cold.
+        if (!this.activeSnapshot) {
+          this.activeSnapshot = snapshot;
+          this.state = "ready";
+          this.failureCode = undefined;
+        }
+        return snapshot;
+      }
       this.activeSnapshot = snapshot;
       this.state = "ready";
       this.failureCode = undefined;
@@ -507,8 +529,16 @@ export class GenerationStore {
     try {
       const snapshot = await acquireSnapshot(this.adapter, this.now, signal);
       if (sequence !== this.refreshSequence) {
-        // Superseded by a later-started refresh: report the acquisition this
-        // caller initiated without installing it over the newer generation.
+        // Superseded by a later-started refresh: never install over a newer
+        // generation. But if the newer attempt settled with no usable snapshot
+        // (aborted or failed), this complete non-aborted acquisition is
+        // strictly better than a cold/failed store — install it so serving
+        // continues instead of stranding a valid generation.
+        if (!signal?.aborted && !this.activeSnapshot) {
+          this.activeSnapshot = snapshot;
+          this.state = "ready";
+          this.failureCode = undefined;
+        }
         return snapshot;
       }
       // A refresh whose request deadline already fired must not install its
@@ -578,10 +608,20 @@ export class GenerationStore {
   }
 
   rememberDraft(draft: RouteDraft, snapshot: Snapshot): string {
+    // Expired drafts must be reclaimed on access: without pruning, 512
+    // expired entries would block every new draft for the generation's
+    // lifetime even though nothing could ever consume them again.
+    for (const [id, entry] of this.drafts) {
+      const decoded = readScoped(id, snapshot);
+      if (!decoded || typeof decoded.e !== "number" || decoded.e < this.now() || entry.snapshotId !== snapshot.id) this.drafts.delete(id);
+    }
     if (this.drafts.size >= MAX_DRAFT_ENTRIES) {
       throw new ApiHttpError(429, "DRAFT_CAPACITY_REACHED", "The active data generation has reached its draft capacity. Refresh or retry after the generation changes.", true);
     }
-    const id = scopedToken(snapshot, "draft");
+    // Drafts are transient editing state, not generation-scoped data: a
+    // 15-minute TTL (capped by generation usability) means expired drafts
+    // reclaim their slot instead of pinning it until the generation dies.
+    const id = scopedToken(snapshot, "draft", {}, Math.min(snapshot.unusableAtMs, this.now() + DRAFT_TTL_MS));
     this.drafts.set(id, Object.freeze({ snapshotId: snapshot.id, draft: Object.freeze({ ...draft }) }));
     return id;
   }
@@ -591,10 +631,14 @@ export class GenerationStore {
     // Inclusive boundary, like decodeScoped/cursorOffset: at exactly the
     // unusable instant the generation is still servable ("stale").
     if (!decoded || decoded.g !== snapshot.id || decoded.t !== "draft" || typeof decoded.e !== "number" || decoded.e < this.now() || typeof decoded.n !== "string") {
+      this.drafts.delete(id);
       throw new ApiHttpError(410, "DRAFT_EXPIRED", "The draft is no longer available.");
     }
     const entry = this.drafts.get(id);
-    if (!entry || entry.snapshotId !== snapshot.id) throw new ApiHttpError(410, "DRAFT_EXPIRED", "The draft is no longer available.");
+    if (!entry || entry.snapshotId !== snapshot.id) {
+      this.drafts.delete(id);
+      throw new ApiHttpError(410, "DRAFT_EXPIRED", "The draft is no longer available.");
+    }
     return entry.draft;
   }
 }
@@ -1084,9 +1128,9 @@ function requiredString(value: unknown, code: string, message: string, max = MAX
   return value.trim();
 }
 
-function cursorOffset(value: unknown, snapshot: Snapshot, query: string, limit: number, type: string, now = Date.now): number {
+function cursorOffset(value: unknown, snapshot: Snapshot, query: string, limit: number, type: string, now = Date.now, kind?: string): number {
   const decoded = readScoped(value, snapshot);
-  if (!decoded || decoded.g !== snapshot.id || decoded.t !== type || decoded.q !== query || decoded.l !== limit || typeof decoded.e !== "number" || decoded.e < now() || typeof decoded.n !== "string" || typeof decoded.o !== "number" || !Number.isInteger(decoded.o) || decoded.o < 0) {
+  if (!decoded || decoded.g !== snapshot.id || decoded.t !== type || decoded.q !== query || decoded.l !== limit || (kind !== undefined && decoded.k !== kind) || typeof decoded.e !== "number" || decoded.e < now() || typeof decoded.n !== "string" || typeof decoded.o !== "number" || !Number.isInteger(decoded.o) || decoded.o < 0) {
     throw new ApiHttpError(409, "CURSOR_EXPIRED", "The cursor is invalid, expired, or belongs to another query, limit, or data generation.");
   }
   return decoded.o;
@@ -1193,6 +1237,8 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   const deadlineMs = options.warmRequestDeadlineMs ?? DEFAULT_WARM_DEADLINE_MS;
   const warm = (handler: (request: FastifyRequest, reply: FastifyReply, signal?: AbortSignal) => Promise<unknown>) => withWarmDeadline(handler, deadlineMs);
   const store = new GenerationStore(adapter, now);
+  const REFRESH_MIN_INTERVAL_MS = options.refreshMinIntervalMs ?? 30 * 1000;
+  let lastRefreshStartedAt = -Infinity;
   const app = Fastify({
     logger: options.logger ?? false,
     maxParamLength: 2048,
@@ -1223,6 +1269,12 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") return;
     const origin = request.headers.origin;
     if (origin === undefined) return;
+    // Browsers send the literal "null" origin from sandboxed iframes, data:
+    // URLs, and other opaque contexts: it identifies no same-origin browser
+    // and must fail closed, never silently skip the origin defense.
+    if (origin === "null") {
+      throw new ApiHttpError(403, "CROSS_ORIGIN_DENIED", "Cross-origin state-changing requests are not allowed.");
+    }
     const host = request.headers.host;
     let originHost: string | undefined;
     try { originHost = new URL(origin).host; } catch { originHost = undefined; }
@@ -1249,7 +1301,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     return payload;
   });
 
-  const SECURITY_EVENT_CODES = new Set(["UNAUTHORIZED", "TOO_MANY_MATCHES", "CURSOR_EXPIRED", "GENERATION_EXPIRED", "TOKEN_INVALID", "SELECTION_MISMATCH", "CROSS_ORIGIN_DENIED", "DRAFT_CAPACITY_REACHED"]);
+  const SECURITY_EVENT_CODES = new Set(["UNAUTHORIZED", "TOO_MANY_MATCHES", "CURSOR_EXPIRED", "GENERATION_EXPIRED", "TOKEN_INVALID", "SELECTION_MISMATCH", "CROSS_ORIGIN_DENIED", "DRAFT_CAPACITY_REACHED", "REFRESH_RATE_LIMITED", "REFRESH_FAILED"]);
   app.setErrorHandler((error, request, reply) => {
     // Security-relevant rejections are logged when a logger is configured;
     // bounded, code-only lines — never request bodies or identifiers.
@@ -1443,6 +1495,15 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
         left.projection.id.localeCompare(right.projection.id);
     });
     const hasRankOne = ordered.some((candidate) => rankOf(candidate) === 1);
+    // Plan §6.1: the browser response is hard-limited to 2 MiB. Estimate the
+    // serialized size BEFORE constructing DTOs so an over-limit result set
+    // fails fast with an actionable error — instead of minting ~127k HMAC
+    // tokens and serializing tens of MiB only to be dropped by the onSend
+    // guard as a 500 with no recourse (the dead zone ~17-18 candidates).
+    const estimatedBytes = ordered.reduce((total, candidate) => total + (candidate.projection.waypoints.length + candidate.projection.gaps.length) * 260 + 400, 0);
+    if (estimatedBytes > MAX_BROWSER_RESPONSE_BYTES) {
+      throw new ApiHttpError(409, "RESPONSE_TOO_LARGE", "These endpoints produce too many candidate routes for one browser response. Select a single route and use its detail view.", true);
+    }
     return reply.send({
       data: ordered.map((candidate) => routeDto(snapshot, candidate.projection, candidate.projection.complete ? rankOf(candidate) : undefined)),
       ...(hasRankOne ? { rankLabel: RANK_ONE_LABEL } : {}),
@@ -1495,13 +1556,15 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
       if (total > AMBIGUITY_HARD_TOTAL) throw new ApiHttpError(400, "TOO_MANY_MATCHES", `The reference matches more than ${AMBIGUITY_HARD_TOTAL} locations. Use a narrower term.`);
       const context = token(reference);
       const cursor = query.cursor ?? body.cursor;
-      const offset = cursor === undefined ? 0 : cursorOffset(cursor, snapshot, context, AMBIGUITY_PAGE, "ambiguity-cursor", now);
+      const offset = cursor === undefined ? 0 : cursorOffset(cursor, snapshot, context, AMBIGUITY_PAGE, "ambiguity-cursor", now, kind);
       const page = result.matches.slice(offset, offset + AMBIGUITY_PAGE);
       const nextOffset = offset + page.length;
       return reply.send({
         status: "ambiguous",
         matches: page.map((match) => { const index = snapshot.locations.findIndex((location) => location.id === match.id); return publicLocation(snapshot, index, idsForLocation(snapshot, match)); }),
-        ...(nextOffset < total ? { nextCursor: scopedToken(snapshot, "ambiguity-cursor", { o: nextOffset, q: context, l: AMBIGUITY_PAGE }) } : {}),
+        // The cursor binds the kind filter too: a cursor minted under one
+        // kind must never offset into a differently-filtered result set.
+        ...(nextOffset < total ? { nextCursor: scopedToken(snapshot, "ambiguity-cursor", { o: nextOffset, q: context, l: AMBIGUITY_PAGE, k: kind }) } : {}),
         generation: generationSummary(snapshot, now()),
       });
     }
@@ -1516,6 +1579,13 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     queryObject(request, []);
     assertEmptyBody(request);
     ensureRefreshAuthorization(request, runtimeRefreshSecret(options));
+    if (REFRESH_MIN_INTERVAL_MS > 0) {
+      const elapsed = now() - lastRefreshStartedAt;
+      if (elapsed < REFRESH_MIN_INTERVAL_MS) {
+        throw new ApiHttpError(429, "REFRESH_RATE_LIMITED", `Refresh is rate-limited to one request per ${Math.ceil(REFRESH_MIN_INTERVAL_MS / 1000)} seconds to bound upstream acquisition cost.`, true);
+      }
+      lastRefreshStartedAt = now();
+    }
     try {
       await store.refresh(signal);
       // Always report the generation the store is actually serving: a
@@ -1537,6 +1607,14 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     const snapshot = store.requireSnapshot();
     const parsed = RouteDraftSchema.safeParse(bodyObject(request, ["origin", "destination", "via", "selections"]));
     if (!parsed.success || !parsed.data.origin || !parsed.data.destination) throw new ApiHttpError(400, "INVALID_DRAFT", "A route draft requires non-empty origin and destination endpoints.");
+    // A stored draft must be consumable: enforce the same referential
+    // integrity every consumer route enforces, so a 201 draft can never be a
+    // draft that every consumer rejects, and invalid selections never
+    // accumulate in the draft map.
+    selectionMap(parsed.data);
+    for (const selection of parsed.data.selections) {
+      selectedLocation(snapshot, selection, parsed.data.via[selection.sequence]!, now);
+    }
     const draftId = store.rememberDraft(parsed.data, snapshot);
     return reply.code(201).send({ id: draftId, generation: generationSummary(snapshot, now()), draft: parsed.data });
   }));

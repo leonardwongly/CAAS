@@ -22,9 +22,11 @@ import { sanitizedAdapter } from "../fixtures/sanitized-caas.ts";
 // poc-interaction-exclusions.md: "A draft id expires with the generation that
 // issued it." Plan §6.2 and freshness.ts define the unusable boundary as
 // inclusive: the generation is "stale" (still servable) through elapsed ===
-// LIVE_UNUSABLE_MS and unusable strictly after. Draft tokens must therefore
-// remain servable at the exact unusable instant, exactly like every other
-// generation-bound token.
+// LIVE_UNUSABLE_MS and unusable strictly after. Generation tokens (flights,
+// cursors) remain servable at the exact unusable instant. Drafts additionally
+// carry their own 15-minute TTL (sec-r4 draft-slot reclamation), so a draft
+// minted early in the generation expires at its TTL boundary, strictly before
+// the generation — draft expiry never outlives the generation that issued it.
 
 test("draft tokens stay servable at the exact unusable instant, like every other generation-bound token", async (t) => {
   let clock = 1_700_000_000_000;
@@ -58,9 +60,14 @@ test("draft tokens stay servable at the exact unusable instant, like every other
   assert.equal(cursorAtInstant.statusCode, 200, "cursor remains servable at the exact unusable instant");
   assert.equal((cursorAtInstant.json() as { generation: { overall: string } }).generation.overall, "stale");
 
+  // Drafts carry their own 15-minute TTL (sec-r4: bounded draft slots must be
+  // reclaimable), shorter than the generation: the earlier-minted draft has
+  // expired at the unusable instant, while the generation's own tokens
+  // remain servable. The 410 names the draft's own expiry, not the
+  // generation's.
   const draftAtInstant = await server.app.inject({ method: "POST", url: "/api/v1/drafts/compare", payload: { draftId } });
-  assert.equal(draftAtInstant.statusCode, 200, "a draft minted earlier remains servable at the exact unusable instant");
-  assert.equal((draftAtInstant.json() as { generation: { overall: string } }).generation.overall, "stale");
+  assert.equal(draftAtInstant.statusCode, 410, "a draft minted 30 minutes earlier has exceeded its own TTL at the unusable instant");
+  assert.equal((draftAtInstant.json() as { error: { code: string } }).error.code, "DRAFT_EXPIRED");
 
   // A draft minted at the exact instant must be immediately servable.
   const draftAtBoundary = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { origin: "KOR1", destination: "KDS1", via: [] } });

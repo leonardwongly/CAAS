@@ -47,10 +47,18 @@ export async function extractBuildContext(contextTar, contextDir) {
     if (name.startsWith("/") || name.split("/").some((segment) => segment === "..")) {
       throw new Error(`OCI build context contains an escaping member name: ${name}`);
     }
+    // A member name containing " -> " would defeat the split-based target
+    // parse (an escaping target could hide behind a name fragment and pass
+    // the containment check). Any line with more than one occurrence is
+    // unparseable and must fail loudly, never be guessed at.
+    const arrowCount = line.split(" -> ").length - 1;
+    if (arrowCount > 1) {
+      throw new Error(`OCI build context listing line contains an unparseable " -> " sequence: ${line.slice(0, 80)}`);
+    }
     // Symlink members start with 'l' in the mode column: their target is
-    // appended after "->" and must stay inside the context directory.
+    // appended after " -> " and must stay inside the context directory.
     if (line.startsWith("l")) {
-      const target = line.split(" -> ")[1];
+      const target = arrowCount === 0 ? undefined : line.split(" -> ")[1];
       if (target === undefined || target.startsWith("/") || target.split("/").some((segment) => segment === "..")) {
         throw new Error(`OCI build context contains an escaping symlink member: ${name}`);
       }

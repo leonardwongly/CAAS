@@ -25,7 +25,7 @@ const collector = new CheckCollector();
 async function runChecks() {
   const transport = createMockTransport();
   const adapter = createCaasAdapter({ transport });
-  const server = await createApiServer({ adapter });
+  const server = await createApiServer({ adapter, refreshMinIntervalMs: 0 });
   await server.app.listen({ port: 0, host: "127.0.0.1" });
   // Any exception mid-run must close the listening server so the process can
   // exit; the outer catch records the failure as a fail check.
@@ -201,7 +201,7 @@ async function runChecksOn(server, transport) {
   // authorized by the access boundary (loopback single-user locally; Entra
   // authConfigs at the Azure edge) and must succeed so the UI recovery path works.
   const noSecretTransport = createMockTransport();
-  const noSecretServer = await createApiServer({ adapter: createCaasAdapter({ transport: noSecretTransport }), refreshSecret: "" });
+  const noSecretServer = await createApiServer({ adapter: createCaasAdapter({ transport: noSecretTransport }), refreshSecret: "", refreshMinIntervalMs: 0 });
   await noSecretServer.app.listen({ port: 0, host: "127.0.0.1" });
   const noSecretAddress = noSecretServer.app.server.address();
   try {
@@ -233,7 +233,7 @@ async function runChecksOn(server, transport) {
   const failingAdapter = createCaasAdapter({ transport: failingTransport });
   let failedClosed = false;
   try {
-    await createApiServer({ adapter: failingAdapter, initialize: true });
+    await createApiServer({ adapter: failingAdapter, initialize: true, refreshMinIntervalMs: 0 });
   } catch {
     failedClosed = true;
   }
@@ -241,7 +241,7 @@ async function runChecksOn(server, transport) {
 
   // 16. Restart reacquires a complete generation.
   const restartTransport = createMockTransport();
-  const restartServer = await createApiServer({ adapter: createCaasAdapter({ transport: restartTransport }) });
+  const restartServer = await createApiServer({ adapter: createCaasAdapter({ transport: restartTransport }), refreshMinIntervalMs: 0 });
   await restartServer.app.listen({ port: 0, host: "127.0.0.1" });
   const restartAddress = restartServer.app.server.address();
   const restartReady = await fetch(`http://127.0.0.1:${restartAddress.port}/api/v1/health/ready`);

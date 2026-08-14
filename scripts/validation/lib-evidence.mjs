@@ -1,8 +1,8 @@
 // Shared helpers for the release-evidence lanes: commit detection, hashing,
 // result recording, and pass/fail reporting with loud exit codes.
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,7 +32,14 @@ export async function writeJsonRecord(relativePath, record) {
   const absolute = resolve(root, relativePath);
   await mkdir(dirname(absolute), { recursive: true });
   const contents = `${JSON.stringify(record, null, 2)}\n`;
-  await writeFile(absolute, contents, "utf8");
+  // Atomic write: a concurrent lane run (or a crash mid-write) must never
+  // leave a torn half-written record at the final path. Each writer uses a
+  // unique temp file (same-process concurrent writers included) and the
+  // rename is atomic on the same filesystem, so readers see either the old
+  // record or the complete new one — never a truncation.
+  const temporary = `${absolute}.${process.pid}.${randomUUID()}.tmp`;
+  await writeFile(temporary, contents, "utf8");
+  await rename(temporary, absolute);
   // Hash the exact serialized bytes in memory: the sha256 must attest what
   // the lane wrote, never whatever the record path yields at re-read time
   // (a symlink planted at the path would otherwise redirect the attestation).

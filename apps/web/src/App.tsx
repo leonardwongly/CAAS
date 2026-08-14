@@ -126,6 +126,10 @@ function App() {
 
   function resetDraftState() {
     draftRequest.current?.abort();
+    // Invalidate the identity check too: a validation that already resolved
+    // but has not yet applied must never land after a reset (it would render
+    // the previous baseline's draft under a newly selected route).
+    draftRequest.current = undefined;
     setDraftActive(false);
     setDraft(undefined);
     setDraftError(undefined);
@@ -424,15 +428,27 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string>();
   const lookupRequest = useRef(0);
-  // Optimistic via mirror: commits during an in-flight validation must not be
-  // computed from (and silently drop) the stale server response.
+  // Optimistic mirrors for via AND selections: every update commits through
+  // them, so rapid consecutive edits never compute from (and silently drop)
+  // a stale server response, a reset is mirrored immediately (an in-flight
+  // commit cannot resurrect removed waypoints), and an earlier commit's
+  // explicit selection survives the next commit.
   const committedRef = useRef<string[] | null>(null);
+  const selectionsRef = useRef<DraftSelection[] | null>(null);
   const via = committedRef.current ?? draft?.draft.via ?? [];
   useEffect(() => {
-    if (draft === undefined) { committedRef.current = null; return; }
+    if (draft === undefined) { committedRef.current = null; selectionsRef.current = null; return; }
     if (committedRef.current !== null && JSON.stringify(draft.draft.via) === JSON.stringify(committedRef.current)) committedRef.current = null;
+    if (selectionsRef.current !== null && JSON.stringify(draft.draft.selections) === JSON.stringify(selectionsRef.current)) selectionsRef.current = null;
   }, [draft]);
-  const selections = draft?.draft.selections ?? [];
+  // Every state-changing edit funnels through here so the mirrors stay ahead
+  // of the server round-trip.
+  function commitUpdate(nextVia: string[], nextSelections: DraftSelection[]) {
+    committedRef.current = nextVia;
+    selectionsRef.current = nextSelections;
+    onUpdate(nextVia, nextSelections);
+  }
+  const selections = selectionsRef.current ?? draft?.draft.selections ?? [];
   const delta = draft?.comparison.distanceDeltaNm;
   const percentage = draft?.comparison.percentageDistanceDelta;
   const selectedAt = (sequence: number) => selections.some((selection) => selection.sequence === sequence);
@@ -457,8 +473,7 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
   function commitMatch(match: PointMatch) {
     lookupRequest.current += 1;
     const nextVia = [...via, match.identifier];
-    committedRef.current = nextVia;
-    onUpdate(nextVia, match.locationId ? [...selections, { sequence: via.length, locationId: match.locationId }] : selections);
+    commitUpdate(nextVia, match.locationId ? [...selections, { sequence: via.length, locationId: match.locationId }] : selections);
     setQuery("");
     setMatches([]);
     setActiveIndex(-1);
@@ -498,8 +513,8 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
     }} aria-expanded={hasMatches} aria-controls={hasMatches ? matchResultsId : undefined} aria-activedescendant={activeIndex >= 0 ? `draft-match-${activeIndex}` : undefined} aria-autocomplete="list" maxLength={64} placeholder="Search an exact fix, NAVAID, or airport" autoComplete="off" /><button className="search-button" type="button" onClick={() => void findReference()} disabled={lookupLoading || !query.trim()} aria-label="Find exact reference point">{lookupLoading ? <span className="spinner" /> : "Find"}</button></div>{lookupError && <p className="field-error" role="alert">{lookupError}</p>}<div className="sr-status" role="status" aria-live="polite">{lookupLoading ? "Looking up exact reference points." : matches.length ? `${matches.length} exact reference point${matches.length === 1 ? "" : "s"} available.` : ""}</div>
       {hasMatches && <div className="reference-picker" id={matchResultsId} role="listbox" aria-label="Resolved reference-point search results">{matches.map((match, index) => <div role="option" id={`draft-match-${index}`} aria-selected={activeIndex === index} className={activeIndex === index ? "is-active" : undefined} tabIndex={-1} key={`${match.identifier}-${match.coordinate.lat}-${match.coordinate.lon}`} onMouseDown={(event) => event.preventDefault()} onClick={() => commitMatch(match)}><span><strong>{match.identifier}</strong><small>{match.kind} · {match.coordinate.lat.toFixed(4)}, {match.coordinate.lon.toFixed(4)}{match.duplicateGroup ? " · multiple exact coordinates" : ""}</small></span><span>{match.duplicateGroup ? "Choose exact location" : "Add"}</span></div>)}</div>}
     </div>
-    <div className="draft-points"><div className="group-heading"><h3>Intermediate points</h3><button className="text-button" type="button" onClick={() => onUpdate([], [])} disabled={!via.length || loading}>Reset to endpoint-only draft</button></div>{via.length ? <ol role="list">{via.map((point, index) => <li key={`${point}-${index}`}><span><strong>{point}</strong><small>{selectedAt(index) ? "Exact coordinate selected from the ambiguous group." : "Manual-direct segments are not airways."}</small></span><span className="draft-row-actions"><button type="button" onClick={() => onUpdate(via.map((value, position) => position === index - 1 ? point : position === index ? via[index - 1]! : value), remapMove(index, -1))} disabled={loading || index === 0} aria-label={`Move ${point} up`}>Move up</button><button type="button" onClick={() => onUpdate(via.map((value, position) => position === index + 1 ? point : position === index ? via[index + 1]! : value), remapMove(index, 1))} disabled={loading || index === via.length - 1} aria-label={`Move ${point} down`}>Move down</button><button type="button" onClick={() => onUpdate(via.filter((_, position) => position !== index), remapRemove(index))} disabled={loading} aria-label={`Remove ${point}`}>Remove</button></span></li>)}</ol> : <p className="muted-copy">No intermediate points. This draft uses a direct modeled endpoint-to-endpoint segment.</p>}</div>
-    {loading && <div className="loading-row"><span className="spinner dark" /> Validating the local draft…</div>}{error && <div className="notice error-notice" role="alert"><span>{error}</span><button className="retry-button" type="button" onClick={() => { onUpdate(via, selections); requestAnimationFrame(() => document.getElementById("draft-heading")?.focus()); }} disabled={loading}>Retry draft validation</button></div>}
+    <div className="draft-points"><div className="group-heading"><h3>Intermediate points</h3><button className="text-button" type="button" onClick={() => commitUpdate([], [])} disabled={!via.length || loading}>Reset to endpoint-only draft</button></div>{via.length ? <ol role="list">{via.map((point, index) => <li key={`${point}-${index}`}><span><strong>{point}</strong><small>{selectedAt(index) ? "Exact coordinate selected from the ambiguous group." : "Manual-direct segments are not airways."}</small></span><span className="draft-row-actions"><button type="button" onClick={() => commitUpdate(via.map((value, position) => position === index - 1 ? point : position === index ? via[index - 1]! : value), remapMove(index, -1))} disabled={loading || index === 0} aria-label={`Move ${point} up`}>Move up</button><button type="button" onClick={() => commitUpdate(via.map((value, position) => position === index + 1 ? point : position === index ? via[index + 1]! : value), remapMove(index, 1))} disabled={loading || index === via.length - 1} aria-label={`Move ${point} down`}>Move down</button><button type="button" onClick={() => commitUpdate(via.filter((_, position) => position !== index), remapRemove(index))} disabled={loading} aria-label={`Remove ${point}`}>Remove</button></span></li>)}</ol> : <p className="muted-copy">No intermediate points. This draft uses a direct modeled endpoint-to-endpoint segment.</p>}</div>
+    {loading && <div className="loading-row"><span className="spinner dark" /> Validating the local draft…</div>}{error && <div className="notice error-notice" role="alert"><span>{error}</span><button className="retry-button" type="button" onClick={() => { commitUpdate(via, selections); requestAnimationFrame(() => document.getElementById("draft-heading")?.focus()); }} disabled={loading}>Retry draft validation</button></div>}
     {draft && <div className="draft-result"><Metric label="Draft status" value={draft.comparison.status === "complete" ? "Complete" : "Incomplete"} /><Metric label="Modeled distance" value={formatDistance(draft.route.distanceNm)} /><Metric label="Change from selected route" value={delta === undefined ? "Unavailable" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} NM`} note={percentage !== undefined ? `Directed baseline → target · ${percentage >= 0 ? "+" : ""}${percentage.toFixed(1)}%` : "Directed baseline → target"} /><Metric label="Draft gaps" value={String(draft.route.gaps.length)} note={draft.comparison.message} /></div>}
   </section>;
 }

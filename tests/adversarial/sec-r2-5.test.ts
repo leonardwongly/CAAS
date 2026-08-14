@@ -48,7 +48,7 @@ test("superseded refresh must report the active generation, not its uninstalled 
       return base.fixes(signal);
     },
   };
-  const server = await createApiServer({ adapter, refreshSecret: "test-refresh", initialize: false });
+  const server = await createApiServer({ adapter, refreshSecret: "test-refresh", initialize: false, refreshMinIntervalMs: 0 });
   t.after(() => server.app.close());
 
   await server.store.initialize(); // active = S0
@@ -102,7 +102,7 @@ test("superseded refresh must report the active generation when the later-starte
       return base.navaids(signal);
     },
   };
-  const server = await createApiServer({ adapter, refreshSecret: "test-refresh", initialize: false });
+  const server = await createApiServer({ adapter, refreshSecret: "test-refresh", initialize: false, refreshMinIntervalMs: 0 });
   t.after(() => server.app.close());
 
   await server.store.initialize(); // active = S0

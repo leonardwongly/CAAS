@@ -441,7 +441,7 @@ test("keeps serving the retained generation with retrieval time after a failed r
 
 test("retains at most one previous generation and prunes it once unusable", async (t) => {
   let clock = 0;
-  const server = await createApiServer({ adapter: fixtureAdapter(), now: () => clock, refreshSecret: "test-refresh" });
+  const server = await createApiServer({ adapter: fixtureAdapter(), now: () => clock, refreshSecret: "test-refresh", refreshMinIntervalMs: 0 });
   t.after(() => server.app.close());
   const first = server.store.active!.id;
   clock += 1_000;
