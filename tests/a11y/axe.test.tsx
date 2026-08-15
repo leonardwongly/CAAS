@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -74,6 +74,17 @@ describe("axe audits", () => {
     await audit("route-chooser");
   });
 
+  it("with the route comparison open passes axe", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+    await user.click(screen.getByRole("button", { name: "Compare" }));
+    const drawer = await screen.findByRole("region", { name: "Route comparison" });
+    await user.click(within(drawer).getByRole("button", { name: /with Recorded via alternate routing/ }));
+    await audit("route-comparison");
+  });
+
   it("with the route data drawer open passes axe", async () => {
     installApiStub();
     const user = userEvent.setup();
@@ -113,5 +124,21 @@ describe("axe audits", () => {
     await user.click(screen.getByRole("button", { name: "Map only" }));
     await waitFor(() => expect(screen.queryByRole("banner")).toBeNull());
     await audit("map-only");
+  });
+});
+
+describe("axe audits — API data page", () => {
+  it("with the API data page open and one explorer result rendered passes axe", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "API data" }));
+    await screen.findByRole("heading", { name: "API data" });
+    const readinessCard = screen.getByText("/api/v1/readiness").closest(".explorer-card");
+    if (readinessCard instanceof HTMLElement) {
+      await user.click(within(readinessCard).getByRole("button", { name: "Run" }));
+      await waitFor(() => expect(within(readinessCard).getByText(/"status": "ready"/)).toBeTruthy());
+    }
+    await audit("api-data");
   });
 });

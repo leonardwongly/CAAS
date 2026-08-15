@@ -55,7 +55,7 @@ const MAX_BROWSER_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 function securityHeaders(reply: FastifyReply): FastifyReply {
   return reply
-    .header("content-security-policy", "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; style-src 'self'")
+    .header("content-security-policy", "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: https://tile.openstreetmap.org; object-src 'none'; style-src 'self'")
     .header("referrer-policy", "strict-origin-when-cross-origin")
     .header("strict-transport-security", "max-age=31536000; includeSubDomains")
     .header("x-content-type-options", "nosniff")
@@ -138,6 +138,8 @@ interface PublicEvidence {
   readonly records: number;
   readonly acceptedRecords: number;
   readonly rejectedRecords: number;
+  /** Present only for the airways family, which deduplicates accepted values. */
+  readonly uniqueRecords?: number;
   readonly retried: boolean;
   readonly durationMs: number;
 }
@@ -293,6 +295,7 @@ function publicEvidence(evidence: DatasetEvidence | AirwayEvidence): PublicEvide
     records: evidence.records,
     acceptedRecords: evidence.acceptedRecords,
     rejectedRecords: evidence.rejectedRecords,
+    ...("uniqueRecords" in evidence ? { uniqueRecords: evidence.uniqueRecords } : {}),
     retried: evidence.retried,
     durationMs: evidence.durationMs,
   });
@@ -1124,6 +1127,14 @@ function assertEmptyBody(request: FastifyRequest): void {
   if (request.body !== undefined) bodyObject(request, []);
 }
 
+// Repo rule (plan §2.4): queries, tokens, and cursors travel in POST bodies
+// only, never in URLs — a non-empty query string is rejected outright.
+function assertEmptyQuery(request: FastifyRequest): void {
+  if (request.query && typeof request.query === "object" && !Array.isArray(request.query) && Object.keys(request.query as Record<string, unknown>).length > 0) {
+    throw new ApiHttpError(400, "INVALID_QUERY", "The request accepts its parameters in the body only.");
+  }
+}
+
 function requiredString(value: unknown, code: string, message: string, max = MAX_SEARCH_LENGTH): string {
   if (typeof value !== "string" || !value.trim() || value.length > max) throw new ApiHttpError(400, code, message);
   return value.trim();
@@ -1426,6 +1437,77 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.get("/api/v1/routes/browse", warm(browse));
   app.get("/api/v1/browse", warm(browse));
   app.get("/api/v1/flights", warm(browse));
+
+  // Feature 4: bulk data browse endpoints. Queries and cursors travel in POST
+  // bodies only (repo rule: never tokens or state in URLs). Cursors are bound
+  // to the generation AND the family via the "browse-cursor" scoped token with
+  // q = family, so a cursor from another family or an older generation fails
+  // closed with 409 CURSOR_EXPIRED. The summary exposes record counts only —
+  // no airway value or type field is ever emitted (hard rule).
+  const dataSummary = async (request: FastifyRequest, reply: FastifyReply) => {
+    assertEmptyQuery(request);
+    const snapshot = store.requireSnapshot();
+    const familyEvidence = (family: string): PublicEvidence | undefined => snapshot.evidence.find((item) => item.family === family);
+    const row = (family: string, evidence?: PublicEvidence) => ({ family, records: evidence?.records ?? 0, ...(evidence ? { acceptedRecords: evidence.acceptedRecords, rejectedRecords: evidence.rejectedRecords } : {}) });
+    const airway = snapshot.airwayEvidence;
+    const families = [
+      row("flights", familyEvidence("displayAll")),
+      row("airways", airway),
+      row("fixes", familyEvidence("fixes")),
+      row("airports", familyEvidence("airports")),
+      row("navaids", familyEvidence("navaids")),
+    ];
+    return reply.send({
+      generation: generationSummary(snapshot, now()),
+      families,
+      airway: {
+        family: airway.family,
+        records: airway.records,
+        acceptedRecords: airway.acceptedRecords,
+        rejectedRecords: airway.rejectedRecords,
+        ...(airway.uniqueRecords !== undefined ? { uniqueRecords: airway.uniqueRecords } : {}),
+      },
+    });
+  };
+  app.get("/api/v1/data/summary", warm(dataSummary));
+
+  const browseFlights = async (request: FastifyRequest, reply: FastifyReply) => {
+    assertEmptyQuery(request);
+    const snapshot = store.requireSnapshot();
+    const body = bodyObject(request, ["limit", "cursor"]);
+    const limit = parseLimit(body.limit);
+    const context = "flights";
+    const offset = body.cursor === undefined ? 0 : cursorOffset(body.cursor, snapshot, context, limit, "browse-cursor", now);
+    const items = snapshot.flights.slice(offset, offset + limit).map((flight) => {
+      const id = flightId(snapshot, flight.index);
+      return {
+        id,
+        flightId: id,
+        callsign: flight.record.callsign,
+        origin: flight.record.departure,
+        destination: flight.record.destination,
+        routePointCount: flight.record.routeElements?.length ?? 0,
+      };
+    });
+    const nextOffset = offset + items.length;
+    return reply.send({ data: items, generation: generationSummary(snapshot, now()), ...(nextOffset < snapshot.flights.length ? { nextCursor: scopedToken(snapshot, "browse-cursor", { o: nextOffset, q: context, l: limit }) } : {}) });
+  };
+  app.post("/api/v1/data/flights", warm(browseFlights));
+
+  const browseLocations = (family: string, kind: Location["kind"]) => async (request: FastifyRequest, reply: FastifyReply) => {
+    assertEmptyQuery(request);
+    const snapshot = store.requireSnapshot();
+    const body = bodyObject(request, ["limit", "cursor"]);
+    const limit = parseLimit(body.limit);
+    const indexes = snapshot.locations.flatMap((location, index) => (location.kind === kind ? [index] : []));
+    const offset = body.cursor === undefined ? 0 : cursorOffset(body.cursor, snapshot, family, limit, "browse-cursor", now);
+    const data = indexes.slice(offset, offset + limit).map((index) => publicLocation(snapshot, index, []));
+    const nextOffset = offset + data.length;
+    return reply.send({ data, generation: generationSummary(snapshot, now()), ...(nextOffset < indexes.length ? { nextCursor: scopedToken(snapshot, "browse-cursor", { o: nextOffset, q: family, l: limit }) } : {}) });
+  };
+  app.post("/api/v1/data/fixes", warm(browseLocations("fixes", "place")));
+  app.post("/api/v1/data/airports", warm(browseLocations("airports", "airport")));
+  app.post("/api/v1/data/navaids", warm(browseLocations("navaids", "station")));
 
   const routeOptions = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();

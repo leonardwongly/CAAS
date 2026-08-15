@@ -61,6 +61,58 @@ describe("interaction review", () => {
     expect(within(data).getByText("MIDPT could not be resolved to a single reference")).toBeTruthy();
   });
 
+  it("draws every returned route on the map with alternates dimmed and moves the highlight on selection", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await selectFixtureFlight(user);
+
+    // The auto-selected Rank 1 route is highlighted and the other candidate
+    // with geometry is drawn dimmed; the gap-only candidate has no geometry
+    // and must not be drawn. The rail badge counts all returned options.
+    expect(container.querySelectorAll(".route-path")).toHaveLength(1);
+    expect(container.querySelectorAll(".route-path-alternate")).toHaveLength(1);
+    expect(container.querySelector(".rail-count")?.textContent).toBe("3");
+    expect(screen.getByRole("img", { name: /1 alternate recorded route shown dimmed/ })).toBeTruthy();
+
+    // Choosing a different candidate moves the highlight without changing
+    // how many lines are drawn.
+    await user.click(screen.getByRole("button", { name: "Routes" }));
+    await user.click(screen.getByRole("button", { name: /Recorded via alternate routing/ }));
+    await waitFor(() => expect(screen.getByText("Recorded via alternate routing", { selector: ".map-hud strong" })).toBeTruthy());
+    expect(container.querySelectorAll(".route-path")).toHaveLength(1);
+    expect(container.querySelectorAll(".route-path-alternate")).toHaveLength(1);
+    expect(screen.getByRole("img", { name: /1 alternate recorded route shown dimmed/ })).toBeTruthy();
+  });
+
+  it("compare drawer shows side-by-side metrics and the directed delta", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+
+    await user.click(screen.getByRole("button", { name: "Compare" }));
+    const drawer = await screen.findByRole("region", { name: "Route comparison" });
+    expect(within(drawer).getAllByText("512.4 NM").length).toBeGreaterThan(0);
+    await user.click(within(drawer).getByRole("button", { name: /with Recorded via alternate routing/ }));
+    expect(within(drawer).getAllByText("534.1 NM").length).toBeGreaterThan(0);
+    expect(within(drawer).getByText("+21.7 NM")).toBeTruthy();
+    expect(within(drawer).getByText(/\+4\.2%/)).toBeTruthy();
+  });
+
+  it("comparing the incomplete candidate reports an unavailable delta", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+
+    await user.click(screen.getByRole("button", { name: "Compare" }));
+    const drawer = await screen.findByRole("region", { name: "Route comparison" });
+    await user.click(within(drawer).getByRole("button", { name: /with Recorded with unresolved gap/ }));
+    expect(within(drawer).getByText("Unavailable")).toBeTruthy();
+    expect(within(drawer).getByText("Both routes must be complete for a modeled-distance difference.")).toBeTruthy();
+  });
+
   it("edits a copy and sees the validated comparison metrics", async () => {
     installApiStub();
     const user = userEvent.setup();
@@ -80,6 +132,20 @@ describe("interaction review", () => {
     await screen.findByRole("listbox", { name: "Resolved reference-point search results" });
     await user.click(screen.getByRole("option", { name: /MIDPT/ }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Remove MIDPT" })).toBeTruthy());
+  });
+
+  it("shows search results as the user types without pressing Enter", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const input = screen.getByRole("combobox", { name: "Flight number or code" });
+    await user.type(input, "FIXTURE1");
+    // No Enter: the debounced type-ahead settles and opens the listbox.
+    const listbox = await screen.findByRole("listbox", { name: "Choose an exact flight-plan match" }, { timeout: 2000 });
+    expect(within(listbox).getAllByRole("option").length).toBe(2);
+    // The live region never announced a per-keystroke "Searching" message.
+    expect(screen.getByRole("status").textContent).not.toContain("Searching");
   });
 
   it("recovers from a failed search without reloading", async () => {
@@ -112,6 +178,7 @@ describe("interaction review", () => {
     expect((screen.getByRole("combobox", { name: "Flight number or code" }) as HTMLInputElement).value).toBe("");
     expect(screen.getByText("Recorded routes appear after selection")).toBeTruthy();
     expect(screen.getByRole("status").textContent).toBe("Session reset.");
+    expect((screen.getByRole("button", { name: "Compare" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("the freshness strip reports the live generation and refresh resets the session", async () => {
@@ -160,6 +227,7 @@ describe("interaction review", () => {
       { trigger: "Routes", drawer: "Route chooser", close: "Close" },
       { trigger: "Data", drawer: "Flight and route data", close: "Close" },
       { trigger: "Edit copy", drawer: "Local route editor", close: "Close draft" },
+      { trigger: "Compare", drawer: "Route comparison", close: "Close" },
     ] as const;
     for (const { trigger, drawer, close } of cases) {
       await user.click(within(rail).getByRole("button", { name: trigger }));

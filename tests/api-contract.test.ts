@@ -63,6 +63,9 @@ test("applies same-origin security headers to API responses", async (t) => {
   const response = await server.app.inject({ method: "GET", url: "/api/v1/health/live" });
   assert.equal(response.statusCode, 200);
   assert.match(String(response.headers["content-security-policy"]), /default-src 'self'/);
+  // The single authorized external destination: OSM raster tiles (owner
+  // authorization 2026-08-15). connect-src stays same-origin.
+  assert.match(String(response.headers["content-security-policy"]), /img-src 'self' data: https:\/\/tile\.openstreetmap\.org/);
   assert.equal(response.headers["referrer-policy"], "strict-origin-when-cross-origin");
   assert.equal(response.headers["x-content-type-options"], "nosniff");
   assert.equal(response.headers["x-frame-options"], "DENY");

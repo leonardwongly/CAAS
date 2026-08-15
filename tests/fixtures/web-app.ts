@@ -51,6 +51,14 @@ export type StubOptions = {
    * can be exercised deterministically. Responses release in FIFO order.
    */
   deferDraft?: boolean | undefined;
+  /**
+   * Hold every callsign-search (POST /api/v1/callsigns/search) response until
+   * the returned releaseSearch() is called, so type-ahead supersession races
+   * can be exercised deterministically. Responses release in FIFO order.
+   */
+  deferSearch?: boolean | undefined;
+  /** Fail bulk browse requests with 409 CURSOR_EXPIRED. */
+  failCursor?: boolean | undefined;
 };
 
 export type CapturedCall = { method: string; url: string; body?: string | undefined };
@@ -103,7 +111,7 @@ const routeOptions = [
       { id: "leg-3a", sequence: 1, kind: "direct", from: "KOR1", to: "MIDPT", distanceNm: 251.2, status: "resolved" },
       { id: "leg-3b", sequence: 2, kind: "direct", from: "MIDPT", to: "KDS1", distanceNm: 282.9, status: "resolved" },
     ],
-    geometry: { type: "LineString", coordinates: [[-73, 40], [-90, 35], [-118, 33]] },
+    geometry: { type: "LineString", coordinates: [[-73, 40], [-86, 39], [-118, 33]] },
     distanceNm: 534.1,
     rankDistanceNm: 534.1,
     rank: 2,
@@ -222,9 +230,10 @@ function bodyOf(init?: RequestInit): Record<string, unknown> {
  * and returns the captured calls plus the underlying mock. Use
  * `vi.unstubAllGlobals()` in cleanup.
  */
-export function installApiStub(options: StubOptions = {}): { calls: CapturedCall[]; fetchMock: ReturnType<typeof vi.fn>; releaseDraft: () => void } {
+export function installApiStub(options: StubOptions = {}): { calls: CapturedCall[]; fetchMock: ReturnType<typeof vi.fn>; releaseDraft: () => void; releaseSearch: () => void } {
   const calls: CapturedCall[] = [];
   const draftResolvers: Array<() => void> = [];
+  const searchResolvers: Array<() => void> = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<StubResponse> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = (init?.method ?? "GET").toUpperCase();
@@ -235,7 +244,9 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     if (method === "POST" && url === "/api/v1/callsigns/search") {
       if (options.failSearch) return jsonResponse({ error: { message: "Search service unavailable (stub).", code: "SEARCH_FAIL" } }, 500);
       const query = String(bodyOf(init).query ?? "").toUpperCase();
-      return jsonResponse({ data: searchMatches.filter((match) => match.callsign.startsWith(query)) });
+      const respond = () => jsonResponse({ data: searchMatches.filter((match) => match.callsign.startsWith(query)) });
+      if (options.deferSearch) return new Promise<StubResponse>((resolve) => { searchResolvers.push(() => resolve(respond())); });
+      return respond();
     }
     // Route options: POST { flightId }, envelope { data, rankLabel, generation }.
     if (method === "POST" && url === "/api/v1/routes/options") {
@@ -283,6 +294,44 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     if (method === "POST" && url === "/api/v1/refresh") {
       return jsonResponse({ status: "refreshed", generation: { ...generation, id: "gen-2", retrievedAt: "2026-08-14T01:00:00.000Z", live: { ...generation.live, retrievedAt: "2026-08-14T01:00:00.000Z" } } });
     }
+    // Bulk data browse: summary (counts only, airways never valued) and
+    // paged family endpoints. Cursors are stubbed as opaque strings.
+    if (method === "GET" && url === "/api/v1/data/summary") {
+      return jsonResponse({
+        generation,
+        families: [
+          { family: "flights", records: 3, acceptedRecords: 3, rejectedRecords: 0 },
+          { family: "fixes", records: 1, acceptedRecords: 1, rejectedRecords: 0 },
+          { family: "airports", records: 2, acceptedRecords: 2, rejectedRecords: 0 },
+          { family: "navaids", records: 0, acceptedRecords: 0, rejectedRecords: 0 },
+        ],
+        airway: { family: "airways", records: 3, acceptedRecords: 3, rejectedRecords: 0, uniqueRecords: 2 },
+      });
+    }
+    if (method === "POST" && url.startsWith("/api/v1/data/")) {
+      if (options.failCursor) return jsonResponse({ error: { message: "The browse cursor has expired.", code: "CURSOR_EXPIRED" } }, 409);
+      const body = bodyOf(init) as Record<string, unknown>;
+      const cursor = typeof body.cursor === "string" ? body.cursor : undefined;
+      const requested = typeof body.limit === "number" ? body.limit : 50;
+      if (url === "/api/v1/data/flights") {
+        const flights = [
+          ...Array.from({ length: 10 }, (_, index) => ({ id: `flight-${index + 1}`, callsign: "FIXTURE1", departure: "KOR1", destination: "KDS1", pointCount: 3 })),
+          { id: "flight-11", callsign: "FIXTURE3", departure: "KDS1", destination: "KOR1", pointCount: 3 },
+          { id: "flight-12", callsign: "FIXTURE3", departure: "KDSS", destination: "KDS1", pointCount: 2 },
+        ];
+        const start = cursor === "p1" ? 10 : 0;
+        const end = Math.min(flights.length, start + requested);
+        const page = flights.slice(start, end);
+        return jsonResponse({ data: page, generation, ...(end < flights.length ? { nextCursor: "p1" } : {}) });
+      }
+      if (url === "/api/v1/data/fixes") return jsonResponse({ data: [{ id: "loc-MIDPT", callsign: "MIDPT", name: "MIDPT", kind: "place", coordinate: { lat: 35, lon: -90 } }], generation });
+      if (url === "/api/v1/data/airports") return jsonResponse({ data: [
+        { id: "loc-KOR1", callsign: "KOR1", name: "KOR1", kind: "airport", coordinate: { lat: 40, lon: -73 } },
+        { id: "loc-KDS1", callsign: "KDS1", name: "KDS1", kind: "airport", coordinate: { lat: 33, lon: -118 } },
+      ], generation });
+      if (url === "/api/v1/data/navaids") return jsonResponse({ data: [], generation });
+      if (url === "/api/v1/data/airways") return jsonResponse({ error: { message: "Not found.", code: "NOT_FOUND" } }, 404);
+    }
     return jsonResponse({ error: { message: `Unhandled stub request ${method} ${url}.`, code: "STUB" } }, 404);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -290,5 +339,6 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     calls,
     fetchMock,
     releaseDraft: () => { while (draftResolvers.length > 0) draftResolvers.shift()?.(); },
+    releaseSearch: () => { while (searchResolvers.length > 0) searchResolvers.shift()?.(); },
   };
 }

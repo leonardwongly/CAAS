@@ -68,6 +68,21 @@ describe("keyboard-only review", () => {
     await waitFor(() => expect(document.activeElement?.textContent).toBe("Routes"));
   });
 
+  it("closing the route comparison with its Close button returns focus to Compare", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+
+    const rail = screen.getByRole("navigation", { name: "Route workspace controls" });
+    await tabUntil(user, (element) => element.textContent === "Compare");
+    await user.keyboard("{Enter}");
+    const drawer = await screen.findByRole("region", { name: "Route comparison" });
+    await tabUntil(user, (element) => element.textContent === "Close" && drawer.contains(element));
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("Compare"));
+  });
+
   it("selecting a route with Enter closes the drawer and returns focus to Routes", async () => {
     installApiStub();
     const user = userEvent.setup();
@@ -167,5 +182,22 @@ describe("keyboard-only review", () => {
     await user.keyboard("{Enter}");
     await waitFor(() => expect(screen.queryByRole("button", { name: "Remove MIDPT" })).toBeNull());
     expect(screen.getByText("No intermediate points. This draft uses a direct modeled endpoint-to-endpoint segment.")).toBeTruthy();
+  });
+});
+
+describe("API data page focus flow", () => {
+  it("moves focus to the page heading on open and back to the trigger on return", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const trigger = screen.getByRole("button", { name: "API data" });
+    await user.click(trigger);
+    const heading = await screen.findByRole("heading", { name: "API data" });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+
+    await user.click(screen.getByRole("button", { name: "Back to map" }));
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("API data"));
+    expect(screen.getByRole("navigation", { name: "Route workspace controls" })).toBeTruthy();
   });
 });

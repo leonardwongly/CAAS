@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import {
   ApiError,
   fetchReadiness,
@@ -31,9 +31,18 @@ import {
   REFRESH_UNUSABLE_BANNER,
   SAFETY_NOTICE,
 } from "./labels";
+import { clampZoom, coordinateFromScreen, DEFAULT_SIZE, MAX_ZOOM, MIN_ZOOM, OSM_ATTRIBUTION, pixelFromView, projectWorldSegmentsMercator, TileLayer, viewFromPixelDelta, type MapSize, type TileView } from "./TileMap";
+import ApiDataPage from "./ApiDataPage";
+import { compareDistanceOperands } from "@flight-route-explorer/route-engine/compare";
 
 type SearchState = { query: string; matches: CallsignMatch[]; loading: boolean; searched: boolean; error?: string | undefined };
 const emptySearch: SearchState = { query: "", matches: [], loading: false, searched: false };
+// Type-ahead settles this long after the last keystroke; Enter fires a search
+// immediately (the timer is cancelled), so Enter flows stay deterministic.
+const SEARCH_DEBOUNCE_MS = 250;
+// Wheel zoom accepts one level per burst: a scroll gesture fires many wheel
+// events, and accepting every one slams the map through the zoom range.
+const WHEEL_ZOOM_DEBOUNCE_MS = 350;
 
 function formatDistance(value: number | undefined): string {
   return value === undefined ? "Not supplied" : `${value.toFixed(1)} NM`;
@@ -97,10 +106,11 @@ function App() {
   const [routeReload, setRouteReload] = useState(0);
   const [draft, setDraft] = useState<DraftComparison>();
   const [draftActive, setDraftActive] = useState(false);
-  const [primarySurface, setPrimarySurface] = useState<"none" | "routes" | "route-data" | "editor">("none");
+  const [primarySurface, setPrimarySurface] = useState<"none" | "routes" | "route-data" | "editor" | "compare">("none");
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftError, setDraftError] = useState<string>();
   const [mapOnly, setMapOnly] = useState(false);
+  const [page, setPage] = useState<"map" | "api-data">("map");
   const [status, setStatus] = useState("");
   const [generation, setGeneration] = useState<GenerationSummary>();
   const [rankLabel, setRankLabel] = useState<string>();
@@ -110,17 +120,21 @@ function App() {
   const routeRequest = useRef(0);
   const draftRequest = useRef<AbortController | undefined>(undefined);
   const searchRequest = useRef<AbortController | undefined>(undefined);
+  const searchSeq = useRef(0);
+  const searchTimer = useRef<number | undefined>(undefined);
   const routesTriggerRef = useRef<HTMLButtonElement>(null);
   const dataTriggerRef = useRef<HTMLButtonElement>(null);
   const editorTriggerRef = useRef<HTMLButtonElement>(null);
+  const compareTriggerRef = useRef<HTMLButtonElement>(null);
   const mapOnlyTriggerRef = useRef<HTMLButtonElement>(null);
   const restoreControlsRef = useRef<HTMLButtonElement>(null);
+  const apiDataTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Design §15.2: focus return is deterministic after closing a surface,
   // selecting a route, retrying an error, or leaving Map Only.
-  function closeSurface(surface: "none" | "routes" | "route-data" | "editor") {
+  function closeSurface(surface: "none" | "routes" | "route-data" | "editor" | "compare") {
     setPrimarySurface("none");
-    const trigger = surface === "routes" ? routesTriggerRef : surface === "route-data" ? dataTriggerRef : surface === "editor" ? editorTriggerRef : undefined;
+    const trigger = surface === "routes" ? routesTriggerRef : surface === "route-data" ? dataTriggerRef : surface === "editor" ? editorTriggerRef : surface === "compare" ? compareTriggerRef : undefined;
     if (trigger) requestAnimationFrame(() => trigger.current?.focus());
   }
 
@@ -161,26 +175,46 @@ function App() {
   }, []);
 
   function updateQuery(query: string) {
-    // Abort any in-flight search: matches from an older query must never land
-    // under the newly typed text.
+    // Abort any in-flight search and cancel the pending type-ahead timer:
+    // matches from an older query must never land under the newly typed text.
     searchRequest.current?.abort();
-    setSearch({ query, matches: [], loading: false, searched: false });
+    if (searchTimer.current !== undefined) { window.clearTimeout(searchTimer.current); searchTimer.current = undefined; }
+    const trimmed = query.trim();
+    if (!trimmed) { setSearch({ query, matches: [], loading: false, searched: false }); return; }
+    // Keep the current matches visible while typing; the settled type-ahead
+    // result replaces them once the debounce window elapses.
+    setSearch((current) => ({ ...current, query, loading: false, error: undefined }));
+    searchTimer.current = window.setTimeout(() => { searchTimer.current = undefined; void runSearch(trimmed); }, SEARCH_DEBOUNCE_MS);
   }
 
-  async function runSearch() {
-    const query = search.query.trim();
-    if (!query || search.loading) return;
+  /** Cancels the pending type-ahead without resetting the query text. */
+  function cancelSearch() {
+    if (searchTimer.current !== undefined) { window.clearTimeout(searchTimer.current); searchTimer.current = undefined; }
+    searchRequest.current?.abort();
+    searchSeq.current += 1;
+    setSearch((current) => ({ ...current, loading: false }));
+  }
+
+  async function runSearch(override?: string) {
+    const query = (override ?? search.query).trim();
+    if (!query) return;
+    if (searchTimer.current !== undefined) { window.clearTimeout(searchTimer.current); searchTimer.current = undefined; }
     searchRequest.current?.abort();
     const controller = new AbortController();
     searchRequest.current = controller;
-    setSearch((current) => ({ ...current, loading: true, matches: [], searched: false, error: undefined }));
-    setStatus(`Searching flight plans for ${query}.`);
+    const requestId = ++searchSeq.current;
+    setSearch((current) => ({ ...current, query, loading: true, searched: false, error: undefined }));
     try {
       const matches = await searchCallsigns(query, controller.signal);
+      // A superseded search (newer keystrokes or a cancel) must never land:
+      // the abort above usually stops it, and the sequence guard makes the
+      // staleness deterministic even when the transport ignores the abort.
+      if (requestId !== searchSeq.current) return;
       setSearch((current) => ({ ...current, loading: false, matches, searched: true }));
       setStatus(matches.length ? `${matches.length} flight plan match${matches.length === 1 ? "" : "es"} found. Choose one to continue.` : `No flight plans matched ${query}.`);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestId !== searchSeq.current) return;
       setSearch((current) => ({ ...current, loading: false, searched: false, error: apiMessage(error) }));
       setStatus("Flight-plan search failed.");
     }
@@ -188,6 +222,7 @@ function App() {
 
   function chooseFlight(match: CallsignMatch) {
     searchRequest.current?.abort();
+    if (searchTimer.current !== undefined) { window.clearTimeout(searchTimer.current); searchTimer.current = undefined; }
     setSelectedFlight(match);
     setSearch({ query: match.callsign, matches: [], loading: false, searched: false });
     setStatus(`Selected flight ${match.callsign}, departing ${match.departure} for ${match.destination}. Loading route options.`);
@@ -266,6 +301,7 @@ function App() {
 
   function resetAll() {
     searchRequest.current?.abort();
+    if (searchTimer.current !== undefined) { window.clearTimeout(searchTimer.current); searchTimer.current = undefined; }
     draftRequest.current?.abort();
     draftRequest.current = undefined;
     routeRequest.current += 1;
@@ -304,13 +340,14 @@ function App() {
   return (
     <div className="app-shell map-first-shell">
       <div className="safety-banner compact-safety" role="region" aria-label="Safety notice"><strong><span aria-hidden="true">⚠</span> Safety notice</strong><span>{SAFETY_NOTICE}</span></div>
-      {!mapOnly && <header className="map-topbar">
+      {!mapOnly && page === "map" && <header className="map-topbar">
         <a className="skip-link" href="#flight-search">Skip to flight search</a>
         <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Map-first route comparison</h1></div>
-        <div className="toolbar-search"><SearchBox selected={undefined} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={chooseFlight} /></div>
+        <div className="toolbar-search"><SearchBox selected={undefined} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={chooseFlight} onCancelSearch={cancelSearch} /></div>
         <div className="toolbar-flight" role="group" aria-label="Selected flight">
           {selectedFlight ? <><strong>{selectedFlight.callsign}</strong><span>{selectedFlight.departure} → {selectedFlight.destination}</span><small>{selectedRoute?.complete ? `${formatDistance(selectedRoute.distanceNm)} · ${selectedRoute.rank !== undefined ? `Rank ${selectedRoute.rank}` : "Unranked"}` : "Recorded route is incomplete and unranked"}</small></> : <span>Search for a recorded flight plan to begin.</span>}
         </div>
+        <button className="quiet-button toolbar-clear" ref={apiDataTriggerRef} type="button" onClick={() => { setPage("api-data"); requestAnimationFrame(() => document.getElementById("api-data-heading")?.focus()); }}>API data</button>
         <button className="quiet-button toolbar-clear" type="button" onClick={() => { setPrimarySurface("none"); resetAll(); }}>Clear session</button>
       </header>}
 
@@ -325,34 +362,39 @@ function App() {
         <div className={`notice freshness-banner ${generation.live.state === "unusable" ? "freshness-banner-unusable" : ""}`} role="status">{generation.live.state === "stale" ? REFRESH_STALE_BANNER : REFRESH_UNUSABLE_BANNER}</div>
       )}
 
-      <main className="map-workspace">
+      {page === "api-data" ? <ApiDataPage selectedFlight={selectedFlight} selectedRoute={selectedRoute} onBack={() => { setPage("map"); requestAnimationFrame(() => apiDataTriggerRef.current?.focus()); }} /> : <main className="map-workspace">
         {mapOnly && <h1 className="sr-only">Map-first route comparison</h1>}
         <section className="map-panel map-first-panel" aria-labelledby="map-heading">
           <h2 className="sr-only" id="map-heading">Global route map</h2>
-          <RouteMap route={selectedRoute} callsign={selectedFlight?.callsign} />
+          <RouteMap routes={options} selectedRoute={selectedRoute} callsign={selectedFlight?.callsign} />
           <div className="map-hud">{selectedRoute ? <><span className="eyebrow">ACTIVE RECORDED ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? `${formatDistance(selectedRoute.distanceNm)} · ${selectedRoute.rank === 1 ? RANK_ONE_LABEL : selectedRoute.rank !== undefined ? `Rank ${selectedRoute.rank}` : RANK_CRITERION}` : "Incomplete · not included in ranking"}</span></> : <><span className="eyebrow">GLOBAL MAP</span><strong>Recorded routes appear after selection</strong><span>Only exact, server-resolved geometry is shown.</span></>}</div>
           {!mapOnly && <nav className="map-rail" aria-label="Route workspace controls">
-            <button ref={routesTriggerRef} type="button" aria-pressed={primarySurface === "routes"} onClick={() => setPrimarySurface((surface) => surface === "routes" ? "none" : "routes")} disabled={!selectedFlight}>Routes</button>
+            <div className="rail-entry">
+              <button ref={routesTriggerRef} type="button" aria-pressed={primarySurface === "routes"} onClick={() => setPrimarySurface((surface) => surface === "routes" ? "none" : "routes")} disabled={!selectedFlight}>Routes</button>
+              {options.length > 1 && <span className="rail-count" aria-hidden="true">{options.length}</span>}
+            </div>
             <button ref={dataTriggerRef} type="button" aria-pressed={primarySurface === "route-data"} onClick={() => setPrimarySurface((surface) => surface === "route-data" ? "none" : "route-data")} disabled={!selectedRoute}>Data</button>
             <button ref={editorTriggerRef} type="button" aria-pressed={primarySurface === "editor"} onClick={() => { if (!selectedRoute) return; setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} disabled={!selectedRoute}>Edit copy</button>
+            <button ref={compareTriggerRef} type="button" aria-pressed={primarySurface === "compare"} onClick={() => setPrimarySurface((surface) => surface === "compare" ? "none" : "compare")} disabled={!selectedRoute || options.length < 2}>Compare</button>
             <button ref={mapOnlyTriggerRef} type="button" onClick={enterMapOnly}>Map only</button>
           </nav>}
           {mapOnly && <button ref={restoreControlsRef} className="restore-controls" type="button" onClick={leaveMapOnly} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leaveMapOnly(); } }}>Restore controls</button>}
-          {!mapOnly && primarySurface !== "none" && <aside className="map-drawer" role="region" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : "Local route editor"}>
-            <div className="drawer-header"><p className="eyebrow">{primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : "EDIT COPY"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>
+          {!mapOnly && primarySurface !== "none" && <aside className="map-drawer" role="region" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : primarySurface === "compare" ? "Route comparison" : "Local route editor"}>
+            <div className="drawer-header"><p className="eyebrow">{primarySurface === "compare" ? "COMPARE ROUTES" : primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : "EDIT COPY"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>
             {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} rankLabel={rankLabel} onRetry={() => { setRouteReload((current) => current + 1); requestAnimationFrame(() => document.getElementById("options-heading")?.focus()); }} onSelect={(option) => { resetDraftState(); setSelectedRoute(option); setStatus(`Selected ${option.label ?? "route option"}.`); closeSurface("routes"); }} />}
+            {primarySurface === "compare" && selectedRoute && <RouteCompare baseline={selectedRoute} options={options} onSelect={(option) => { setSelectedRoute(option); setStatus(`Comparing ${selectedRoute.label ?? "route"} with ${option.label ?? "route option"}.`); }} />}
             {primarySurface === "route-data" && selectedRoute && <RouteDetails route={selectedRoute} onStartDraft={() => { setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); requestAnimationFrame(() => document.getElementById("draft-heading")?.focus()); }} />}
             {primarySurface === "editor" && selectedRoute && draftActive && <DraftEditor draft={draft} baseline={selectedRoute} loading={draftLoading} error={draftError} onUpdate={(via, selections) => void updateDraft(via, selections)} onClose={() => { resetDraftState(); closeSurface("editor"); }} />}
           </aside>}
-          {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected recorded route</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
+          {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected recorded route</span><span><i className="legend-line legend-line-alt" /> Alternate recorded route</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
           <div className="sr-status" role="status" aria-live="polite">{routeLoading ? "Loading route options." : status}</div>
         </section>
-      </main>
+      </main>}
     </div>
   );
 }
 
-function SearchBox({ selected, state, onFocus, onQuery, onSearch, onSelect }: { selected?: CallsignMatch | undefined; state: SearchState; onFocus: () => void; onQuery: (value: string) => void; onSearch: () => void; onSelect: (match: CallsignMatch) => void }) {
+function SearchBox({ selected, state, onFocus, onQuery, onSearch, onSelect, onCancelSearch }: { selected?: CallsignMatch | undefined; state: SearchState; onFocus: () => void; onQuery: (value: string) => void; onSearch: () => void; onSelect: (match: CallsignMatch) => void; onCancelSearch: () => void }) {
   const [activeIndex, setActiveIndex] = useState(-1);
   const [resultsOpen, setResultsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -377,7 +419,7 @@ function SearchBox({ selected, state, onFocus, onQuery, onSearch, onSelect }: { 
           if (event.key === "ArrowDown" && hasResults) { event.preventDefault(); setActiveIndex((index) => Math.min(index + 1, state.matches.length - 1)); }
           else if (event.key === "ArrowUp" && hasResults) { event.preventDefault(); setActiveIndex((index) => Math.max(index - 1, 0)); }
           else if (event.key === "Enter") { event.preventDefault(); if (activeIndex >= 0 && state.matches[activeIndex]) select(state.matches[activeIndex]); else onSearch(); }
-          else if (event.key === "Escape") { event.preventDefault(); setActiveIndex(-1); setResultsOpen(false); }
+          else if (event.key === "Escape") { event.preventDefault(); onCancelSearch(); setActiveIndex(-1); setResultsOpen(false); }
         }} aria-expanded={hasResults} aria-controls={hasResults ? resultId : undefined} aria-activedescendant={activeIndex >= 0 ? `flight-match-${activeIndex}` : undefined} aria-autocomplete="list" placeholder="For example: SQ321" autoComplete="off" />
         <button className="search-button" type="button" onClick={onSearch} disabled={state.loading || !state.query.trim()} aria-label="Search flight plans">{state.loading ? <span className="spinner" /> : "↗"}</button>
       </div>
@@ -408,6 +450,32 @@ function RouteOptions({ options, selected, loading, error, rankLabel, onRetry, o
 
 function RouteGroup({ title, description, count, criterion, options, selected, onSelect }: { title: string; description: string; count: string; criterion?: string | undefined; options: RouteOption[]; selected?: RouteOption | undefined; onSelect: (route: RouteOption) => void }) {
   return <div className="route-group"><div className="group-heading"><div><h3>{title}</h3><p className="criterion-copy">{description}</p>{criterion && <p className="criterion-copy">{criterion} It does not account for safety, clearance, legality, weather, fuel, or airline dispatch constraints.</p>}</div><span className="group-count">{count}</span></div><div className="option-grid">{options.map((option) => <button type="button" className={`route-card ${selected?.id === option.id ? "selected" : ""} ${option.operationalProxy?.eligible ? "is-complete" : "is-incomplete"}`} key={option.id} onClick={() => onSelect(option)} aria-current={selected?.id === option.id ? "true" : undefined}><span className="route-card-top"><strong>{option.label ?? "Route option"}</strong><span>{option.operationalProxy?.eligible && option.operationalProxy.rank !== undefined ? `Rank ${option.operationalProxy.rank}` : "Unranked"}</span></span><span className="route-card-distance">{formatDistance(option.distanceNm ?? option.rankDistanceNm)}</span><span className="route-card-meta">{option.pointCount} points · {option.legs.length} legs · {option.gaps.length} visible gaps · {option.provenance ?? "provenance not supplied"}</span><span className="route-card-meta">{option.operationalProxy?.eligible ? "All waypoints found. Included in ranking." : option.operationalProxy?.exclusion ?? "This route has unresolved waypoints and cannot be ranked."}</span></button>)}</div></div>;
+}
+
+function RouteCompare({ baseline, options, onSelect }: { baseline: RouteOption; options: RouteOption[]; onSelect: (option: RouteOption) => void }) {
+  const [targetId, setTargetId] = useState<string>();
+  // Snapshot the click-time baseline: onSelect promotes the chosen option to
+  // the selected route, so the side-by-side must keep comparing against the
+  // route that was selected before the click.
+  const [source, setSource] = useState<RouteOption>(baseline);
+  const candidates = options.filter((option) => option.id !== source.id);
+  const target = candidates.find((option) => option.id === targetId);
+  const comparison = target ? compareDistanceOperands(source.distanceNm, target.distanceNm) : undefined;
+  const delta = comparison?.distanceDeltaNm;
+  const percentage = comparison?.percentageDistanceDelta;
+  return <section className="compare-section" aria-labelledby="compare-heading">
+    <div className="section-title"><div><p className="eyebrow">COMPARE</p><h2 id="compare-heading" tabIndex={-1}>Side-by-side route comparison</h2></div></div>
+    <div className="compare-baseline"><p className="eyebrow">SELECTED ROUTE</p><strong>{source.label ?? "Selected route"}</strong><span>{formatDistance(source.distanceNm)}</span><span>{source.rank === 1 ? RANK_ONE_LABEL : source.rank !== undefined ? `Rank ${source.rank}` : RANK_CRITERION}</span></div>
+    {candidates.length > 0 && <div className="compare-candidates"><p className="criterion-copy">Choose a route option to compare against the selected route.</p><div className="option-grid">{candidates.map((option) => <button type="button" className="route-card" key={option.id} onClick={() => { setSource(baseline); setTargetId(option.id); onSelect(option); }} aria-label={`Compare ${source.label ?? "selected route"} with ${option.label ?? "route option"}`}><span className="route-card-top"><strong>{option.label ?? "Route option"}</strong><span>{option.complete ? "Complete" : "Incomplete"}</span></span><span className="route-card-distance">{formatDistance(option.distanceNm)}</span></button>)}</div></div>}
+    {target && comparison && <div className="compare-result">
+      <div className="compare-columns">
+        <div className="metric-grid"><Metric label="Baseline" value={source.label ?? "Selected route"} /><Metric label="Distance" value={formatDistance(source.distanceNm)} /><Metric label="Ranked distance" value={formatRankDistance(source.rankDistanceNm)} /><Metric label="Rank" value={source.rank !== undefined ? `Rank ${source.rank}` : "Not ranked"} /><Metric label="Points" value={String(source.pointCount)} /><Metric label="Legs" value={String(source.legs.length)} /><Metric label="Gaps" value={String(source.gaps.length)} /><Metric label="Status" value={source.complete ? "Complete" : "Incomplete"} /></div>
+        <div className="metric-grid"><Metric label="Target" value={target.label ?? "Route option"} /><Metric label="Distance" value={formatDistance(target.distanceNm)} /><Metric label="Ranked distance" value={formatRankDistance(target.rankDistanceNm)} /><Metric label="Rank" value={target.rank !== undefined ? `Rank ${target.rank}` : "Not ranked"} /><Metric label="Points" value={String(target.pointCount)} /><Metric label="Legs" value={String(target.legs.length)} /><Metric label="Gaps" value={String(target.gaps.length)} /><Metric label="Status" value={target.complete ? "Complete" : "Incomplete"} /></div>
+      </div>
+      <div className="metric-grid"><Metric label="Change from selected route" value={delta === undefined ? "Unavailable" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} NM`} note={percentage !== undefined ? `Directed baseline → target · ${percentage >= 0 ? "+" : ""}${percentage.toFixed(1)}%` : "Directed baseline → target"} /></div>
+      {(comparison.status !== "complete" || comparison.unavailable?.includes("INCOMPLETE_OPERAND")) && <div className="evidence-stack"><Evidence label="Comparison limitation" value="Both routes must be complete for a modeled-distance difference." tone="amber" /></div>}
+    </div>}
+  </section>;
 }
 
 function RouteDetails({ route, onStartDraft }: { route: RouteOption; onStartDraft: () => void }) {
@@ -525,14 +593,42 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
 
 type EndpointLocation = Pick<PointMatch, "coordinate" | "name">;
 
-function RouteMap({ route, callsign }: { route?: RouteOption | undefined; callsign?: string | undefined }) {
+function RouteMap({ routes, selectedRoute, callsign }: { routes: RouteOption[]; selectedRoute?: RouteOption | undefined; callsign?: string | undefined }) {
   const [endpoints, setEndpoints] = useState<{ departure?: EndpointLocation | undefined; arrival?: EndpointLocation | undefined }>({});
-  const sourceSegments = useMemo(() => route?.segments ?? (route?.geometry ? [route.geometry] : []), [route]);
-  const projection = useMemo(() => projectWorldSegments(sourceSegments), [sourceSegments]);
-  const hasLine = Boolean(projection?.segments.length);
-  const incomplete = route && !route.complete;
-  const departure = route?.origin ?? "Not supplied";
-  const arrival = route?.destination ?? "Not supplied";
+  const [view, setView] = useState<TileView>({ lat: 20, lon: 0, zoom: 2 });
+  const [tilesEnabled, setTilesEnabled] = useState(true);
+  const [tilesFailed, setTilesFailed] = useState(false);
+  const [stageSize, setStageSize] = useState<MapSize>(DEFAULT_SIZE);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number } | null>(null);
+  const tilesOn = tilesEnabled && !tilesFailed;
+
+  useEffect(() => {
+    const measure = () => {
+      const rect = stageRef.current?.getBoundingClientRect();
+      if (rect && rect.width > 0 && rect.height > 0) setStageSize({ width: rect.width, height: rect.height });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  // Every server-returned candidate is drawn on the map: the selected route
+  // highlighted on top, every other candidate with geometry dimmed underneath.
+  // Candidates without resolved geometry are intentionally not drawn. In tile
+  // mode the overlay is projected through the Web Mercator view; the
+  // equirectangular projection remains for the schematic fallback.
+  const projections = useMemo(() => routes.map((route) => {
+    const sourceSegments = route.segments ?? (route.geometry ? [route.geometry] : []);
+    return { route, projection: tilesOn ? projectWorldSegmentsMercator(sourceSegments, view, stageSize) : projectWorldSegments(sourceSegments) };
+  }), [routes, tilesOn, view, stageSize]);
+  const selectedProjection = selectedRoute ? projections.find(({ route }) => route.id === selectedRoute.id)?.projection : undefined;
+  const alternates = projections.flatMap(({ route, projection }) => route.id !== selectedRoute?.id && projection && projection.segments.length ? [{ route, projection }] : []);
+  const hasLine = Boolean(selectedProjection?.segments.length);
+  const hasAnyLine = hasLine || alternates.length > 0;
+  const incomplete = selectedRoute ? !selectedRoute.complete : false;
+  const departure = selectedRoute?.origin ?? "Not supplied";
+  const arrival = selectedRoute?.destination ?? "Not supplied";
 
   useEffect(() => {
     const controller = new AbortController();
@@ -540,33 +636,84 @@ function RouteMap({ route, callsign }: { route?: RouteOption | undefined; callsi
       const unique = matches.filter((match) => !match.duplicateGroup);
       return unique.length === 1 ? unique[0] : undefined;
     };
-    if (!route?.origin && !route?.destination) { setEndpoints({}); return () => controller.abort(); }
+    if (!selectedRoute?.origin && !selectedRoute?.destination) { setEndpoints({}); return () => controller.abort(); }
     void Promise.all([
-      route?.origin ? lookupPoint(route.origin, controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
-      route?.destination ? lookupPoint(route.destination, controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
+      selectedRoute?.origin ? lookupPoint(selectedRoute.origin, controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
+      selectedRoute?.destination ? lookupPoint(selectedRoute.destination, controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
     ]).then(([departurePoint, arrivalPoint]) => {
       if (!controller.signal.aborted) setEndpoints({ departure: departurePoint, arrival: arrivalPoint });
     });
     return () => controller.abort();
-  }, [route?.id, route?.origin, route?.destination]);
+  }, [selectedRoute?.id, selectedRoute?.origin, selectedRoute?.destination]);
 
-  const departurePoint = endpoints.departure ? projectWorldPoint(endpoints.departure.coordinate) : undefined;
-  const arrivalPoint = endpoints.arrival ? projectWorldPoint(endpoints.arrival.coordinate) : undefined;
+  const projectPoint = (coordinate: Coordinate): Point => tilesOn ? pixelFromView(coordinate, view, stageSize) : projectWorldPoint(coordinate);
+  const departurePoint = endpoints.departure ? projectPoint(endpoints.departure.coordinate) : undefined;
+  const arrivalPoint = endpoints.arrival ? projectPoint(endpoints.arrival.coordinate) : undefined;
   const departureLabel = endpoints.departure?.name && endpoints.departure.name !== departure ? `${endpoints.departure.name} (${departure})` : departure;
   const arrivalLabel = endpoints.arrival?.name && endpoints.arrival.name !== arrival ? `${endpoints.arrival.name} (${arrival})` : arrival;
-  const label = hasLine ? `${callsign ?? "Selected flight"} world map showing ${departureLabel} departure and ${arrivalLabel} arrival with ${projection?.segments.length} resolved segment${projection?.segments.length === 1 ? "" : "s"}${incomplete ? " and visible unresolved gaps" : ""}` : "World map waiting for server-returned route segments";
-  return <div className="map-stage" role="img" aria-label={label}>
-    <div className="map-fallback-banner"><span className="map-pin">◇</span><span>{incomplete ? "World map · showing resolved segments only; gaps are not connected." : hasLine ? "World map · server route geometry" : "World map · no route geometry returned yet."}</span></div>
-    <svg className="route-svg" viewBox="0 0 800 440" aria-hidden="true">
-      <WorldMapBase />
-      {projection?.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" filter="url(#glow)" /><path d={segment.path} className="route-path" /></g>)}
-      {departurePoint && <MapMarker point={departurePoint} label={departure} tone="origin" />}
-      {arrivalPoint && <MapMarker point={arrivalPoint} label={arrival} tone="destination" />}
-      {projection?.gapBoundaries.map((point, index) => <g key={`gap-${index}`} className="gap-boundary"><circle cx={point.x} cy={point.y} r="7" /><text x={point.x + 12} y={point.y + 4}>Gap</text></g>)}
-    </svg>
-    {route && <section className="map-endpoints" aria-label="Route endpoint locations"><div className="map-endpoint departure"><b>Departure</b><span>{departureLabel}</span></div><div className="map-endpoint arrival"><b>Arrival</b><span>{arrivalLabel}</span></div></section>}
-    {!hasLine && <div className="map-empty"><span>◎</span><strong>{route ? "No resolved geometry returned" : "Select a flight plan"}</strong><p>{route ? "The world map does not infer a line across missing route data." : "The map will use only coordinates and route segments returned by the server."}</p></div>}
-    <div className="map-attribution">Geographic reference only · no external map tiles or API keys</div>
+  const selectedSegmentCount = selectedProjection?.segments.length ?? 0;
+  const label = hasLine
+    ? `${callsign ?? "Selected flight"} world map showing ${departureLabel} departure and ${arrivalLabel} arrival with ${selectedSegmentCount} resolved segment${selectedSegmentCount === 1 ? "" : "s"}${incomplete ? " and visible unresolved gaps" : ""}${alternates.length ? `; ${alternates.length} alternate recorded route${alternates.length === 1 ? "" : "s"} shown dimmed` : ""}`
+    : hasAnyLine
+      ? `${callsign ?? "Selected flight"} world map showing ${routes.length} recorded route${routes.length === 1 ? "" : "s"}; select one to highlight it`
+      : "World map waiting for server-returned route segments";
+  const baseName = tilesOn ? "World map" : "Schematic base map";
+  const banner = incomplete ? `${baseName} · showing resolved segments only; gaps are not connected.` : hasAnyLine ? `${baseName} · server route geometry` : `${baseName} · no route geometry returned yet.`;
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!tilesOn) return;
+    dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
+    if (typeof event.currentTarget.setPointerCapture === "function") event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (Math.abs(dx) + Math.abs(dy) < 3) return;
+    drag.startX = event.clientX; drag.startY = event.clientY;
+    setView((current) => viewFromPixelDelta(dx, dy, current, stageSize));
+  };
+  const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+  };
+  const wheelLockRef = useRef(0);
+  const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!tilesOn) return;
+    const nextZoom = clampZoom(view.zoom + (event.deltaY < 0 ? 1 : -1));
+    if (nextZoom === view.zoom) return; // at a zoom bound: nothing to do
+    // A scroll gesture fires many wheel events; accept at most one zoom
+    // level per burst so the map does not slam through the whole range.
+    const now = Date.now();
+    if (now - wheelLockRef.current < WHEEL_ZOOM_DEBOUNCE_MS) return;
+    wheelLockRef.current = now;
+    // Anchor the zoom on the point under the cursor: that geographic point
+    // stays under the pointer instead of the map jumping toward its center.
+    const rect = stageRef.current?.getBoundingClientRect();
+    const cursor = rect && rect.width > 0 ? { x: event.clientX - rect.left, y: event.clientY - rect.top } : { x: stageSize.width / 2, y: stageSize.height / 2 };
+    const anchor = coordinateFromScreen(cursor, view, stageSize);
+    setView({ lat: anchor.lat, lon: anchor.lon, zoom: nextZoom });
+  };
+  return <div className="map-stage" ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onWheel={onWheel}>
+    <div className="map-canvas" role="img" aria-label={label}>
+      {tilesOn && <TileLayer view={view} size={stageSize} onTileFailure={() => setTilesFailed(true)} />}
+      <svg className="route-svg" viewBox={tilesOn ? `0 0 ${stageSize.width} ${stageSize.height}` : "0 0 800 440"} aria-hidden="true">
+        {!tilesOn && <WorldMapBase />}
+        {alternates.map(({ route, projection }) => <g key={route.id} className="route-line-alternate">{projection.segments.map((segment, index) => <path key={`alternate-segment-${index}`} d={segment.path} className="route-path-alternate" />)}</g>)}
+        {selectedRoute && selectedProjection && <g className="route-line-selected">{selectedProjection.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" filter="url(#glow)" /><path d={segment.path} className="route-path" /></g>)}</g>}
+        {departurePoint && <MapMarker point={departurePoint} label={departure} tone="origin" />}
+        {arrivalPoint && <MapMarker point={arrivalPoint} label={arrival} tone="destination" />}
+        {selectedProjection?.gapBoundaries.map((point, index) => <g key={`gap-${index}`} className="gap-boundary"><circle cx={point.x} cy={point.y} r="7" /><text x={point.x + 12} y={point.y + 4}>Gap</text></g>)}
+      </svg>
+    </div>
+    <div className="map-fallback-banner"><span className="map-pin">◇</span><span>{banner}</span></div>
+    <div className="map-zoom-controls" role="group" aria-label="Map zoom and base layer">
+      <button type="button" aria-label="Zoom in" disabled={!tilesOn || view.zoom >= MAX_ZOOM} onClick={() => setView((current) => ({ ...current, zoom: clampZoom(current.zoom + 1) }))}>+</button>
+      <button type="button" aria-label="Zoom out" disabled={!tilesOn || view.zoom <= MIN_ZOOM} onClick={() => setView((current) => ({ ...current, zoom: clampZoom(current.zoom - 1) }))}>−</button>
+      <button type="button" aria-pressed={tilesOn} onClick={() => { setTilesEnabled((current) => !current); setTilesFailed(false); }}>Toggle base map</button>
+    </div>
+    {selectedRoute && <section className="map-endpoints" aria-label="Route endpoint locations"><div className="map-endpoint departure"><b>Departure</b><span>{departureLabel}</span></div><div className="map-endpoint arrival"><b>Arrival</b><span>{arrivalLabel}</span></div></section>}
+    {!hasAnyLine && <div className="map-empty"><span>◎</span><strong>{routes.length ? "No resolved geometry returned" : "Select a flight plan"}</strong><p>{routes.length ? "The world map does not infer a line across missing route data." : "The map will use only coordinates and route segments returned by the server."}</p></div>}
+    <div className="map-attribution">{tilesOn ? OSM_ATTRIBUTION : "Schematic base map only"}</div>
   </div>;
 }
 
