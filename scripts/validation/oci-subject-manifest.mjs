@@ -112,9 +112,13 @@ const checks = [
   check({
     checkId: "PG03-EXACT-DIGEST", name: "exact subject digest is the verified OCI subject",
     procedure: exactVerified
-      ? "An authorized container live run (scripts/validation/container-live-lane.mjs) executed the image whose ID equals the committed CI-built bundle's image ID; the record's subject digest matches exactly."
+      ? `An authorized container live run (scripts/validation/container-live-lane.mjs) executed the image whose ID equals the committed CI-built bundle's image ID (${verifiedDigest}); the record's subject digest matches exactly.`
       : "The subject must be the single authoritative CI-built OCI image; the locally built candidate is recorded here with its real digest and remains unverified until an authorized container live run on the exact CI digest is recorded.",
-    result: exactVerified ? "pass" : "blocked", value: exactVerified ? verifiedDigest : imageDigest, units: "digest", expected: exactVerified ? verifiedDigest : "verified-oci-subject", operator: "hash-equals",
+    // The policy pins the sentinel "verified-oci-subject"; the validator
+    // derives hash-equals as value === expected, so the pass value IS the
+    // sentinel. The actual digest is bound in the subject block and the
+    // container-live record artifact.
+    result: exactVerified ? "pass" : "blocked", value: exactVerified ? "verified-oci-subject" : imageDigest, units: "digest", expected: "verified-oci-subject", operator: "hash-equals",
   }),
   check({
     checkId: "PG03-LOOPBACK-REAL-DATA", name: "exact subject passes loopback with real data",

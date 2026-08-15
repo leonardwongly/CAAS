@@ -99,9 +99,12 @@ billing cutoff and expiry tags do not delete resources. Azure teardown targets
 requiring explicit teardown approval or separately authorized retention. No
 cloud resource, provider registration, app registration, secret, or deployment
 is evidenced by these documents. The local implementation is committed in the
-repository. Secretless CI executes on pull requests and is green at commit
-`116a84d` (evidence validation, Semgrep, gitleaks secret scan, dependency
-audit, image build with Trivy scan); the CI-built subject digest is retained at
-[`docs/evidence/oci-digest-bundle-e456dd0cd791.json`](evidence/oci-digest-bundle-e456dd0cd791.json).
-Azure, production, and UAT execution remain un-evidenced; CI has run for pull
-requests only — no push to `master` has occurred.
+repository. Secretless CI executes on pull requests (evidence validation,
+Semgrep, gitleaks secret scan, dependency audit, image build with Trivy scan);
+the CI-built subject digest is retained at
+[`docs/evidence/oci-digest-bundle-0962c7fedb67.json`](evidence/oci-digest-bundle-0962c7fedb67.json)
+(`sha256:ae5dc6d1…`). **`PG-03` passed on 2026-08-15**: the exact CI subject
+ran the loopback-only real-data container lane 5/5
+([`docs/evidence/container-live-lane-afe29166ac21.json`](evidence/container-live-lane-afe29166ac21.json))
+and the gate manifest records `pass` (4/4 checks). Azure, production, and UAT
+execution remain un-evidenced.

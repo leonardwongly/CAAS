@@ -98,10 +98,25 @@ test("evidence records reference a real code-under-test commit", async (t) => {
     t.skip("no evidence records committed yet");
     return;
   }
+  // CI-built bundles record the GitHub PR merge ref, which legitimately
+  // exists only on the remote (never in any checkout's history). A
+  // container-live record whose digest + commit match a ci-build bundle is
+  // exempt — that pairing is exactly the manifest's verification chain.
+  const evidenceDir = resolve(root, "docs/evidence");
+  const bundleFiles = (await readdir(evidenceDir)).filter((name) => name.startsWith("oci-digest-bundle-") && name.endsWith(".json"));
+  const ciSubjects = [];
+  for (const name of bundleFiles) {
+    const candidate = JSON.parse(await readFile(resolve(evidenceDir, name), "utf8"));
+    if (candidate.recordKind === "oci-digest-bundle" && candidate.subject?.environment === "ci-build") {
+      ciSubjects.push({ commit: candidate.subject?.identifiers?.commit, digest: candidate.image?.imageId });
+    }
+  }
   for (const name of records.slice(0, 5)) {
     const record = JSON.parse(await readFile(resolve(root, "docs/evidence", name), "utf8"));
     const recorded = record.subject?.identifiers?.commit;
     if (typeof recorded === "string" && /^[0-9a-f]{12,}$/.test(recorded)) {
+      const isCiSubject = ciSubjects.some((ci) => ci.commit?.slice(0, recorded.length) === recorded && ci.digest === record.subject?.identifiers?.digest);
+      if (isCiSubject) continue;
       const exists = execFileSync("git", ["rev-parse", "--verify", "--quiet", `${recorded}^{commit}`], { cwd: root, encoding: "utf8" }).trim();
       assert.ok(exists.length > 0, `${name} records commit ${recorded} which must exist in git history`);
     }

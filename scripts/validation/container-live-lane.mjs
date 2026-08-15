@@ -23,7 +23,7 @@ import { CheckCollector, isoNow, reportAndExit, root, sha256Hex, shortSha, write
 import { FIXTURE_API_KEY } from "./fixtures.mjs";
 
 const short = shortSha();
-const recordPath = `docs/evidence/container-live-lane-${short}.json`;
+const defaultRecordPath = () => `docs/evidence/container-live-lane-${short}.json`;
 
 function requestedOption(name) {
   const prefix = `${name}=`;
@@ -38,6 +38,11 @@ function requestedOption(name) {
 const subjectDigest = requestedOption("--subject-digest");
 const subjectCommit = requestedOption("--subject-commit");
 const imageTag = requestedOption("--image") ?? "flight-route-explorer:release-evidence";
+// --record-dir/--record-id isolate test probes from the real evidence
+// directory; production runs use the canonical docs/evidence/<head>.json name.
+const recordDir = requestedOption("--record-dir") ?? "docs/evidence";
+const recordId = requestedOption("--record-id") ?? short;
+const recordPath = `${recordDir}/container-live-lane-${recordId}.json`;
 
 const collector = new CheckCollector();
 const startedAt = isoNow();

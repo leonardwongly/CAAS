@@ -3,7 +3,7 @@
   "gateId": "PG-03",
   "policy": {
     "policyVersion": "1.0.0-poc",
-    "policySha256": "364d9f13247f104bc749eec5d2e85c0c7c8ba128dd2f0839d47ac1d953496100",
+    "policySha256": "10c0df26e8d3b56df76ffe6551608fce36873d377603cd0e184d9ebee15d14eb",
     "validatorVersion": "release-evidence-validator-v1",
     "validatorSha256": "366838f2eead05beaedb24677ca4c3b7330c885af97bbe5143ff5f3965b3403c",
     "evaluationMode": "semantic-validator"
@@ -11,19 +11,19 @@
   "subject": {
     "type": "oci",
     "identifiers": {
-      "digest": "sha256:ec1624d8fb4599302c1d28dd4ed7578f861a732c9b771a43f619e999a55266c9",
-      "commit": "bbd6065f6caa",
-      "tarSha256": "c596836db2a66f988d1a5b42b194b30045bc225c371396c750dbd89c9655cd41"
+      "digest": "sha256:ae5dc6d10b15b6da661e13fd7c90b76a67c5ccf1fc4cff7e7f10d9f82f74118c",
+      "commit": "0962c7fedb67",
+      "tarSha256": "a9d1a761bb824ce40b3a0eac347abd90e4c1395539dfd905c61761e1a6ede87b"
     },
-    "environment": "local-build-candidate"
+    "environment": "verified-ci-subject"
   },
   "checks": [
     {
       "checkId": "PG03-EXACT-DIGEST",
       "mandatory": true,
-      "procedure": "The subject must be the single authoritative CI-built OCI image; the locally built candidate is recorded here with its real digest and remains unverified until an authorized container live run on the exact CI digest is recorded.",
-      "startedAt": "2026-08-15T08:19:24.711Z",
-      "endedAt": "2026-08-15T08:19:24.712Z",
+      "procedure": "An authorized container live run (scripts/validation/container-live-lane.mjs) executed the image whose ID equals the committed CI-built bundle's image ID (sha256:ae5dc6d10b15b6da661e13fd7c90b76a67c5ccf1fc4cff7e7f10d9f82f74118c); the record's subject digest matches exactly.",
+      "startedAt": "2026-08-15T08:44:53.990Z",
+      "endedAt": "2026-08-15T08:44:53.991Z",
       "threshold": {
         "rule": "measured value hash-equals expected",
         "operator": "hash-equals",
@@ -32,14 +32,14 @@
       },
       "measurement": {
         "summary": "exact subject digest is the verified OCI subject",
-        "value": "sha256:ec1624d8fb4599302c1d28dd4ed7578f861a732c9b771a43f619e999a55266c9",
+        "value": "verified-oci-subject",
         "units": "digest",
         "sampleCount": 1
       },
       "artifacts": [
         {
           "path": "deploy/poc-policy.yaml",
-          "sha256": "364d9f13247f104bc749eec5d2e85c0c7c8ba128dd2f0839d47ac1d953496100"
+          "sha256": "10c0df26e8d3b56df76ffe6551608fce36873d377603cd0e184d9ebee15d14eb"
         },
         {
           "path": "deploy/evidence-manifest.schema.json",
@@ -62,19 +62,23 @@
           "sha256": "b976d0acea0155cc41277de2ddf5383311ffc26e1255eb7544736c8c6c2960b3"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-bbd6065f6caa.json",
-          "sha256": "5e6a42ef871395efb5029e2e84c6740dab8f28793da3d4c5cf1e915acd6d8cdd"
+          "path": "docs/evidence/oci-digest-bundle-afe29166ac21.json",
+          "sha256": "155fdf7a9e351b7d2d2b4446d8e385a43aae32eba6825e735540450e1d9f89dd"
+        },
+        {
+          "path": "docs/evidence/oci-digest-bundle-0962c7fedb67.json",
+          "sha256": "dffecb556abc89a9400d8dc47daee5e42c62e428989af9221a12c0efa334e408"
         }
       ],
-      "result": "blocked",
+      "result": "pass",
       "failureFallback": "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject."
     },
     {
       "checkId": "PG03-LOOPBACK-REAL-DATA",
       "mandatory": true,
-      "procedure": "The verified subject must pass the loopback gate with real data (authorized run). Mechanics pass fixture-backed (docs/evidence/loopback-lane-local.json); the authorized container run on the exact digest is pending.",
-      "startedAt": "2026-08-15T08:19:24.711Z",
-      "endedAt": "2026-08-15T08:19:24.712Z",
+      "procedure": "The exact subject passed the loopback real-data checks in the container (container-live-lane-afe29166ac21.json): liveness, five-family acquisition, browse exact-once, secret exclusion.",
+      "startedAt": "2026-08-15T08:44:53.990Z",
+      "endedAt": "2026-08-15T08:44:53.991Z",
       "threshold": {
         "rule": "measured value equals expected",
         "operator": "equals",
@@ -83,14 +87,14 @@
       },
       "measurement": {
         "summary": "exact subject passes loopback with real data",
-        "value": false,
+        "value": true,
         "units": "boolean",
         "sampleCount": 1
       },
       "artifacts": [
         {
           "path": "deploy/poc-policy.yaml",
-          "sha256": "364d9f13247f104bc749eec5d2e85c0c7c8ba128dd2f0839d47ac1d953496100"
+          "sha256": "10c0df26e8d3b56df76ffe6551608fce36873d377603cd0e184d9ebee15d14eb"
         },
         {
           "path": "deploy/evidence-manifest.schema.json",
@@ -113,19 +117,27 @@
           "sha256": "b976d0acea0155cc41277de2ddf5383311ffc26e1255eb7544736c8c6c2960b3"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-bbd6065f6caa.json",
-          "sha256": "5e6a42ef871395efb5029e2e84c6740dab8f28793da3d4c5cf1e915acd6d8cdd"
+          "path": "docs/evidence/oci-digest-bundle-afe29166ac21.json",
+          "sha256": "155fdf7a9e351b7d2d2b4446d8e385a43aae32eba6825e735540450e1d9f89dd"
+        },
+        {
+          "path": "docs/evidence/oci-digest-bundle-0962c7fedb67.json",
+          "sha256": "dffecb556abc89a9400d8dc47daee5e42c62e428989af9221a12c0efa334e408"
+        },
+        {
+          "path": "docs/evidence/container-live-lane-afe29166ac21.json",
+          "sha256": "5097b14dad0844b63d3147c26fbcd15dad652d6fc2233a3d979c0f7375c1be03"
         }
       ],
-      "result": "blocked",
+      "result": "pass",
       "failureFallback": "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject."
     },
     {
       "checkId": "PG03-SECRETLESS",
       "mandatory": true,
       "procedure": "The image was built by scripts/validation/build-oci.mjs with no credential in the environment, no registry push, and the image config records no secret environment; the CI workflow is hermetic (no secrets, no Azure operations).",
-      "startedAt": "2026-08-15T08:19:24.711Z",
-      "endedAt": "2026-08-15T08:19:24.712Z",
+      "startedAt": "2026-08-15T08:44:53.990Z",
+      "endedAt": "2026-08-15T08:44:53.991Z",
       "threshold": {
         "rule": "measured value equals expected",
         "operator": "equals",
@@ -141,7 +153,7 @@
       "artifacts": [
         {
           "path": "deploy/poc-policy.yaml",
-          "sha256": "364d9f13247f104bc749eec5d2e85c0c7c8ba128dd2f0839d47ac1d953496100"
+          "sha256": "10c0df26e8d3b56df76ffe6551608fce36873d377603cd0e184d9ebee15d14eb"
         },
         {
           "path": "deploy/evidence-manifest.schema.json",
@@ -164,8 +176,12 @@
           "sha256": "b976d0acea0155cc41277de2ddf5383311ffc26e1255eb7544736c8c6c2960b3"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-bbd6065f6caa.json",
-          "sha256": "5e6a42ef871395efb5029e2e84c6740dab8f28793da3d4c5cf1e915acd6d8cdd"
+          "path": "docs/evidence/oci-digest-bundle-afe29166ac21.json",
+          "sha256": "155fdf7a9e351b7d2d2b4446d8e385a43aae32eba6825e735540450e1d9f89dd"
+        },
+        {
+          "path": "docs/evidence/oci-digest-bundle-0962c7fedb67.json",
+          "sha256": "dffecb556abc89a9400d8dc47daee5e42c62e428989af9221a12c0efa334e408"
         }
       ],
       "result": "pass",
@@ -175,8 +191,8 @@
       "checkId": "PG03-RESOURCE-SHAPE",
       "mandatory": true,
       "procedure": "non-root runtime user and linux/amd64 verified from docker image inspect of the built image; 1 vcpu and 2 GiB verified by validate:policy from infra/bicep invariants (cpu: 1, memory '2Gi').",
-      "startedAt": "2026-08-15T08:19:24.711Z",
-      "endedAt": "2026-08-15T08:19:24.712Z",
+      "startedAt": "2026-08-15T08:44:53.990Z",
+      "endedAt": "2026-08-15T08:44:53.991Z",
       "threshold": {
         "rule": "the set of measured values equals the expected set",
         "operator": "set-equals",
@@ -202,7 +218,7 @@
       "artifacts": [
         {
           "path": "deploy/poc-policy.yaml",
-          "sha256": "364d9f13247f104bc749eec5d2e85c0c7c8ba128dd2f0839d47ac1d953496100"
+          "sha256": "10c0df26e8d3b56df76ffe6551608fce36873d377603cd0e184d9ebee15d14eb"
         },
         {
           "path": "deploy/evidence-manifest.schema.json",
@@ -225,26 +241,19 @@
           "sha256": "b976d0acea0155cc41277de2ddf5383311ffc26e1255eb7544736c8c6c2960b3"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-bbd6065f6caa.json",
-          "sha256": "5e6a42ef871395efb5029e2e84c6740dab8f28793da3d4c5cf1e915acd6d8cdd"
+          "path": "docs/evidence/oci-digest-bundle-afe29166ac21.json",
+          "sha256": "155fdf7a9e351b7d2d2b4446d8e385a43aae32eba6825e735540450e1d9f89dd"
+        },
+        {
+          "path": "docs/evidence/oci-digest-bundle-0962c7fedb67.json",
+          "sha256": "dffecb556abc89a9400d8dc47daee5e42c62e428989af9221a12c0efa334e408"
         }
       ],
       "result": "pass",
       "failureFallback": "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject."
     }
   ],
-  "blockingIssues": [
-    {
-      "id": "PG03-EXACT-DIGEST: pending authoritative CI-built OCI subject and authorized live loopback on that exact digest",
-      "priority": "P0",
-      "status": "open"
-    },
-    {
-      "id": "PG03-LOOPBACK-REAL-DATA: pending authoritative CI-built OCI subject and authorized live loopback on that exact digest",
-      "priority": "P0",
-      "status": "open"
-    }
-  ],
-  "gateResult": "blocked",
+  "blockingIssues": [],
+  "gateResult": "pass",
   "failureFallback": "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject."
 }
