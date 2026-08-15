@@ -85,6 +85,34 @@ describe("interaction review", () => {
     expect(screen.getByRole("img", { name: /1 alternate recorded route shown dimmed/ })).toBeTruthy();
   });
 
+  it("compare drawer shows side-by-side metrics and the directed delta", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+
+    await user.click(screen.getByRole("button", { name: "Compare" }));
+    const drawer = await screen.findByRole("region", { name: "Route comparison" });
+    expect(within(drawer).getAllByText("512.4 NM").length).toBeGreaterThan(0);
+    await user.click(within(drawer).getByRole("button", { name: /with Recorded via alternate routing/ }));
+    expect(within(drawer).getAllByText("534.1 NM").length).toBeGreaterThan(0);
+    expect(within(drawer).getByText("+21.7 NM")).toBeTruthy();
+    expect(within(drawer).getByText(/\+4\.2%/)).toBeTruthy();
+  });
+
+  it("comparing the incomplete candidate reports an unavailable delta", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+
+    await user.click(screen.getByRole("button", { name: "Compare" }));
+    const drawer = await screen.findByRole("region", { name: "Route comparison" });
+    await user.click(within(drawer).getByRole("button", { name: /with Recorded with unresolved gap/ }));
+    expect(within(drawer).getByText("Unavailable")).toBeTruthy();
+    expect(within(drawer).getByText("Both routes must be complete for a modeled-distance difference.")).toBeTruthy();
+  });
+
   it("edits a copy and sees the validated comparison metrics", async () => {
     installApiStub();
     const user = userEvent.setup();
@@ -150,6 +178,7 @@ describe("interaction review", () => {
     expect((screen.getByRole("combobox", { name: "Flight number or code" }) as HTMLInputElement).value).toBe("");
     expect(screen.getByText("Recorded routes appear after selection")).toBeTruthy();
     expect(screen.getByRole("status").textContent).toBe("Session reset.");
+    expect((screen.getByRole("button", { name: "Compare" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("the freshness strip reports the live generation and refresh resets the session", async () => {
@@ -198,6 +227,7 @@ describe("interaction review", () => {
       { trigger: "Routes", drawer: "Route chooser", close: "Close" },
       { trigger: "Data", drawer: "Flight and route data", close: "Close" },
       { trigger: "Edit copy", drawer: "Local route editor", close: "Close draft" },
+      { trigger: "Compare", drawer: "Route comparison", close: "Close" },
     ] as const;
     for (const { trigger, drawer, close } of cases) {
       await user.click(within(rail).getByRole("button", { name: trigger }));

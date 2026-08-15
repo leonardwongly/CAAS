@@ -35,6 +35,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@flight-route-explorer/route-engine':
+        specifier: workspace:*
+        version: link:../../packages/route-engine
       '@vitejs/plugin-react':
         specifier: 4.4.1
         version: 4.4.1(vite@6.4.3(@types/node@22.15.3)(yaml@2.9.0))

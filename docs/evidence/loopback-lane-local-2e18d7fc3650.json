@@ -8,8 +8,8 @@
     },
     "environment": "local-loopback-fixture-backed"
   },
-  "startedAt": "2026-08-15T14:50:33.577Z",
-  "endedAt": "2026-08-15T14:50:33.689Z",
+  "startedAt": "2026-08-15T14:52:47.621Z",
+  "endedAt": "2026-08-15T14:52:47.744Z",
   "mode": "mechanics",
   "credentialHandling": "fixture apikey consumed only by the deterministic mock transport; no live CAAS origin call was made",
   "checks": [
@@ -17,8 +17,8 @@
       "checkId": "LANE-HEALTH-LIVE",
       "name": "liveness endpoint",
       "procedure": "GET /api/v1/health/live returns 200.",
-      "startedAt": "2026-08-15T14:50:33.649Z",
-      "endedAt": "2026-08-15T14:50:33.686Z",
+      "startedAt": "2026-08-15T14:52:47.688Z",
+      "endedAt": "2026-08-15T14:52:47.741Z",
       "result": "pass",
       "measurement": {
         "summary": "liveness endpoint",
@@ -42,8 +42,8 @@
       "checkId": "LANE-STARTUP-READY",
       "name": "startup readiness",
       "procedure": "Cold startup completes five-family acquisition and reports started.",
-      "startedAt": "2026-08-15T14:50:33.649Z",
-      "endedAt": "2026-08-15T14:50:33.688Z",
+      "startedAt": "2026-08-15T14:52:47.688Z",
+      "endedAt": "2026-08-15T14:52:47.743Z",
       "result": "pass",
       "measurement": {
         "summary": "startup readiness",
@@ -67,8 +67,8 @@
       "checkId": "LANE-RUN-CRASH",
       "name": "lane execution",
       "procedure": "Every lane check must complete; an exception fails the lane loudly instead of losing the evidence record.",
-      "startedAt": "2026-08-15T14:50:33.577Z",
-      "endedAt": "2026-08-15T14:50:33.689Z",
+      "startedAt": "2026-08-15T14:52:47.621Z",
+      "endedAt": "2026-08-15T14:52:47.744Z",
       "result": "fail",
       "measurement": {
         "summary": "simulated mid-lane fetch failure",

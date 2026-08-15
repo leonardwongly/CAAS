@@ -101,6 +101,11 @@ describe("ARIA structure", () => {
     await user.click(within(screen.getByRole("region", { name: "Flight and route data" })).getByRole("button", { name: "Edit copy" }));
     expect(screen.getByRole("region", { name: "Local route editor" })).toBeTruthy();
     expect(within(rail).getByRole("button", { name: "Edit copy" }).getAttribute("aria-pressed")).toBe("true");
+
+    await user.click(within(rail).getByRole("button", { name: "Compare" }));
+    expect(screen.getByRole("region", { name: "Route comparison" })).toBeTruthy();
+    expect(within(rail).getByRole("button", { name: "Compare" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(rail).getByRole("button", { name: "Edit copy" }).getAttribute("aria-pressed")).toBe("false");
   });
 
   it("keeps route chooser groups, aria-current, and rank semantics", async () => {
