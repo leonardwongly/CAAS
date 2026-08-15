@@ -58,13 +58,29 @@ test("the committed PG-03 gate manifest binds the real policy and validator hash
   // The gate lifts exactly when an authorized container live run exists whose
   // subject digest equals the bundle's image ID; otherwise it stays blocked.
   const evidenceDir = resolve(root, "docs/evidence");
-  const containerLive = (await readdir(evidenceDir)).filter((name) => name.startsWith("container-live-lane-") && name.endsWith(".json")).sort();
+  // Mirror the manifest's lift logic exactly: only a ci-build bundle plus a
+  // matching authorized container run lifts the gate; a local authorized run
+  // never does.
+  const bundleFiles = (await readdir(evidenceDir)).filter((name) => name.startsWith("oci-digest-bundle-") && name.endsWith(".json"));
+  const ciBundles = [];
+  for (const name of bundleFiles) {
+    const candidate = JSON.parse(await readFile(resolve(evidenceDir, name), "utf8"));
+    if (candidate.recordKind === "oci-digest-bundle" && candidate.subject?.environment === "ci-build"
+      && candidate.assertions?.nonRootUser && candidate.assertions?.noSecretEnv && candidate.assertions?.exposes8080 && candidate.assertions?.linuxImage) {
+      ciBundles.push(candidate);
+    }
+  }
+  const newestCi = ciBundles.sort((left, right) => (left.buildMetadata?.startedAt ?? "").localeCompare(right.buildMetadata?.startedAt ?? "")).at(-1);
+  const verifiedDigest = newestCi?.image?.imageId;
   let exactRun;
-  for (const name of containerLive) {
-    const record = JSON.parse(await readFile(resolve(evidenceDir, name), "utf8"));
-    if (record.mode === "authorized-run" && record.subject?.identifiers?.digest === manifest.subject.identifiers.digest && record.summary?.failed === 0) {
-      exactRun = record;
-      break;
+  if (verifiedDigest) {
+    const containerLive = (await readdir(evidenceDir)).filter((name) => name.startsWith("container-live-lane-") && name.endsWith(".json")).sort();
+    for (const name of containerLive) {
+      const record = JSON.parse(await readFile(resolve(evidenceDir, name), "utf8"));
+      if (record.mode === "authorized-run" && record.subject?.identifiers?.digest === verifiedDigest && record.summary?.failed === 0) {
+        exactRun = record;
+        break;
+      }
     }
   }
   const expectedGateResult = exactRun ? "pass" : "blocked";
