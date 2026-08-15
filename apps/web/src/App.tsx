@@ -32,6 +32,7 @@ import {
   SAFETY_NOTICE,
 } from "./labels";
 import { clampZoom, DEFAULT_SIZE, MAX_ZOOM, MIN_ZOOM, OSM_ATTRIBUTION, pixelFromView, projectWorldSegmentsMercator, TileLayer, viewFromPixelDelta, type MapSize, type TileView } from "./TileMap";
+import ApiDataPage from "./ApiDataPage";
 
 type SearchState = { query: string; matches: CallsignMatch[]; loading: boolean; searched: boolean; error?: string | undefined };
 const emptySearch: SearchState = { query: "", matches: [], loading: false, searched: false };
@@ -105,6 +106,7 @@ function App() {
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftError, setDraftError] = useState<string>();
   const [mapOnly, setMapOnly] = useState(false);
+  const [page, setPage] = useState<"map" | "api-data">("map");
   const [status, setStatus] = useState("");
   const [generation, setGeneration] = useState<GenerationSummary>();
   const [rankLabel, setRankLabel] = useState<string>();
@@ -121,6 +123,7 @@ function App() {
   const editorTriggerRef = useRef<HTMLButtonElement>(null);
   const mapOnlyTriggerRef = useRef<HTMLButtonElement>(null);
   const restoreControlsRef = useRef<HTMLButtonElement>(null);
+  const apiDataTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Design §15.2: focus return is deterministic after closing a surface,
   // selecting a route, retrying an error, or leaving Map Only.
@@ -332,13 +335,14 @@ function App() {
   return (
     <div className="app-shell map-first-shell">
       <div className="safety-banner compact-safety" role="region" aria-label="Safety notice"><strong><span aria-hidden="true">⚠</span> Safety notice</strong><span>{SAFETY_NOTICE}</span></div>
-      {!mapOnly && <header className="map-topbar">
+      {!mapOnly && page === "map" && <header className="map-topbar">
         <a className="skip-link" href="#flight-search">Skip to flight search</a>
         <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Map-first route comparison</h1></div>
         <div className="toolbar-search"><SearchBox selected={undefined} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={chooseFlight} onCancelSearch={cancelSearch} /></div>
         <div className="toolbar-flight" role="group" aria-label="Selected flight">
           {selectedFlight ? <><strong>{selectedFlight.callsign}</strong><span>{selectedFlight.departure} → {selectedFlight.destination}</span><small>{selectedRoute?.complete ? `${formatDistance(selectedRoute.distanceNm)} · ${selectedRoute.rank !== undefined ? `Rank ${selectedRoute.rank}` : "Unranked"}` : "Recorded route is incomplete and unranked"}</small></> : <span>Search for a recorded flight plan to begin.</span>}
         </div>
+        <button className="quiet-button toolbar-clear" ref={apiDataTriggerRef} type="button" onClick={() => { setPage("api-data"); requestAnimationFrame(() => document.getElementById("api-data-heading")?.focus()); }}>API data</button>
         <button className="quiet-button toolbar-clear" type="button" onClick={() => { setPrimarySurface("none"); resetAll(); }}>Clear session</button>
       </header>}
 
@@ -353,7 +357,7 @@ function App() {
         <div className={`notice freshness-banner ${generation.live.state === "unusable" ? "freshness-banner-unusable" : ""}`} role="status">{generation.live.state === "stale" ? REFRESH_STALE_BANNER : REFRESH_UNUSABLE_BANNER}</div>
       )}
 
-      <main className="map-workspace">
+      {page === "api-data" ? <ApiDataPage selectedFlight={selectedFlight} selectedRoute={selectedRoute} onBack={() => { setPage("map"); requestAnimationFrame(() => apiDataTriggerRef.current?.focus()); }} /> : <main className="map-workspace">
         {mapOnly && <h1 className="sr-only">Map-first route comparison</h1>}
         <section className="map-panel map-first-panel" aria-labelledby="map-heading">
           <h2 className="sr-only" id="map-heading">Global route map</h2>
@@ -378,7 +382,7 @@ function App() {
           {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected recorded route</span><span><i className="legend-line legend-line-alt" /> Alternate recorded route</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
           <div className="sr-status" role="status" aria-live="polite">{routeLoading ? "Loading route options." : status}</div>
         </section>
-      </main>
+      </main>}
     </div>
   );
 }

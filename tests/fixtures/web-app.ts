@@ -57,6 +57,8 @@ export type StubOptions = {
    * can be exercised deterministically. Responses release in FIFO order.
    */
   deferSearch?: boolean | undefined;
+  /** Fail bulk browse requests with 409 CURSOR_EXPIRED. */
+  failCursor?: boolean | undefined;
 };
 
 export type CapturedCall = { method: string; url: string; body?: string | undefined };
@@ -291,6 +293,44 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     }
     if (method === "POST" && url === "/api/v1/refresh") {
       return jsonResponse({ status: "refreshed", generation: { ...generation, id: "gen-2", retrievedAt: "2026-08-14T01:00:00.000Z", live: { ...generation.live, retrievedAt: "2026-08-14T01:00:00.000Z" } } });
+    }
+    // Bulk data browse: summary (counts only, airways never valued) and
+    // paged family endpoints. Cursors are stubbed as opaque strings.
+    if (method === "GET" && url === "/api/v1/data/summary") {
+      return jsonResponse({
+        generation,
+        families: [
+          { family: "flights", records: 3, acceptedRecords: 3, rejectedRecords: 0 },
+          { family: "fixes", records: 1, acceptedRecords: 1, rejectedRecords: 0 },
+          { family: "airports", records: 2, acceptedRecords: 2, rejectedRecords: 0 },
+          { family: "navaids", records: 0, acceptedRecords: 0, rejectedRecords: 0 },
+        ],
+        airway: { family: "airways", records: 3, acceptedRecords: 3, rejectedRecords: 0, uniqueRecords: 2 },
+      });
+    }
+    if (method === "POST" && url.startsWith("/api/v1/data/")) {
+      if (options.failCursor) return jsonResponse({ error: { message: "The browse cursor has expired.", code: "CURSOR_EXPIRED" } }, 409);
+      const body = bodyOf(init) as Record<string, unknown>;
+      const cursor = typeof body.cursor === "string" ? body.cursor : undefined;
+      const requested = typeof body.limit === "number" ? body.limit : 50;
+      if (url === "/api/v1/data/flights") {
+        const flights = [
+          ...Array.from({ length: 10 }, (_, index) => ({ id: `flight-${index + 1}`, callsign: "FIXTURE1", departure: "KOR1", destination: "KDS1", pointCount: 3 })),
+          { id: "flight-11", callsign: "FIXTURE3", departure: "KDS1", destination: "KOR1", pointCount: 3 },
+          { id: "flight-12", callsign: "FIXTURE3", departure: "KDSS", destination: "KDS1", pointCount: 2 },
+        ];
+        const start = cursor === "p1" ? 10 : 0;
+        const end = Math.min(flights.length, start + requested);
+        const page = flights.slice(start, end);
+        return jsonResponse({ data: page, generation, ...(end < flights.length ? { nextCursor: "p1" } : {}) });
+      }
+      if (url === "/api/v1/data/fixes") return jsonResponse({ data: [{ id: "loc-MIDPT", callsign: "MIDPT", name: "MIDPT", kind: "place", coordinate: { lat: 35, lon: -90 } }], generation });
+      if (url === "/api/v1/data/airports") return jsonResponse({ data: [
+        { id: "loc-KOR1", callsign: "KOR1", name: "KOR1", kind: "airport", coordinate: { lat: 40, lon: -73 } },
+        { id: "loc-KDS1", callsign: "KDS1", name: "KDS1", kind: "airport", coordinate: { lat: 33, lon: -118 } },
+      ], generation });
+      if (url === "/api/v1/data/navaids") return jsonResponse({ data: [], generation });
+      if (url === "/api/v1/data/airways") return jsonResponse({ error: { message: "Not found.", code: "NOT_FOUND" } }, 404);
     }
     return jsonResponse({ error: { message: `Unhandled stub request ${method} ${url}.`, code: "STUB" } }, 404);
   });

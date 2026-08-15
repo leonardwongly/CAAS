@@ -169,3 +169,20 @@ describe("keyboard-only review", () => {
     expect(screen.getByText("No intermediate points. This draft uses a direct modeled endpoint-to-endpoint segment.")).toBeTruthy();
   });
 });
+
+describe("API data page focus flow", () => {
+  it("moves focus to the page heading on open and back to the trigger on return", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const trigger = screen.getByRole("button", { name: "API data" });
+    await user.click(trigger);
+    const heading = await screen.findByRole("heading", { name: "API data" });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+
+    await user.click(screen.getByRole("button", { name: "Back to map" }));
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("API data"));
+    expect(screen.getByRole("navigation", { name: "Route workspace controls" })).toBeTruthy();
+  });
+});

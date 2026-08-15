@@ -555,3 +555,143 @@ export async function validateDraft(origin: string, destination: string, via: st
     },
   };
 }
+
+// --- Bulk data browse (owner-authorized 2026-08-15) ------------------------
+// /api/v1/data/* endpoints serve normalized public DTO fields only; airway
+// values/types never appear (counts only). Cursors and limits travel in POST
+// bodies, never in URLs.
+
+export type DataFamilySummary = {
+  family: string;
+  records: number;
+  acceptedRecords?: number | undefined;
+  rejectedRecords?: number | undefined;
+};
+
+export type AirwaySummary = DataFamilySummary & {
+  uniqueRecords?: number | undefined;
+};
+
+export type DataSummary = {
+  generation: GenerationSummary;
+  families: DataFamilySummary[];
+  airway: AirwaySummary;
+};
+
+export type FlightBrowseItem = {
+  id: OpaqueId;
+  callsign: string;
+  departure: string;
+  destination: string;
+  pointCount: number;
+};
+
+export type ReferenceBrowseItem = {
+  id: OpaqueId;
+  identifier: string;
+  name: string;
+  kind: string;
+  coordinate: Coordinate;
+};
+
+export type BrowsePage<T> = {
+  items: T[];
+  nextCursor?: string | undefined;
+  generation?: GenerationSummary | undefined;
+};
+
+export async function fetchDataSummary(signal?: AbortSignal): Promise<DataSummary> {
+  const payload = await request("/api/v1/data/summary", signal ? { signal } : {});
+  const generation = isRecord(payload) ? normalizeGeneration(payload.generation) : undefined;
+  if (!generation) throw new Error("The data summary did not include a generation.");
+  const families = (isRecord(payload) && Array.isArray(payload.families) ? payload.families : []).flatMap((family) => {
+    if (!isRecord(family)) return [];
+    const records = finiteNumber(family, "records");
+    if (records === undefined) return [];
+    const normalized: DataFamilySummary = {
+      family: stringValue(family, "family") ?? "unknown",
+      records,
+      ...(finiteNumber(family, "acceptedRecords") !== undefined ? { acceptedRecords: finiteNumber(family, "acceptedRecords") } : {}),
+      ...(finiteNumber(family, "rejectedRecords") !== undefined ? { rejectedRecords: finiteNumber(family, "rejectedRecords") } : {}),
+    };
+    return [normalized];
+  });
+  const airwayValue = isRecord(payload) && isRecord(payload.airway) ? payload.airway : undefined;
+  const airwayRecords = airwayValue ? finiteNumber(airwayValue, "records") : undefined;
+  if (airwayRecords === undefined) throw new Error("The data summary did not include airway counts.");
+  return {
+    generation,
+    families,
+    airway: {
+      family: "airways",
+      records: airwayRecords,
+      ...(finiteNumber(airwayValue!, "acceptedRecords") !== undefined ? { acceptedRecords: finiteNumber(airwayValue!, "acceptedRecords") } : {}),
+      ...(finiteNumber(airwayValue!, "rejectedRecords") !== undefined ? { rejectedRecords: finiteNumber(airwayValue!, "rejectedRecords") } : {}),
+      ...(finiteNumber(airwayValue!, "uniqueRecords") !== undefined ? { uniqueRecords: finiteNumber(airwayValue!, "uniqueRecords") } : {}),
+    },
+  };
+}
+
+async function browsePage<T>(path: string, normalize: (value: unknown, index: number) => T | undefined, limit: number, cursor: string | undefined, signal: AbortSignal | undefined): Promise<BrowsePage<T>> {
+  const payload = await request(path, {
+    method: "POST",
+    ...(signal ? { signal } : {}),
+    body: JSON.stringify({ limit, ...(cursor ? { cursor } : {}) }),
+  });
+  return {
+    items: unwrap(payload).flatMap((item, index) => {
+      const normalized = normalize(item, index);
+      return normalized ? [normalized] : [];
+    }),
+    ...(isRecord(payload) && stringValue(payload, "nextCursor") ? { nextCursor: stringValue(payload, "nextCursor") } : {}),
+    ...(isRecord(payload) ? (normalizeGeneration(payload.generation) ? { generation: normalizeGeneration(payload.generation) } : {}) : {}),
+  };
+}
+
+function normalizeFlightBrowseItem(value: unknown): FlightBrowseItem | undefined {
+  if (!isRecord(value)) return undefined;
+  const id = stringValue(value, "id");
+  const callsign = stringValue(value, "callsign");
+  if (!id || !callsign) return undefined;
+  return {
+    id,
+    callsign,
+    departure: stringValue(value, "departure", "origin") ?? "Not supplied",
+    destination: stringValue(value, "destination") ?? "Not supplied",
+    pointCount: finiteNumber(value, "pointCount") ?? 0,
+  };
+}
+
+function normalizeReferenceBrowseItem(value: unknown): ReferenceBrowseItem | undefined {
+  if (!isRecord(value)) return undefined;
+  const id = stringValue(value, "id");
+  const identifier = stringValue(value, "callsign", "code", "name");
+  const coordinateValue = value.coordinate;
+  const coordinate = isRecord(coordinateValue)
+    ? { lat: finiteNumber(coordinateValue, "lat", "latitude"), lon: finiteNumber(coordinateValue, "lon", "lng", "longitude") }
+    : undefined;
+  if (!id || !identifier || !coordinate || coordinate.lat === undefined || coordinate.lon === undefined) return undefined;
+  return {
+    id,
+    identifier,
+    name: stringValue(value, "name", "callsign") ?? identifier,
+    kind: stringValue(value, "kind") ?? "reference point",
+    coordinate: { lat: coordinate.lat, lon: coordinate.lon },
+  };
+}
+
+export function browseFlights(limit = 50, cursor?: string, signal?: AbortSignal): Promise<BrowsePage<FlightBrowseItem>> {
+  return browsePage("/api/v1/data/flights", normalizeFlightBrowseItem, limit, cursor, signal);
+}
+
+export function browseFixes(limit = 50, cursor?: string, signal?: AbortSignal): Promise<BrowsePage<ReferenceBrowseItem>> {
+  return browsePage("/api/v1/data/fixes", normalizeReferenceBrowseItem, limit, cursor, signal);
+}
+
+export function browseAirports(limit = 50, cursor?: string, signal?: AbortSignal): Promise<BrowsePage<ReferenceBrowseItem>> {
+  return browsePage("/api/v1/data/airports", normalizeReferenceBrowseItem, limit, cursor, signal);
+}
+
+export function browseNavaids(limit = 50, cursor?: string, signal?: AbortSignal): Promise<BrowsePage<ReferenceBrowseItem>> {
+  return browsePage("/api/v1/data/navaids", normalizeReferenceBrowseItem, limit, cursor, signal);
+}
