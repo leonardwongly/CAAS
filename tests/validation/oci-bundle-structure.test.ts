@@ -55,7 +55,36 @@ test("the committed PG-03 gate manifest binds the real policy and validator hash
     return;
   }
   assert.equal(manifest.gateId, "PG-03");
-  assert.equal(manifest.gateResult, "blocked", "PG-03 must stay blocked until exact-subject loopback passes");
+  // The gate lifts exactly when an authorized container live run exists whose
+  // subject digest equals the bundle's image ID; otherwise it stays blocked.
+  const evidenceDir = resolve(root, "docs/evidence");
+  // Mirror the manifest's lift logic exactly: only a ci-build bundle plus a
+  // matching authorized container run lifts the gate; a local authorized run
+  // never does.
+  const bundleFiles = (await readdir(evidenceDir)).filter((name) => name.startsWith("oci-digest-bundle-") && name.endsWith(".json"));
+  const ciBundles = [];
+  for (const name of bundleFiles) {
+    const candidate = JSON.parse(await readFile(resolve(evidenceDir, name), "utf8"));
+    if (candidate.recordKind === "oci-digest-bundle" && candidate.subject?.environment === "ci-build"
+      && candidate.assertions?.nonRootUser && candidate.assertions?.noSecretEnv && candidate.assertions?.exposes8080 && candidate.assertions?.linuxImage) {
+      ciBundles.push(candidate);
+    }
+  }
+  const newestCi = ciBundles.sort((left, right) => (left.buildMetadata?.startedAt ?? "").localeCompare(right.buildMetadata?.startedAt ?? "")).at(-1);
+  const verifiedDigest = newestCi?.image?.imageId;
+  let exactRun;
+  if (verifiedDigest) {
+    const containerLive = (await readdir(evidenceDir)).filter((name) => name.startsWith("container-live-lane-") && name.endsWith(".json")).sort();
+    for (const name of containerLive) {
+      const record = JSON.parse(await readFile(resolve(evidenceDir, name), "utf8"));
+      if (record.mode === "authorized-run" && record.subject?.identifiers?.digest === verifiedDigest && record.summary?.failed === 0) {
+        exactRun = record;
+        break;
+      }
+    }
+  }
+  const expectedGateResult = exactRun ? "pass" : "blocked";
+  assert.equal(manifest.gateResult, expectedGateResult, `PG-03 must be ${expectedGateResult} — the exact-subject container live run is ${exactRun ? "retained" : "absent"}`);
   const policySha = createHash("sha256").update(await readFile(resolve(root, "deploy/poc-policy.yaml"), "utf8")).digest("hex");
   assert.equal(manifest.policy.policySha256, policySha);
   const validatorSha = createHash("sha256").update(await readFile(resolve(root, "scripts/validation/validate-evidence-bundle.mjs"), "utf8")).digest("hex");
@@ -69,10 +98,25 @@ test("evidence records reference a real code-under-test commit", async (t) => {
     t.skip("no evidence records committed yet");
     return;
   }
+  // CI-built bundles record the GitHub PR merge ref, which legitimately
+  // exists only on the remote (never in any checkout's history). A
+  // container-live record whose digest + commit match a ci-build bundle is
+  // exempt — that pairing is exactly the manifest's verification chain.
+  const evidenceDir = resolve(root, "docs/evidence");
+  const bundleFiles = (await readdir(evidenceDir)).filter((name) => name.startsWith("oci-digest-bundle-") && name.endsWith(".json"));
+  const ciSubjects = [];
+  for (const name of bundleFiles) {
+    const candidate = JSON.parse(await readFile(resolve(evidenceDir, name), "utf8"));
+    if (candidate.recordKind === "oci-digest-bundle" && candidate.subject?.environment === "ci-build") {
+      ciSubjects.push({ commit: candidate.subject?.identifiers?.commit, digest: candidate.image?.imageId });
+    }
+  }
   for (const name of records.slice(0, 5)) {
     const record = JSON.parse(await readFile(resolve(root, "docs/evidence", name), "utf8"));
     const recorded = record.subject?.identifiers?.commit;
     if (typeof recorded === "string" && /^[0-9a-f]{12,}$/.test(recorded)) {
+      const isCiSubject = ciSubjects.some((ci) => ci.commit?.slice(0, recorded.length) === recorded && ci.digest === record.subject?.identifiers?.digest);
+      if (isCiSubject) continue;
       const exists = execFileSync("git", ["rev-parse", "--verify", "--quiet", `${recorded}^{commit}`], { cwd: root, encoding: "utf8" }).trim();
       assert.ok(exists.length > 0, `${name} records commit ${recorded} which must exist in git history`);
     }

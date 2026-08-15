@@ -119,7 +119,7 @@ checks:
   PG-03:
     mandatory:
       - id: PG03-EXACT-DIGEST
-        procedure: Verify the retained OCI layout, signature, SBOM, provenance, scan result, and digest-bound manifest.
+        procedure: Verify the retained digest-bound manifest, CI-built digest bundle, and Trivy scan result. The POC CI generates no OCI layout, signature, SBOM, or provenance (descoped in plan 1.4-rc5); registry/deployment verification uses the bundle digest only.
         operator: hash-equals
         expected: verified-oci-subject
         units: digest

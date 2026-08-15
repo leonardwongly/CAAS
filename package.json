@@ -21,6 +21,7 @@
     "test:evidence": "node --test --experimental-strip-types tests/validation/*.test.ts && node scripts/validation/validate-evidence-bundle.mjs",
     "test:integration": "node --experimental-strip-types scripts/validation/loopback-lane.mjs",
     "test:container": "node scripts/validation/loopback-container-lane.mjs && node scripts/smoke-container.mjs",
+    "test:container-live": "node --experimental-strip-types scripts/validation/container-live-lane.mjs",
     "test:performance": "node scripts/validation/measure-performance.mjs",
     "test:security": "node --experimental-strip-types scripts/validation/measure-security.mjs",
     "test:live": "node --experimental-strip-types scripts/validation/live-lane.mjs",

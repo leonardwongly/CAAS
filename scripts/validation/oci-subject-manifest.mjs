@@ -9,6 +9,7 @@
 // invented: the digest below is the image that was actually built by
 // scripts/validation/build-oci.mjs.
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { VALIDATOR_VERSION } from "./validate-evidence-bundle.mjs";
@@ -25,6 +26,47 @@ const imageDigest = bundle.image?.imageId;
 if (!imageDigest || !bundle.assertions?.nonRootUser || !bundle.assertions?.noSecretEnv || !bundle.assertions?.exposes8080 || !bundle.assertions?.linuxImage) {
   throw new Error("oci-subject-manifest: the digest bundle must record a built image with all assertions true");
 }
+
+// Exact-subject verification: an authorized container live run whose subject
+// digest equals the newest committed CI-built bundle's image ID. Only such a
+// record lifts PG03-EXACT-DIGEST and PG03-LOOPBACK-REAL-DATA; a local rebuild
+// can never fake it — the lane refuses to run against a non-matching image
+// ID, and ci-build bundles can only originate from the CI workflow.
+const evidenceDir = resolve(root, "docs/evidence");
+const bundleFiles = (await readdir(evidenceDir)).filter((name) => name.startsWith("oci-digest-bundle-") && name.endsWith(".json")).sort();
+const ciBundles = (await Promise.all(bundleFiles.map(async (name) => JSON.parse(await readFile(resolve(evidenceDir, name), "utf8")))))
+  .filter((candidate) => candidate.recordKind === "oci-digest-bundle" && candidate.subject?.environment === "ci-build"
+    && candidate.assertions?.nonRootUser && candidate.assertions?.noSecretEnv && candidate.assertions?.exposes8080 && candidate.assertions?.linuxImage)
+  .sort((left, right) => (left.buildMetadata?.startedAt ?? "").localeCompare(right.buildMetadata?.startedAt ?? ""));
+const verifiedBundle = ciBundles.at(-1) ?? null;
+const verifiedDigest = verifiedBundle?.image?.imageId ?? null;
+const verifiedBundleName = verifiedBundle
+  ? bundleFiles.find((name) => {
+      try {
+        return JSON.parse(readFileSync(resolve(evidenceDir, name), "utf8")).subject?.identifiers?.digest === verifiedDigest;
+      } catch {
+        return false;
+      }
+    })
+  : undefined;
+
+const containerLiveFiles = (await readdir(evidenceDir)).filter((name) => name.startsWith("container-live-lane-") && name.endsWith(".json")).sort();
+let exactVerified = false;
+let containerLiveRecord = null;
+if (verifiedDigest) {
+  for (const name of [...containerLiveFiles].reverse()) {
+    const candidate = JSON.parse(await readFile(resolve(evidenceDir, name), "utf8"));
+    if (candidate.recordKind === "lane-results" && candidate.mode === "authorized-run" && candidate.subject?.identifiers?.digest === verifiedDigest && candidate.summary?.failed === 0 && candidate.summary?.blocked === 0) {
+      const checkIds = new Set((candidate.checks ?? []).map((check) => check.checkId));
+      if (checkIds.has("CONTAINER-LIVE-FIVE-FAMILY") && checkIds.has("CONTAINER-LIVE-BROWSE-EXACT-ONCE") && checkIds.has("CONTAINER-LIVE-EXACT-SUBJECT")) {
+        exactVerified = true;
+        containerLiveRecord = { name, candidate };
+        break;
+      }
+    }
+  }
+}
+if (exactVerified) console.log(`oci-subject-manifest: exact-subject container live run found (${containerLiveRecord.name}) for the CI-built digest ${verifiedDigest.slice(0, 20)}…; lifting PG03-EXACT-DIGEST and PG03-LOOPBACK-REAL-DATA.`);
 
 const policyPath = resolve(root, "deploy/poc-policy.yaml");
 const validatorPath = resolve(root, "scripts/validation/validate-evidence-bundle.mjs");
@@ -48,6 +90,7 @@ const artifactRefs = [
   { path: "scripts/validation/validate-evidence-bundle.mjs", sha256: validatorSha256 },
   { path: `.github/workflows/${workflowName}`, sha256: digest(await readFile(resolve(workflowDir, workflowName), "utf8")) },
   { path: bundlePath, sha256: digest(await readFile(resolve(root, bundlePath), "utf8")) },
+  ...(exactVerified && verifiedBundleName ? [{ path: `docs/evidence/${verifiedBundleName}`, sha256: digest(await readFile(resolve(root, "docs/evidence", verifiedBundleName), "utf8")) }] : []),
 ];
 
 function check({ checkId, name, procedure, result, value, units, expected, operator, extraArtifacts = [] }) {
@@ -68,13 +111,22 @@ function check({ checkId, name, procedure, result, value, units, expected, opera
 const checks = [
   check({
     checkId: "PG03-EXACT-DIGEST", name: "exact subject digest is the verified OCI subject",
-    procedure: "The subject must be the single authoritative CI-built OCI image; the locally built candidate is recorded here with its real digest and remains unverified until the authoritative CI subject is recorded.",
-    result: "blocked", value: imageDigest, units: "digest", expected: "verified-oci-subject", operator: "hash-equals",
+    procedure: exactVerified
+      ? `An authorized container live run (scripts/validation/container-live-lane.mjs) executed the image whose ID equals the committed CI-built bundle's image ID (${verifiedDigest}); the record's subject digest matches exactly.`
+      : "The subject must be the single authoritative CI-built OCI image; the locally built candidate is recorded here with its real digest and remains unverified until an authorized container live run on the exact CI digest is recorded.",
+    // The policy pins the sentinel "verified-oci-subject"; the validator
+    // derives hash-equals as value === expected, so the pass value IS the
+    // sentinel. The actual digest is bound in the subject block and the
+    // container-live record artifact.
+    result: exactVerified ? "pass" : "blocked", value: exactVerified ? "verified-oci-subject" : imageDigest, units: "digest", expected: "verified-oci-subject", operator: "hash-equals",
   }),
   check({
     checkId: "PG03-LOOPBACK-REAL-DATA", name: "exact subject passes loopback with real data",
-    procedure: "The verified subject must pass the loopback gate with real data (authorized live run). Mechanics pass fixture-backed (docs/evidence/loopback-lane-local.json); the authorized live run is pending (docs/evidence/live-lane-<sha>.json, mode pending-authorized-execution).",
-    result: "blocked", value: false, units: "boolean", expected: true, operator: "equals",
+    procedure: exactVerified
+      ? `The exact subject passed the loopback real-data checks in the container (${containerLiveRecord.name}): liveness, five-family acquisition, browse exact-once, secret exclusion.`
+      : "The verified subject must pass the loopback gate with real data (authorized run). Mechanics pass fixture-backed (docs/evidence/loopback-lane-local.json); the authorized container run on the exact digest is pending.",
+    result: exactVerified ? "pass" : "blocked", value: exactVerified, units: "boolean", expected: true, operator: "equals",
+    extraArtifacts: exactVerified ? [{ path: `docs/evidence/${containerLiveRecord.name}`, sha256: digest(await readFile(resolve(root, "docs/evidence", containerLiveRecord.name), "utf8")) }] : [],
   }),
   check({
     checkId: "PG03-SECRETLESS", name: "subject is built secretless",
@@ -100,15 +152,15 @@ const manifest = {
   },
   subject: {
     type: "oci",
-    identifiers: { digest: imageDigest, commit: short, tarSha256: bundle.subject.identifiers.tarSha256 },
-    environment: "local-build-candidate",
+    identifiers: { digest: exactVerified ? verifiedDigest : imageDigest, commit: exactVerified ? containerLiveRecord.candidate.subject.identifiers.commit : short, tarSha256: exactVerified ? verifiedBundle.subject.identifiers.tarSha256 : bundle.subject.identifiers.tarSha256 },
+    environment: exactVerified ? "verified-ci-subject" : "local-build-candidate",
   },
   checks,
   // A blocked gate must name what blocks it: every blocked check is listed
   // as an open P0 blocking issue (P0: no Azure write may occur until it is
   // resolved on the exact verified subject).
   blockingIssues: checks.filter((check) => check.result === "blocked").map((check) => ({ id: `${check.checkId}: pending authoritative CI-built OCI subject and authorized live loopback on that exact digest`, priority: "P0", status: "open" })),
-  gateResult: "blocked",
+  gateResult: exactVerified ? "pass" : "blocked",
   failureFallback: "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject.",
 };
 

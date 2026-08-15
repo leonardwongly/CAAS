@@ -45,7 +45,9 @@ In Mode B the exact fixture-specific values (search term, references, 512.4 NM
 figures, fixture gap text) do **not** apply: record the observed real values in
 the Result column instead. Data-independent expectations (safety copy, rank
 criterion text, Rank-1 label, status announcements, focus behavior) apply
-exactly in both modes.
+exactly in both modes. An executed Mode B record exists at
+`docs/testing/artifacts/uat-execution-record-*.md` (2026-08-15, search subject
+`SIA469`, 16/16 rows in Chromium and WebKit) — use it as the reference format.
 
 Record one ☐ pass / ☐ fail + note per row; attach a screenshot or notes to
 any fail and store it in `docs/testing/artifacts/`. Return the completed file

@@ -1,7 +1,9 @@
 # Accessibility and UAT evidence hub
 
-Status: **In progress — deterministic evidence complete; assistive-technology and
-live UAT steps pending manual execution** (issues #15–#19).
+Status: **In progress — deterministic evidence complete; a machine-executed
+live-data UAT pass is recorded (2026-08-15, `artifacts/uat-execution-record-*.md`,
+16/16 rows in Chromium and WebKit); assistive-technology verification remains
+pending manual execution** (issues #15–#19).
 
 This document is the single entry point for accessibility and UAT evidence on
 the map-first flight route explorer. It records exactly what was run, with

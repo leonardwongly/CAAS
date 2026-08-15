@@ -1,7 +1,9 @@
 # Screen-reader and browser compatibility review (issue #17)
 
-Status: **Automated ARIA/axe portion proved (2026-08-14); named SR/browser
-matrix pending manual execution.**
+Status: **Automated ARIA/axe portion proved (2026-08-14); browser
+compatibility recorded (2026-08-15, `artifacts/browser-compatibility-record.md`:
+Chromium 16/16, WebKit 16/16); the named screen-reader verification and a
+headful Firefox pass remain pending manual execution.**
 
 ## 1. Named matrix
 
