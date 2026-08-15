@@ -31,6 +31,7 @@ import {
   REFRESH_UNUSABLE_BANNER,
   SAFETY_NOTICE,
 } from "./labels";
+import { compareDistanceOperands } from "@flight-route-explorer/route-engine/compare";
 
 type SearchState = { query: string; matches: CallsignMatch[]; loading: boolean; searched: boolean; error?: string | undefined };
 const emptySearch: SearchState = { query: "", matches: [], loading: false, searched: false };
@@ -97,7 +98,7 @@ function App() {
   const [routeReload, setRouteReload] = useState(0);
   const [draft, setDraft] = useState<DraftComparison>();
   const [draftActive, setDraftActive] = useState(false);
-  const [primarySurface, setPrimarySurface] = useState<"none" | "routes" | "route-data" | "editor">("none");
+  const [primarySurface, setPrimarySurface] = useState<"none" | "routes" | "route-data" | "editor" | "compare">("none");
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftError, setDraftError] = useState<string>();
   const [mapOnly, setMapOnly] = useState(false);
@@ -113,14 +114,15 @@ function App() {
   const routesTriggerRef = useRef<HTMLButtonElement>(null);
   const dataTriggerRef = useRef<HTMLButtonElement>(null);
   const editorTriggerRef = useRef<HTMLButtonElement>(null);
+  const compareTriggerRef = useRef<HTMLButtonElement>(null);
   const mapOnlyTriggerRef = useRef<HTMLButtonElement>(null);
   const restoreControlsRef = useRef<HTMLButtonElement>(null);
 
   // Design §15.2: focus return is deterministic after closing a surface,
   // selecting a route, retrying an error, or leaving Map Only.
-  function closeSurface(surface: "none" | "routes" | "route-data" | "editor") {
+  function closeSurface(surface: "none" | "routes" | "route-data" | "editor" | "compare") {
     setPrimarySurface("none");
-    const trigger = surface === "routes" ? routesTriggerRef : surface === "route-data" ? dataTriggerRef : surface === "editor" ? editorTriggerRef : undefined;
+    const trigger = surface === "routes" ? routesTriggerRef : surface === "route-data" ? dataTriggerRef : surface === "editor" ? editorTriggerRef : surface === "compare" ? compareTriggerRef : undefined;
     if (trigger) requestAnimationFrame(() => trigger.current?.focus());
   }
 
@@ -335,12 +337,14 @@ function App() {
             <button ref={routesTriggerRef} type="button" aria-pressed={primarySurface === "routes"} onClick={() => setPrimarySurface((surface) => surface === "routes" ? "none" : "routes")} disabled={!selectedFlight}>Routes</button>
             <button ref={dataTriggerRef} type="button" aria-pressed={primarySurface === "route-data"} onClick={() => setPrimarySurface((surface) => surface === "route-data" ? "none" : "route-data")} disabled={!selectedRoute}>Data</button>
             <button ref={editorTriggerRef} type="button" aria-pressed={primarySurface === "editor"} onClick={() => { if (!selectedRoute) return; setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} disabled={!selectedRoute}>Edit copy</button>
+            <button ref={compareTriggerRef} type="button" aria-pressed={primarySurface === "compare"} onClick={() => setPrimarySurface((surface) => surface === "compare" ? "none" : "compare")} disabled={!selectedRoute || options.length < 2}>Compare</button>
             <button ref={mapOnlyTriggerRef} type="button" onClick={enterMapOnly}>Map only</button>
           </nav>}
           {mapOnly && <button ref={restoreControlsRef} className="restore-controls" type="button" onClick={leaveMapOnly} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leaveMapOnly(); } }}>Restore controls</button>}
-          {!mapOnly && primarySurface !== "none" && <aside className="map-drawer" role="region" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : "Local route editor"}>
-            <div className="drawer-header"><p className="eyebrow">{primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : "EDIT COPY"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>
+          {!mapOnly && primarySurface !== "none" && <aside className="map-drawer" role="region" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : primarySurface === "compare" ? "Route comparison" : "Local route editor"}>
+            <div className="drawer-header"><p className="eyebrow">{primarySurface === "compare" ? "COMPARE ROUTES" : primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : "EDIT COPY"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>
             {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} rankLabel={rankLabel} onRetry={() => { setRouteReload((current) => current + 1); requestAnimationFrame(() => document.getElementById("options-heading")?.focus()); }} onSelect={(option) => { resetDraftState(); setSelectedRoute(option); setStatus(`Selected ${option.label ?? "route option"}.`); closeSurface("routes"); }} />}
+            {primarySurface === "compare" && selectedRoute && <RouteCompare baseline={selectedRoute} options={options} onSelect={(option) => { setSelectedRoute(option); setStatus(`Comparing ${selectedRoute.label ?? "route"} with ${option.label ?? "route option"}.`); }} />}
             {primarySurface === "route-data" && selectedRoute && <RouteDetails route={selectedRoute} onStartDraft={() => { setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); requestAnimationFrame(() => document.getElementById("draft-heading")?.focus()); }} />}
             {primarySurface === "editor" && selectedRoute && draftActive && <DraftEditor draft={draft} baseline={selectedRoute} loading={draftLoading} error={draftError} onUpdate={(via, selections) => void updateDraft(via, selections)} onClose={() => { resetDraftState(); closeSurface("editor"); }} />}
           </aside>}
@@ -408,6 +412,32 @@ function RouteOptions({ options, selected, loading, error, rankLabel, onRetry, o
 
 function RouteGroup({ title, description, count, criterion, options, selected, onSelect }: { title: string; description: string; count: string; criterion?: string | undefined; options: RouteOption[]; selected?: RouteOption | undefined; onSelect: (route: RouteOption) => void }) {
   return <div className="route-group"><div className="group-heading"><div><h3>{title}</h3><p className="criterion-copy">{description}</p>{criterion && <p className="criterion-copy">{criterion} It does not account for safety, clearance, legality, weather, fuel, or airline dispatch constraints.</p>}</div><span className="group-count">{count}</span></div><div className="option-grid">{options.map((option) => <button type="button" className={`route-card ${selected?.id === option.id ? "selected" : ""} ${option.operationalProxy?.eligible ? "is-complete" : "is-incomplete"}`} key={option.id} onClick={() => onSelect(option)} aria-current={selected?.id === option.id ? "true" : undefined}><span className="route-card-top"><strong>{option.label ?? "Route option"}</strong><span>{option.operationalProxy?.eligible && option.operationalProxy.rank !== undefined ? `Rank ${option.operationalProxy.rank}` : "Unranked"}</span></span><span className="route-card-distance">{formatDistance(option.distanceNm ?? option.rankDistanceNm)}</span><span className="route-card-meta">{option.pointCount} points · {option.legs.length} legs · {option.gaps.length} visible gaps · {option.provenance ?? "provenance not supplied"}</span><span className="route-card-meta">{option.operationalProxy?.eligible ? "All waypoints found. Included in ranking." : option.operationalProxy?.exclusion ?? "This route has unresolved waypoints and cannot be ranked."}</span></button>)}</div></div>;
+}
+
+function RouteCompare({ baseline, options, onSelect }: { baseline: RouteOption; options: RouteOption[]; onSelect: (option: RouteOption) => void }) {
+  const [targetId, setTargetId] = useState<string>();
+  // Snapshot the click-time baseline: onSelect promotes the chosen option to
+  // the selected route, so the side-by-side must keep comparing against the
+  // route that was selected before the click.
+  const [source, setSource] = useState<RouteOption>(baseline);
+  const candidates = options.filter((option) => option.id !== source.id);
+  const target = candidates.find((option) => option.id === targetId);
+  const comparison = target ? compareDistanceOperands(source.distanceNm, target.distanceNm) : undefined;
+  const delta = comparison?.distanceDeltaNm;
+  const percentage = comparison?.percentageDistanceDelta;
+  return <section className="compare-section" aria-labelledby="compare-heading">
+    <div className="section-title"><div><p className="eyebrow">COMPARE</p><h2 id="compare-heading" tabIndex={-1}>Side-by-side route comparison</h2></div></div>
+    <div className="compare-baseline"><p className="eyebrow">SELECTED ROUTE</p><strong>{source.label ?? "Selected route"}</strong><span>{formatDistance(source.distanceNm)}</span><span>{source.rank === 1 ? RANK_ONE_LABEL : source.rank !== undefined ? `Rank ${source.rank}` : RANK_CRITERION}</span></div>
+    {candidates.length > 0 && <div className="compare-candidates"><p className="criterion-copy">Choose a route option to compare against the selected route.</p><div className="option-grid">{candidates.map((option) => <button type="button" className="route-card" key={option.id} onClick={() => { setSource(baseline); setTargetId(option.id); onSelect(option); }} aria-label={`Compare ${source.label ?? "selected route"} with ${option.label ?? "route option"}`}><span className="route-card-top"><strong>{option.label ?? "Route option"}</strong><span>{option.complete ? "Complete" : "Incomplete"}</span></span><span className="route-card-distance">{formatDistance(option.distanceNm)}</span></button>)}</div></div>}
+    {target && comparison && <div className="compare-result">
+      <div className="compare-columns">
+        <div className="metric-grid"><Metric label="Baseline" value={source.label ?? "Selected route"} /><Metric label="Distance" value={formatDistance(source.distanceNm)} /><Metric label="Ranked distance" value={formatRankDistance(source.rankDistanceNm)} /><Metric label="Rank" value={source.rank !== undefined ? `Rank ${source.rank}` : "Not ranked"} /><Metric label="Points" value={String(source.pointCount)} /><Metric label="Legs" value={String(source.legs.length)} /><Metric label="Gaps" value={String(source.gaps.length)} /><Metric label="Status" value={source.complete ? "Complete" : "Incomplete"} /></div>
+        <div className="metric-grid"><Metric label="Target" value={target.label ?? "Route option"} /><Metric label="Distance" value={formatDistance(target.distanceNm)} /><Metric label="Ranked distance" value={formatRankDistance(target.rankDistanceNm)} /><Metric label="Rank" value={target.rank !== undefined ? `Rank ${target.rank}` : "Not ranked"} /><Metric label="Points" value={String(target.pointCount)} /><Metric label="Legs" value={String(target.legs.length)} /><Metric label="Gaps" value={String(target.gaps.length)} /><Metric label="Status" value={target.complete ? "Complete" : "Incomplete"} /></div>
+      </div>
+      <div className="metric-grid"><Metric label="Change from selected route" value={delta === undefined ? "Unavailable" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} NM`} note={percentage !== undefined ? `Directed baseline → target · ${percentage >= 0 ? "+" : ""}${percentage.toFixed(1)}%` : "Directed baseline → target"} /></div>
+      {(comparison.status !== "complete" || comparison.unavailable?.includes("INCOMPLETE_OPERAND")) && <div className="evidence-stack"><Evidence label="Comparison limitation" value="Both routes must be complete for a modeled-distance difference." tone="amber" /></div>}
+    </div>}
+  </section>;
 }
 
 function RouteDetails({ route, onStartDraft }: { route: RouteOption; onStartDraft: () => void }) {

@@ -68,6 +68,21 @@ describe("keyboard-only review", () => {
     await waitFor(() => expect(document.activeElement?.textContent).toBe("Routes"));
   });
 
+  it("closing the route comparison with its Close button returns focus to Compare", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+
+    const rail = screen.getByRole("navigation", { name: "Route workspace controls" });
+    await tabUntil(user, (element) => element.textContent === "Compare");
+    await user.keyboard("{Enter}");
+    const drawer = await screen.findByRole("region", { name: "Route comparison" });
+    await tabUntil(user, (element) => element.textContent === "Close" && drawer.contains(element));
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("Compare"));
+  });
+
   it("selecting a route with Enter closes the drawer and returns focus to Routes", async () => {
     installApiStub();
     const user = userEvent.setup();
