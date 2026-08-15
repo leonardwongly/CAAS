@@ -4,7 +4,7 @@
 // refused loudly with exit 1 and no upstream request.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 
@@ -18,16 +18,18 @@ function runLane(apikey: string) {
   });
 }
 
-async function latestContainerLiveRecord() {
-  const files = (await readdir(resolve(root, "docs/evidence"))).filter((name) => name.startsWith("container-live-lane-") && name.endsWith(".json")).sort();
-  assert.ok(files.length > 0, "the lane must write a record");
-  return JSON.parse(await readFile(resolve(root, "docs/evidence", files[files.length - 1]!), "utf8"));
+// The lane names its record after the current HEAD (lib-evidence shortSha).
+// Read THAT record: other committed records (e.g. an authorized run) must
+// never shadow the record produced by this invocation.
+async function currentHeadContainerLiveRecord() {
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim().slice(0, 12);
+  return JSON.parse(await readFile(resolve(root, "docs/evidence", `container-live-lane-${head}.json`), "utf8"));
 }
 
 test("container live lane records PENDING and exits 0 when no credential is configured", async () => {
   const output = runLane("");
   assert.match(output, /PENDING record written/u);
-  const record = await latestContainerLiveRecord();
+  const record = await currentHeadContainerLiveRecord();
   assert.equal(record.mode, "pending-authorized-execution");
   assert.equal(record.summary.failed, 0);
   assert.equal(record.summary.blocked, 5);
