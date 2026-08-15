@@ -103,7 +103,7 @@ const routeOptions = [
       { id: "leg-3a", sequence: 1, kind: "direct", from: "KOR1", to: "MIDPT", distanceNm: 251.2, status: "resolved" },
       { id: "leg-3b", sequence: 2, kind: "direct", from: "MIDPT", to: "KDS1", distanceNm: 282.9, status: "resolved" },
     ],
-    geometry: { type: "LineString", coordinates: [[-73, 40], [-90, 35], [-118, 33]] },
+    geometry: { type: "LineString", coordinates: [[-73, 40], [-86, 39], [-118, 33]] },
     distanceNm: 534.1,
     rankDistanceNm: 534.1,
     rank: 2,

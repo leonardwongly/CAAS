@@ -329,10 +329,13 @@ function App() {
         {mapOnly && <h1 className="sr-only">Map-first route comparison</h1>}
         <section className="map-panel map-first-panel" aria-labelledby="map-heading">
           <h2 className="sr-only" id="map-heading">Global route map</h2>
-          <RouteMap route={selectedRoute} callsign={selectedFlight?.callsign} />
+          <RouteMap routes={options} selectedRoute={selectedRoute} callsign={selectedFlight?.callsign} />
           <div className="map-hud">{selectedRoute ? <><span className="eyebrow">ACTIVE RECORDED ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? `${formatDistance(selectedRoute.distanceNm)} · ${selectedRoute.rank === 1 ? RANK_ONE_LABEL : selectedRoute.rank !== undefined ? `Rank ${selectedRoute.rank}` : RANK_CRITERION}` : "Incomplete · not included in ranking"}</span></> : <><span className="eyebrow">GLOBAL MAP</span><strong>Recorded routes appear after selection</strong><span>Only exact, server-resolved geometry is shown.</span></>}</div>
           {!mapOnly && <nav className="map-rail" aria-label="Route workspace controls">
-            <button ref={routesTriggerRef} type="button" aria-pressed={primarySurface === "routes"} onClick={() => setPrimarySurface((surface) => surface === "routes" ? "none" : "routes")} disabled={!selectedFlight}>Routes</button>
+            <div className="rail-entry">
+              <button ref={routesTriggerRef} type="button" aria-pressed={primarySurface === "routes"} onClick={() => setPrimarySurface((surface) => surface === "routes" ? "none" : "routes")} disabled={!selectedFlight}>Routes</button>
+              {options.length > 1 && <span className="rail-count" aria-hidden="true">{options.length}</span>}
+            </div>
             <button ref={dataTriggerRef} type="button" aria-pressed={primarySurface === "route-data"} onClick={() => setPrimarySurface((surface) => surface === "route-data" ? "none" : "route-data")} disabled={!selectedRoute}>Data</button>
             <button ref={editorTriggerRef} type="button" aria-pressed={primarySurface === "editor"} onClick={() => { if (!selectedRoute) return; setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} disabled={!selectedRoute}>Edit copy</button>
             <button ref={mapOnlyTriggerRef} type="button" onClick={enterMapOnly}>Map only</button>
@@ -344,7 +347,7 @@ function App() {
             {primarySurface === "route-data" && selectedRoute && <RouteDetails route={selectedRoute} onStartDraft={() => { setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); requestAnimationFrame(() => document.getElementById("draft-heading")?.focus()); }} />}
             {primarySurface === "editor" && selectedRoute && draftActive && <DraftEditor draft={draft} baseline={selectedRoute} loading={draftLoading} error={draftError} onUpdate={(via, selections) => void updateDraft(via, selections)} onClose={() => { resetDraftState(); closeSurface("editor"); }} />}
           </aside>}
-          {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected recorded route</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
+          {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected recorded route</span><span><i className="legend-line legend-line-alt" /> Alternate recorded route</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
           <div className="sr-status" role="status" aria-live="polite">{routeLoading ? "Loading route options." : status}</div>
         </section>
       </main>
@@ -525,14 +528,22 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
 
 type EndpointLocation = Pick<PointMatch, "coordinate" | "name">;
 
-function RouteMap({ route, callsign }: { route?: RouteOption | undefined; callsign?: string | undefined }) {
+function RouteMap({ routes, selectedRoute, callsign }: { routes: RouteOption[]; selectedRoute?: RouteOption | undefined; callsign?: string | undefined }) {
   const [endpoints, setEndpoints] = useState<{ departure?: EndpointLocation | undefined; arrival?: EndpointLocation | undefined }>({});
-  const sourceSegments = useMemo(() => route?.segments ?? (route?.geometry ? [route.geometry] : []), [route]);
-  const projection = useMemo(() => projectWorldSegments(sourceSegments), [sourceSegments]);
-  const hasLine = Boolean(projection?.segments.length);
-  const incomplete = route && !route.complete;
-  const departure = route?.origin ?? "Not supplied";
-  const arrival = route?.destination ?? "Not supplied";
+  // Every server-returned candidate is drawn on the map: the selected route
+  // highlighted on top, every other candidate with geometry dimmed underneath.
+  // Candidates without resolved geometry are intentionally not drawn.
+  const projections = useMemo(() => routes.map((route) => ({
+    route,
+    projection: projectWorldSegments(route.segments ?? (route.geometry ? [route.geometry] : [])),
+  })), [routes]);
+  const selectedProjection = selectedRoute ? projections.find(({ route }) => route.id === selectedRoute.id)?.projection : undefined;
+  const alternates = projections.flatMap(({ route, projection }) => route.id !== selectedRoute?.id && projection && projection.segments.length ? [{ route, projection }] : []);
+  const hasLine = Boolean(selectedProjection?.segments.length);
+  const hasAnyLine = hasLine || alternates.length > 0;
+  const incomplete = selectedRoute ? !selectedRoute.complete : false;
+  const departure = selectedRoute?.origin ?? "Not supplied";
+  const arrival = selectedRoute?.destination ?? "Not supplied";
 
   useEffect(() => {
     const controller = new AbortController();
@@ -540,32 +551,39 @@ function RouteMap({ route, callsign }: { route?: RouteOption | undefined; callsi
       const unique = matches.filter((match) => !match.duplicateGroup);
       return unique.length === 1 ? unique[0] : undefined;
     };
-    if (!route?.origin && !route?.destination) { setEndpoints({}); return () => controller.abort(); }
+    if (!selectedRoute?.origin && !selectedRoute?.destination) { setEndpoints({}); return () => controller.abort(); }
     void Promise.all([
-      route?.origin ? lookupPoint(route.origin, controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
-      route?.destination ? lookupPoint(route.destination, controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
+      selectedRoute?.origin ? lookupPoint(selectedRoute.origin, controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
+      selectedRoute?.destination ? lookupPoint(selectedRoute.destination, controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
     ]).then(([departurePoint, arrivalPoint]) => {
       if (!controller.signal.aborted) setEndpoints({ departure: departurePoint, arrival: arrivalPoint });
     });
     return () => controller.abort();
-  }, [route?.id, route?.origin, route?.destination]);
+  }, [selectedRoute?.id, selectedRoute?.origin, selectedRoute?.destination]);
 
   const departurePoint = endpoints.departure ? projectWorldPoint(endpoints.departure.coordinate) : undefined;
   const arrivalPoint = endpoints.arrival ? projectWorldPoint(endpoints.arrival.coordinate) : undefined;
   const departureLabel = endpoints.departure?.name && endpoints.departure.name !== departure ? `${endpoints.departure.name} (${departure})` : departure;
   const arrivalLabel = endpoints.arrival?.name && endpoints.arrival.name !== arrival ? `${endpoints.arrival.name} (${arrival})` : arrival;
-  const label = hasLine ? `${callsign ?? "Selected flight"} world map showing ${departureLabel} departure and ${arrivalLabel} arrival with ${projection?.segments.length} resolved segment${projection?.segments.length === 1 ? "" : "s"}${incomplete ? " and visible unresolved gaps" : ""}` : "World map waiting for server-returned route segments";
+  const selectedSegmentCount = selectedProjection?.segments.length ?? 0;
+  const label = hasLine
+    ? `${callsign ?? "Selected flight"} world map showing ${departureLabel} departure and ${arrivalLabel} arrival with ${selectedSegmentCount} resolved segment${selectedSegmentCount === 1 ? "" : "s"}${incomplete ? " and visible unresolved gaps" : ""}${alternates.length ? `; ${alternates.length} alternate recorded route${alternates.length === 1 ? "" : "s"} shown dimmed` : ""}`
+    : hasAnyLine
+      ? `${callsign ?? "Selected flight"} world map showing ${routes.length} recorded route${routes.length === 1 ? "" : "s"}; select one to highlight it`
+      : "World map waiting for server-returned route segments";
+  const banner = incomplete ? "World map · showing resolved segments only; gaps are not connected." : hasAnyLine ? "World map · server route geometry" : "World map · no route geometry returned yet.";
   return <div className="map-stage" role="img" aria-label={label}>
-    <div className="map-fallback-banner"><span className="map-pin">◇</span><span>{incomplete ? "World map · showing resolved segments only; gaps are not connected." : hasLine ? "World map · server route geometry" : "World map · no route geometry returned yet."}</span></div>
+    <div className="map-fallback-banner"><span className="map-pin">◇</span><span>{banner}</span></div>
     <svg className="route-svg" viewBox="0 0 800 440" aria-hidden="true">
       <WorldMapBase />
-      {projection?.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" filter="url(#glow)" /><path d={segment.path} className="route-path" /></g>)}
+      {alternates.map(({ route, projection }) => <g key={route.id} className="route-line-alternate">{projection.segments.map((segment, index) => <path key={`alternate-segment-${index}`} d={segment.path} className="route-path-alternate" />)}</g>)}
+      {selectedRoute && selectedProjection && <g className="route-line-selected">{selectedProjection.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" filter="url(#glow)" /><path d={segment.path} className="route-path" /></g>)}</g>}
       {departurePoint && <MapMarker point={departurePoint} label={departure} tone="origin" />}
       {arrivalPoint && <MapMarker point={arrivalPoint} label={arrival} tone="destination" />}
-      {projection?.gapBoundaries.map((point, index) => <g key={`gap-${index}`} className="gap-boundary"><circle cx={point.x} cy={point.y} r="7" /><text x={point.x + 12} y={point.y + 4}>Gap</text></g>)}
+      {selectedProjection?.gapBoundaries.map((point, index) => <g key={`gap-${index}`} className="gap-boundary"><circle cx={point.x} cy={point.y} r="7" /><text x={point.x + 12} y={point.y + 4}>Gap</text></g>)}
     </svg>
-    {route && <section className="map-endpoints" aria-label="Route endpoint locations"><div className="map-endpoint departure"><b>Departure</b><span>{departureLabel}</span></div><div className="map-endpoint arrival"><b>Arrival</b><span>{arrivalLabel}</span></div></section>}
-    {!hasLine && <div className="map-empty"><span>◎</span><strong>{route ? "No resolved geometry returned" : "Select a flight plan"}</strong><p>{route ? "The world map does not infer a line across missing route data." : "The map will use only coordinates and route segments returned by the server."}</p></div>}
+    {selectedRoute && <section className="map-endpoints" aria-label="Route endpoint locations"><div className="map-endpoint departure"><b>Departure</b><span>{departureLabel}</span></div><div className="map-endpoint arrival"><b>Arrival</b><span>{arrivalLabel}</span></div></section>}
+    {!hasAnyLine && <div className="map-empty"><span>◎</span><strong>{routes.length ? "No resolved geometry returned" : "Select a flight plan"}</strong><p>{routes.length ? "The world map does not infer a line across missing route data." : "The map will use only coordinates and route segments returned by the server."}</p></div>}
     <div className="map-attribution">Geographic reference only · no external map tiles or API keys</div>
   </div>;
 }

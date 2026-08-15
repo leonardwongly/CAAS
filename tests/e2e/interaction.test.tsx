@@ -61,6 +61,30 @@ describe("interaction review", () => {
     expect(within(data).getByText("MIDPT could not be resolved to a single reference")).toBeTruthy();
   });
 
+  it("draws every returned route on the map with alternates dimmed and moves the highlight on selection", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await selectFixtureFlight(user);
+
+    // The auto-selected Rank 1 route is highlighted and the other candidate
+    // with geometry is drawn dimmed; the gap-only candidate has no geometry
+    // and must not be drawn. The rail badge counts all returned options.
+    expect(container.querySelectorAll(".route-path")).toHaveLength(1);
+    expect(container.querySelectorAll(".route-path-alternate")).toHaveLength(1);
+    expect(container.querySelector(".rail-count")?.textContent).toBe("3");
+    expect(screen.getByRole("img", { name: /1 alternate recorded route shown dimmed/ })).toBeTruthy();
+
+    // Choosing a different candidate moves the highlight without changing
+    // how many lines are drawn.
+    await user.click(screen.getByRole("button", { name: "Routes" }));
+    await user.click(screen.getByRole("button", { name: /Recorded via alternate routing/ }));
+    await waitFor(() => expect(screen.getByText("Recorded via alternate routing", { selector: ".map-hud strong" })).toBeTruthy());
+    expect(container.querySelectorAll(".route-path")).toHaveLength(1);
+    expect(container.querySelectorAll(".route-path-alternate")).toHaveLength(1);
+    expect(screen.getByRole("img", { name: /1 alternate recorded route shown dimmed/ })).toBeTruthy();
+  });
+
   it("edits a copy and sees the validated comparison metrics", async () => {
     installApiStub();
     const user = userEvent.setup();
