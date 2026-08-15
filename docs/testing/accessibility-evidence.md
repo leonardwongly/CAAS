@@ -1,9 +1,10 @@
 # Accessibility and UAT evidence hub
 
-Status: **In progress — deterministic evidence complete; a machine-executed
-live-data UAT pass is recorded (2026-08-15, `artifacts/uat-execution-record-*.md`,
-16/16 rows in Chromium and WebKit); assistive-technology verification remains
-pending manual execution** (issues #15–#19).
+Status: **Deterministic evidence complete; machine-executed live-data UAT
+passes are recorded (2026-08-15, `artifacts/uat-execution-record-*.md`, 16/16
+rows in Chrome, Chromium, and WebKit — the Chrome run refreshed at 10:22Z).
+The named-screen-reader (VoiceOver) and Firefox rows were waived by the owner
+on 2026-08-15 in favor of the real-Chrome standard** (issues #15–#19).
 
 This document is the single entry point for accessibility and UAT evidence on
 the map-first flight route explorer. It records exactly what was run, with

@@ -1,6 +1,6 @@
 # UAT execution record — Mode B (real CAAS data, keyboard-first)
 
-Executed 2026-08-15T09:46:50.489Z by a Playwright-driven chrome against the served application
+Executed 2026-08-15T10:22:59.122Z by a Playwright-driven chrome against the served application
 (http://localhost:18080) with real CAAS data (search subject `SIA469`). This is a
 machine-executed keyboard pass recorded as supplementary evidence: the
 pre-filled fixture values of the protocol (§1, Mode A) do not apply to real
@@ -19,7 +19,7 @@ Summary: 16/16 rows pass.
 | 5 | Select the other match, then back | Map endpoints and HUD track the selection; no stale geometry | ☑ pass | SIA matches: 92 |
 | 6 | Open Routes (Enter) | Route-options drawer opens with the returned count | ☑ pass | options returned: 1 |
 | 7 | Rank criterion text | Rank criterion plus the dispatch caveat | ☑ pass | This comparison uses modeled route distance as a stand-in for operational preference. It does not account for weather, fuel, clearances, or  |
-| 8 | Route card state | Selected real route's completeness state shown honestly | ☑ pass | incomplete and unranked Clear session Live data fresh · retrieved 5:46:35 PM Refresh live  |
+| 8 | Route card state | Selected real route's completeness state shown honestly | ☑ pass | incomplete and unranked Clear session Live data fresh · retrieved 6:22:41 PM Refresh live  |
 | 11 | Close the drawer (Escape) | Focus returns to the Routes trigger | ☑ pass | focus: BUTTON "Routes" |
 | 12 | Open Data (Enter) | Metrics: route data, rank, points, distance | ☑ pass | Route data Edit copy Route data Some waypoints missing Distance Not su ; distance Not supplied Full-precision modeled dis ; Route rank Not ranked Points 8 Server-reported cou ; DIS |
 | 13 | Data metrics for the selected route | Completeness state stated honestly | ☑ pass |  |

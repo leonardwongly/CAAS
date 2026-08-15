@@ -2,8 +2,9 @@
 
 Status: **Automated ARIA/axe portion proved (2026-08-14); browser
 compatibility recorded (2026-08-15, `artifacts/browser-compatibility-record.md`:
-Chromium 16/16, WebKit 16/16); the named screen-reader verification and a
-headful Firefox pass remain pending manual execution.**
+Chrome 16/16, Chromium 16/16, WebKit 16/16 — the Chrome run refreshed at
+10:22Z). The named screen-reader (VoiceOver) and Firefox rows were waived by
+the owner on 2026-08-15 in favor of the real-Chrome standard.**
 
 ## 1. Named matrix
 
