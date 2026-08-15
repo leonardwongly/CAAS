@@ -472,3 +472,167 @@ test("keeps callsign search state out of URLs: POST-only with no query string", 
     assert.equal(body.statusCode, 200);
   }
 });
+
+test("summarizes data family record counts without emitting airway values", async (t) => {
+  const server = await createApiServer({ adapter: fixtureAdapter(), refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  const response = await server.app.inject({ method: "GET", url: "/api/v1/data/summary" });
+  assert.equal(response.statusCode, 200);
+  const body = response.json() as Record<string, unknown>;
+  assert.deepEqual(Object.keys(body).sort(), ["airway", "families", "generation"]);
+  const families = body.families as Array<Record<string, unknown>>;
+  assert.equal(families.length, 5);
+  assert.deepEqual(families.map((item) => item.family), ["flights", "airways", "fixes", "airports", "navaids"]);
+  for (const item of families) {
+    assert.deepEqual(Object.keys(item).sort(), ["acceptedRecords", "family", "records", "rejectedRecords"]);
+  }
+  assert.deepEqual(families[0], { family: "flights", records: 4, acceptedRecords: 4, rejectedRecords: 0 });
+  assert.deepEqual(families[1], { family: "airways", records: 1, acceptedRecords: 1, rejectedRecords: 0 });
+  assert.deepEqual(families[2], { family: "fixes", records: 1, acceptedRecords: 1, rejectedRecords: 0 });
+  assert.deepEqual(families[3], { family: "airports", records: 2, acceptedRecords: 2, rejectedRecords: 0 });
+  assert.deepEqual(families[4], { family: "navaids", records: 2, acceptedRecords: 2, rejectedRecords: 0 });
+  const airway = body.airway as Record<string, unknown>;
+  assert.deepEqual(Object.keys(airway).sort(), ["acceptedRecords", "family", "records", "rejectedRecords", "uniqueRecords"]);
+  assert.deepEqual(airway, { family: "airways", records: 1, acceptedRecords: 1, rejectedRecords: 0, uniqueRecords: 1 });
+  // Hard rule: counts only — no airway value/type/evidence field anywhere.
+  const keys = new Set<string>();
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) { for (const nested of value) walk(nested); return; }
+    if (value && typeof value === "object") {
+      for (const [key, nested] of Object.entries(value as Record<string, unknown>)) { keys.add(key); walk(nested); }
+    }
+  };
+  walk(body);
+  for (const forbidden of ["bytes", "durationMs", "retried", "identifier", "value", "route", "routeElements", "callsign", "coordinate"]) {
+    assert.equal(keys.has(forbidden), false, `summary must not contain the ${forbidden} field`);
+  }
+  // No parameters: a query string is rejected outright.
+  const withQuery = await server.app.inject({ method: "GET", url: "/api/v1/data/summary?limit=2" });
+  assert.equal(withQuery.statusCode, 400);
+  assert.equal((withQuery.json() as { error: { code: string } }).error.code, "INVALID_QUERY");
+});
+
+test("pages flights via POST /api/v1/data/flights with complete disjoint pages", async (t) => {
+  const server = await createApiServer({ adapter: fixtureAdapter(), refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  const first = await server.app.inject({ method: "POST", url: "/api/v1/data/flights", payload: { limit: 2 } });
+  assert.equal(first.statusCode, 200);
+  const firstBody = first.json() as { data: Array<{ id: string; flightId: string; callsign: string }>; nextCursor?: string };
+  assert.deepEqual(Object.keys(firstBody).sort(), ["data", "generation", "nextCursor"]);
+  assert.equal(firstBody.data.length, 2);
+  assert.ok(firstBody.nextCursor);
+  assert.equal(firstBody.data[0]?.callsign, "TEST123");
+  assert.equal(firstBody.data[0]?.id, firstBody.data[0]?.flightId);
+  const second = await server.app.inject({ method: "POST", url: "/api/v1/data/flights", payload: { limit: 2, cursor: firstBody.nextCursor } });
+  assert.equal(second.statusCode, 200);
+  const secondBody = second.json() as { data: Array<{ id: string }>; nextCursor?: string };
+  assert.deepEqual(Object.keys(secondBody).sort(), ["data", "generation"]);
+  assert.equal(secondBody.data.length, 2);
+  assert.equal(secondBody.nextCursor, undefined);
+  const firstIds = new Set(firstBody.data.map((item) => item.id));
+  const secondIds = new Set(secondBody.data.map((item) => item.id));
+  assert.equal([...firstIds].every((id) => !secondIds.has(id)), true);
+  assert.equal(new Set([...firstIds, ...secondIds]).size, 4);
+});
+
+test("expires /api/v1/data cursors when the generation refreshes", async (t) => {
+  let refresh = false;
+  const first = defaultRecords();
+  const second = [{ ...defaultRecords()[0]!, id: "second-raw-id", callsign: "TEST456" }];
+  const base = fixtureAdapter(first);
+  const adapter: CaasAdapter = {
+    displayAll: async () => ({ records: refresh ? second : first, evidence: evidence("displayAll", refresh ? second.length : first.length) }),
+    airways: base.airways, fixes: base.fixes, airports: base.airports, navaids: base.navaids,
+  };
+  const server = await createApiServer({ adapter, refreshSecret: "offline-refresh-secret" });
+  t.after(() => server.app.close());
+  const page = await server.app.inject({ method: "POST", url: "/api/v1/data/flights", payload: { limit: 2 } });
+  const pageBody = page.json() as { nextCursor: string };
+  assert.ok(pageBody.nextCursor);
+  const refreshed = await server.app.inject({ method: "POST", url: "/api/v1/refresh", headers: { "x-refresh-token": "offline-refresh-secret" } });
+  assert.equal(refreshed.statusCode, 200);
+  const stale = await server.app.inject({ method: "POST", url: "/api/v1/data/flights", payload: { limit: 2, cursor: pageBody.nextCursor } });
+  assert.equal(stale.statusCode, 409);
+  assert.equal((stale.json() as { error: { code: string } }).error.code, "CURSOR_EXPIRED");
+});
+
+test("pages reference families by kind via POST /api/v1/data endpoints", async (t) => {
+  const server = await createApiServer({ adapter: fixtureAdapter(), refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  const fixes = await server.app.inject({ method: "POST", url: "/api/v1/data/fixes", payload: {} });
+  assert.equal(fixes.statusCode, 200);
+  const fixesBody = fixes.json() as { data: Array<{ id: string; callsign: string; name: string; kind: string; coordinate: { lat: number; lon: number } }>; nextCursor?: string };
+  assert.deepEqual(Object.keys(fixesBody).sort(), ["data", "generation"]);
+  assert.equal(fixesBody.data.length, 1);
+  assert.deepEqual(Object.keys(fixesBody.data[0]!).sort(), ["callsign", "coordinate", "id", "kind", "name"]);
+  assert.equal(fixesBody.data[0]?.kind, "place");
+  assert.equal(fixesBody.data[0]?.callsign, "DCT");
+  assert.equal(fixesBody.data[0]?.name, "DCT");
+  assert.deepEqual(fixesBody.data[0]?.coordinate, { lat: 35, lon: -90 });
+  assert.equal(fixesBody.nextCursor, undefined);
+
+  const airports = await server.app.inject({ method: "POST", url: "/api/v1/data/airports", payload: {} });
+  assert.equal(airports.statusCode, 200);
+  const airportsBody = airports.json() as { data: Array<{ kind: string; callsign: string }> };
+  assert.equal(airportsBody.data.length, 2);
+  assert.deepEqual(airportsBody.data.map((item) => item.kind), ["airport", "airport"]);
+  assert.deepEqual(airportsBody.data.map((item) => item.callsign), ["KJFK", "KLAX"]);
+
+  const navaids = await server.app.inject({ method: "POST", url: "/api/v1/data/navaids", payload: {} });
+  assert.equal(navaids.statusCode, 200);
+  const navaidsBody = navaids.json() as { data: Array<{ kind: string }> };
+  assert.equal(navaidsBody.data.length, 2);
+  assert.deepEqual(navaidsBody.data.map((item) => item.kind), ["station", "station"]);
+
+  const airportPage = await server.app.inject({ method: "POST", url: "/api/v1/data/airports", payload: { limit: 1 } });
+  assert.equal(airportPage.statusCode, 200);
+  const airportPageBody = airportPage.json() as { data: Array<{ callsign: string }>; nextCursor?: string };
+  assert.deepEqual(Object.keys(airportPage.json()).sort(), ["data", "generation", "nextCursor"]);
+  assert.ok(airportPageBody.nextCursor);
+  const airportPage2 = await server.app.inject({ method: "POST", url: "/api/v1/data/airports", payload: { limit: 1, cursor: airportPageBody.nextCursor } });
+  assert.equal(airportPage2.statusCode, 200);
+  assert.equal((airportPage2.json() as { data: Array<{ callsign: string }> }).data[0]?.callsign, "KLAX");
+});
+
+test("rejects invalid limits and unknown body fields on /api/v1/data endpoints", async (t) => {
+  const server = await createApiServer({ adapter: fixtureAdapter(), refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  for (const payload of [{ limit: 0 }, { limit: 101 }, { limit: "abc" }]) {
+    const response = await server.app.inject({ method: "POST", url: "/api/v1/data/flights", payload });
+    assert.equal(response.statusCode, 400);
+    assert.equal((response.json() as { error: { code: string } }).error.code, "INVALID_LIMIT");
+  }
+  const unknown = await server.app.inject({ method: "POST", url: "/api/v1/data/flights", payload: { limit: 2, bogus: true } });
+  assert.equal(unknown.statusCode, 400);
+  assert.equal((unknown.json() as { error: { code: string } }).error.code, "INVALID_BODY");
+  const urlLeak = await server.app.inject({ method: "POST", url: "/api/v1/data/flights?limit=2", payload: { limit: 2 } });
+  assert.equal(urlLeak.statusCode, 400);
+  assert.equal((urlLeak.json() as { error: { code: string } }).error.code, "INVALID_QUERY");
+});
+
+test("binds /api/v1/data cursors to their family", async (t) => {
+  const base = fixtureAdapter();
+  const adapter: CaasAdapter = {
+    ...base,
+    fixes: async () => references("fixes", [["DCT", 35, -90], ["ABC", 36, -91]]),
+  };
+  const server = await createApiServer({ adapter, refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  const fixes = await server.app.inject({ method: "POST", url: "/api/v1/data/fixes", payload: { limit: 1 } });
+  assert.equal(fixes.statusCode, 200);
+  const fixesBody = fixes.json() as { nextCursor?: string };
+  assert.ok(fixesBody.nextCursor);
+  const sameFamily = await server.app.inject({ method: "POST", url: "/api/v1/data/fixes", payload: { limit: 1, cursor: fixesBody.nextCursor } });
+  assert.equal(sameFamily.statusCode, 200);
+  const crossFamily = await server.app.inject({ method: "POST", url: "/api/v1/data/airports", payload: { limit: 1, cursor: fixesBody.nextCursor } });
+  assert.equal(crossFamily.statusCode, 409);
+  assert.equal((crossFamily.json() as { error: { code: string } }).error.code, "CURSOR_EXPIRED");
+});
+
+test("404s /api/v1/data/airways because no airways route is registered", async (t) => {
+  const server = await createApiServer({ adapter: fixtureAdapter(), refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  const response = await server.app.inject({ method: "GET", url: "/api/v1/data/airways" });
+  assert.equal(response.statusCode, 404);
+  assert.equal((response.json() as { error: { code: string } }).error.code, "NOT_FOUND");
+});
