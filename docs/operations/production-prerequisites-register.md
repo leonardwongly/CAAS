@@ -39,7 +39,7 @@
 | Data classification, privacy, residency decisions | Open — **REQUIRES USER AUTHORIZATION** | #34 | [Production access approval](production-access-approval.md) |
 | Retention schedules, access-review cadence, audit export / legal-hold decision | Open — **REQUIRES USER AUTHORIZATION** | #34 | [Production access approval](production-access-approval.md) |
 | End-user access and broader-audience decision | Open — **REQUIRES USER AUTHORIZATION** | #34 | [Production access approval](production-access-approval.md) |
-| Provider/tile privacy approval (any external map decision) | Open | #34 + separate privacy review (design §0.5 map boundary) | [Production access approval](production-access-approval.md) |
+| Provider/tile privacy approval (any external map decision) | POC: owner-authorized OSM tiles 2026-08-15 (design §0.5; review recorded in `safety-and-secrets.md`); **production approval remains open** | #34 + production provider terms/privacy/quota review | [Production access approval](production-access-approval.md) |
 | Manual accessibility matrix and product UAT for the production scope | Open | #29 (UAT kit) + accessibility workstream | [UAT and timed walkthrough](uat-and-timed-walkthrough.md) |
 
 ### 3.2 Network and edge (design §30 item 5; §0.5 egress residual)

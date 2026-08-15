@@ -64,6 +64,14 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
 .map-fallback-banner { align-items: center; background: rgba(8, 26, 40, .9); border: 1px solid rgba(82, 184, 232, .19); border-radius: 5px; color: var(--muted); display: flex; font-size: .7rem; gap: 8px; left: 22px; padding: 8px 10px; position: absolute; top: 20px; z-index: 2; }
 .map-pin { color: var(--blue); font-size: 1.1rem; }
 .route-svg { color: #32708c; height: 100%; width: 100%; }
+.map-canvas { height: 100%; inset: 0; position: absolute; width: 100%; }
+.map-canvas .route-svg { inset: 0; position: absolute; z-index: 1; }
+.tile-layer { inset: 0; overflow: hidden; position: absolute; z-index: 0; }
+.tile-layer img { position: absolute; user-select: none; -webkit-user-drag: none; }
+.map-zoom-controls { bottom: 40px; display: flex; flex-direction: column; gap: 6px; position: absolute; right: 20px; z-index: 3; }
+.map-zoom-controls button { background: rgba(7, 19, 31, .92); border: 1px solid rgba(148, 183, 211, .3); border-radius: 6px; color: var(--ink); font-size: .8rem; min-width: 34px; padding: 7px 9px; }
+.map-zoom-controls button:hover:not(:disabled), .map-zoom-controls button[aria-pressed="true"] { border-color: var(--blue); color: #f0fbff; }
+.map-zoom-controls button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .world-ocean { fill: #081a28; }
 .world-graticule { fill: none; stroke: rgba(100, 157, 184, .16); stroke-width: 1; }
 .world-land { fill: #17394a; stroke: #316178; stroke-linejoin: round; stroke-width: 1.4; }
@@ -262,6 +270,6 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
   .rail-count { background: Highlight; border-color: Canvas; color: HighlightText; }
   .legend-dot { background: transparent; border: 2px solid CanvasText; }
   .legend-gap { border-color: CanvasText; }
-  .map-fallback-banner, .map-hud, .map-endpoint, .map-attribution, .safety-banner, .map-legend, .restore-controls, .map-rail button { border-color: ButtonBorder; }
-  .search-input-row input:focus-visible, .skip-link:focus, .route-card:focus-visible, .quiet-button:focus-visible, .search-button:focus-visible, .map-rail button:focus-visible, .restore-controls:focus-visible, .retry-button:focus-visible, .table-scroll:focus-visible, .edit-copy-button:focus-visible, .text-button:focus-visible, .draft-row-actions button:focus-visible, .section-title h2:focus, .group-heading h3:focus { outline-color: Highlight; }
+  .map-fallback-banner, .map-hud, .map-endpoint, .map-attribution, .safety-banner, .map-legend, .restore-controls, .map-rail button, .map-zoom-controls button { border-color: ButtonBorder; }
+  .search-input-row input:focus-visible, .skip-link:focus, .route-card:focus-visible, .quiet-button:focus-visible, .search-button:focus-visible, .map-rail button:focus-visible, .restore-controls:focus-visible, .retry-button:focus-visible, .table-scroll:focus-visible, .edit-copy-button:focus-visible, .text-button:focus-visible, .draft-row-actions button:focus-visible, .section-title h2:focus, .group-heading h3:focus, .map-zoom-controls button:focus-visible { outline-color: Highlight; }
 }

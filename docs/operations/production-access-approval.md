@@ -31,7 +31,7 @@ Concretely, approval covers these decisions (design §30 items 1, 7, 8):
 | 2 | Permitted production audience and access model | **REQUIRES USER AUTHORIZATION** — `________` |
 | 3 | Data classification and residency decision | **REQUIRES USER AUTHORIZATION** — `________` |
 | 4 | Retention schedule; access-review cadence; audit export / legal-hold decision | **REQUIRES USER AUTHORIZATION** — `________` |
-| 5 | External map/tile provider privacy approval (or continued dependency-free SVG only) | **REQUIRES USER AUTHORIZATION** — `________` |
+| 5 | External map/tile provider privacy approval (or continued dependency-free SVG only) | POC level: OSM raster tiles authorized by the owner 2026-08-15 (design §0.5, `AC-POC-MAP-01`); **production level remains REQUIRES USER AUTHORIZATION** — `________` |
 | 6 | Supported browser / assistive-technology matrix and UAT criteria | **REQUIRES USER AUTHORIZATION** — `________` |
 | 7 | Acceptable-use boundary (no operational decision-making; safety copy preserved) | **REQUIRES USER AUTHORIZATION** — `________` |
 | 8 | Release authority, sign-off chain, and emergency rollback authority | **REQUIRES USER AUTHORIZATION** — `________` |

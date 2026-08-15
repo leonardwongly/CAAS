@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import {
   ApiError,
   fetchReadiness,
@@ -31,6 +31,7 @@ import {
   REFRESH_UNUSABLE_BANNER,
   SAFETY_NOTICE,
 } from "./labels";
+import { clampZoom, DEFAULT_SIZE, MAX_ZOOM, MIN_ZOOM, OSM_ATTRIBUTION, pixelFromView, projectWorldSegmentsMercator, TileLayer, viewFromPixelDelta, type MapSize, type TileView } from "./TileMap";
 
 type SearchState = { query: string; matches: CallsignMatch[]; loading: boolean; searched: boolean; error?: string | undefined };
 const emptySearch: SearchState = { query: "", matches: [], loading: false, searched: false };
@@ -530,13 +531,33 @@ type EndpointLocation = Pick<PointMatch, "coordinate" | "name">;
 
 function RouteMap({ routes, selectedRoute, callsign }: { routes: RouteOption[]; selectedRoute?: RouteOption | undefined; callsign?: string | undefined }) {
   const [endpoints, setEndpoints] = useState<{ departure?: EndpointLocation | undefined; arrival?: EndpointLocation | undefined }>({});
+  const [view, setView] = useState<TileView>({ lat: 20, lon: 0, zoom: 2 });
+  const [tilesEnabled, setTilesEnabled] = useState(true);
+  const [tilesFailed, setTilesFailed] = useState(false);
+  const [stageSize, setStageSize] = useState<MapSize>(DEFAULT_SIZE);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number } | null>(null);
+  const tilesOn = tilesEnabled && !tilesFailed;
+
+  useEffect(() => {
+    const measure = () => {
+      const rect = stageRef.current?.getBoundingClientRect();
+      if (rect && rect.width > 0 && rect.height > 0) setStageSize({ width: rect.width, height: rect.height });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
   // Every server-returned candidate is drawn on the map: the selected route
   // highlighted on top, every other candidate with geometry dimmed underneath.
-  // Candidates without resolved geometry are intentionally not drawn.
-  const projections = useMemo(() => routes.map((route) => ({
-    route,
-    projection: projectWorldSegments(route.segments ?? (route.geometry ? [route.geometry] : [])),
-  })), [routes]);
+  // Candidates without resolved geometry are intentionally not drawn. In tile
+  // mode the overlay is projected through the Web Mercator view; the
+  // equirectangular projection remains for the schematic fallback.
+  const projections = useMemo(() => routes.map((route) => {
+    const sourceSegments = route.segments ?? (route.geometry ? [route.geometry] : []);
+    return { route, projection: tilesOn ? projectWorldSegmentsMercator(sourceSegments, view, stageSize) : projectWorldSegments(sourceSegments) };
+  }), [routes, tilesOn, view, stageSize]);
   const selectedProjection = selectedRoute ? projections.find(({ route }) => route.id === selectedRoute.id)?.projection : undefined;
   const alternates = projections.flatMap(({ route, projection }) => route.id !== selectedRoute?.id && projection && projection.segments.length ? [{ route, projection }] : []);
   const hasLine = Boolean(selectedProjection?.segments.length);
@@ -561,8 +582,9 @@ function RouteMap({ routes, selectedRoute, callsign }: { routes: RouteOption[]; 
     return () => controller.abort();
   }, [selectedRoute?.id, selectedRoute?.origin, selectedRoute?.destination]);
 
-  const departurePoint = endpoints.departure ? projectWorldPoint(endpoints.departure.coordinate) : undefined;
-  const arrivalPoint = endpoints.arrival ? projectWorldPoint(endpoints.arrival.coordinate) : undefined;
+  const projectPoint = (coordinate: Coordinate): Point => tilesOn ? pixelFromView(coordinate, view, stageSize) : projectWorldPoint(coordinate);
+  const departurePoint = endpoints.departure ? projectPoint(endpoints.departure.coordinate) : undefined;
+  const arrivalPoint = endpoints.arrival ? projectPoint(endpoints.arrival.coordinate) : undefined;
   const departureLabel = endpoints.departure?.name && endpoints.departure.name !== departure ? `${endpoints.departure.name} (${departure})` : departure;
   const arrivalLabel = endpoints.arrival?.name && endpoints.arrival.name !== arrival ? `${endpoints.arrival.name} (${arrival})` : arrival;
   const selectedSegmentCount = selectedProjection?.segments.length ?? 0;
@@ -571,20 +593,51 @@ function RouteMap({ routes, selectedRoute, callsign }: { routes: RouteOption[]; 
     : hasAnyLine
       ? `${callsign ?? "Selected flight"} world map showing ${routes.length} recorded route${routes.length === 1 ? "" : "s"}; select one to highlight it`
       : "World map waiting for server-returned route segments";
-  const banner = incomplete ? "World map · showing resolved segments only; gaps are not connected." : hasAnyLine ? "World map · server route geometry" : "World map · no route geometry returned yet.";
-  return <div className="map-stage" role="img" aria-label={label}>
+  const baseName = tilesOn ? "World map" : "Schematic base map";
+  const banner = incomplete ? `${baseName} · showing resolved segments only; gaps are not connected.` : hasAnyLine ? `${baseName} · server route geometry` : `${baseName} · no route geometry returned yet.`;
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!tilesOn) return;
+    dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
+    if (typeof event.currentTarget.setPointerCapture === "function") event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (Math.abs(dx) + Math.abs(dy) < 3) return;
+    drag.startX = event.clientX; drag.startY = event.clientY;
+    setView((current) => viewFromPixelDelta(dx, dy, current, stageSize));
+  };
+  const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+  };
+  const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!tilesOn) return;
+    const next = clampZoom(view.zoom + (event.deltaY < 0 ? 1 : -1));
+    if (next !== view.zoom) setView({ ...view, zoom: next });
+  };
+  return <div className="map-stage" ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onWheel={onWheel}>
+    <div className="map-canvas" role="img" aria-label={label}>
+      {tilesOn && <TileLayer view={view} size={stageSize} onTileFailure={() => setTilesFailed(true)} />}
+      <svg className="route-svg" viewBox={tilesOn ? `0 0 ${stageSize.width} ${stageSize.height}` : "0 0 800 440"} aria-hidden="true">
+        {!tilesOn && <WorldMapBase />}
+        {alternates.map(({ route, projection }) => <g key={route.id} className="route-line-alternate">{projection.segments.map((segment, index) => <path key={`alternate-segment-${index}`} d={segment.path} className="route-path-alternate" />)}</g>)}
+        {selectedRoute && selectedProjection && <g className="route-line-selected">{selectedProjection.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" filter="url(#glow)" /><path d={segment.path} className="route-path" /></g>)}</g>}
+        {departurePoint && <MapMarker point={departurePoint} label={departure} tone="origin" />}
+        {arrivalPoint && <MapMarker point={arrivalPoint} label={arrival} tone="destination" />}
+        {selectedProjection?.gapBoundaries.map((point, index) => <g key={`gap-${index}`} className="gap-boundary"><circle cx={point.x} cy={point.y} r="7" /><text x={point.x + 12} y={point.y + 4}>Gap</text></g>)}
+      </svg>
+    </div>
     <div className="map-fallback-banner"><span className="map-pin">◇</span><span>{banner}</span></div>
-    <svg className="route-svg" viewBox="0 0 800 440" aria-hidden="true">
-      <WorldMapBase />
-      {alternates.map(({ route, projection }) => <g key={route.id} className="route-line-alternate">{projection.segments.map((segment, index) => <path key={`alternate-segment-${index}`} d={segment.path} className="route-path-alternate" />)}</g>)}
-      {selectedRoute && selectedProjection && <g className="route-line-selected">{selectedProjection.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" filter="url(#glow)" /><path d={segment.path} className="route-path" /></g>)}</g>}
-      {departurePoint && <MapMarker point={departurePoint} label={departure} tone="origin" />}
-      {arrivalPoint && <MapMarker point={arrivalPoint} label={arrival} tone="destination" />}
-      {selectedProjection?.gapBoundaries.map((point, index) => <g key={`gap-${index}`} className="gap-boundary"><circle cx={point.x} cy={point.y} r="7" /><text x={point.x + 12} y={point.y + 4}>Gap</text></g>)}
-    </svg>
+    <div className="map-zoom-controls" role="group" aria-label="Map zoom and base layer">
+      <button type="button" aria-label="Zoom in" disabled={!tilesOn || view.zoom >= MAX_ZOOM} onClick={() => setView((current) => ({ ...current, zoom: clampZoom(current.zoom + 1) }))}>+</button>
+      <button type="button" aria-label="Zoom out" disabled={!tilesOn || view.zoom <= MIN_ZOOM} onClick={() => setView((current) => ({ ...current, zoom: clampZoom(current.zoom - 1) }))}>−</button>
+      <button type="button" aria-pressed={tilesOn} onClick={() => { setTilesEnabled((current) => !current); setTilesFailed(false); }}>Toggle base map</button>
+    </div>
     {selectedRoute && <section className="map-endpoints" aria-label="Route endpoint locations"><div className="map-endpoint departure"><b>Departure</b><span>{departureLabel}</span></div><div className="map-endpoint arrival"><b>Arrival</b><span>{arrivalLabel}</span></div></section>}
     {!hasAnyLine && <div className="map-empty"><span>◎</span><strong>{routes.length ? "No resolved geometry returned" : "Select a flight plan"}</strong><p>{routes.length ? "The world map does not infer a line across missing route data." : "The map will use only coordinates and route segments returned by the server."}</p></div>}
-    <div className="map-attribution">Geographic reference only · no external map tiles or API keys</div>
+    <div className="map-attribution">{tilesOn ? OSM_ATTRIBUTION : "Schematic base map only"}</div>
   </div>;
 }
 

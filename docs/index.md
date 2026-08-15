@@ -83,8 +83,9 @@ planned, deferred, or blocked on authorization.
 Independent exact-hash reviews of plan version `1.4-rc4` and design version
 `1.2-rc4` report no unresolved P0/P1. Plan `1.4-rc5` (command-matrix tree
 status, supply-chain scope, `PLAN-R-18` eligibility API) and design `1.2-rc5`
-(no-tile SVG map boundary) await independent exact-hash re-review. `PG-00`
-remains blocked only by:
+(no-tile SVG map boundary, since superseded by the owner-authorized OSM tile
+layer of 2026-08-15, design §0.5) await independent exact-hash re-review.
+`PG-00` remains blocked only by:
 
 - an explicitly authorized exact-hash Git commit; and
 - a later explicit implementation request.

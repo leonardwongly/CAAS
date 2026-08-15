@@ -55,7 +55,7 @@ const MAX_BROWSER_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 function securityHeaders(reply: FastifyReply): FastifyReply {
   return reply
-    .header("content-security-policy", "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; style-src 'self'")
+    .header("content-security-policy", "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: https://tile.openstreetmap.org; object-src 'none'; style-src 'self'")
     .header("referrer-policy", "strict-origin-when-cross-origin")
     .header("strict-transport-security", "max-age=31536000; includeSubDomains")
     .header("x-content-type-options", "nosniff")

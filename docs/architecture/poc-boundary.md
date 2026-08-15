@@ -18,10 +18,10 @@ React/Vite browser <--> same-origin Fastify BFF
                               +--> immutable complete generation
                               +--> route resolution/ranking/diff
                               +--> stable DTOs and errors
-                              +--> dependency-free SVG route diagram (no external tiles)
+                              +--> OSM raster tiles (owner-authorized 2026-08-15) + schematic fallback
 ```
 
-The Fastify server is the only CAAS client. It acquires Flight Plan, Airways, Fixes, Airports, and NAVAIDs data, validates every response, discards unknown/unneeded fields, and builds a complete generation. The implemented UI uses a dependency-free SVG route diagram rather than external map tiles; this is a deliberate local-first POC variance from the design's configurable Leaflet/OpenStreetMap option. A generation is admitted only when every mandatory family is usable. A refresh builds a separate candidate and atomically swaps it after complete validation; a failed refresh retains a still-usable prior generation only within the defined freshness and memory limits. Restart loses the generation and requires a fresh real acquisition.
+The Fastify server is the only CAAS client. It acquires Flight Plan, Airways, Fixes, Airports, and NAVAIDs data, validates every response, discards unknown/unneeded fields, and builds a complete generation. Since 2026-08-15 the UI renders OpenStreetMap raster tiles under a dependency-free tile layer (owner-authorized change from the earlier no-tile SVG boundary); the tile URL contract, no-referrer requests, CSP single-host allowance, and schematic fallback are normative per design §0.5. A generation is admitted only when every mandatory family is usable. A refresh builds a separate candidate and atomically swaps it after complete validation; a failed refresh retains a still-usable prior generation only within the defined freshness and memory limits. Restart loses the generation and requires a fresh real acquisition.
 
 The target package boundary is:
 

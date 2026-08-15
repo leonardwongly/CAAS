@@ -159,15 +159,18 @@ secret-reference, scale/environment and separate `authConfigs` settings, then
 fetches current data. Steady state configures at most one active serving replica,
 with transient platform rollout/prewarming overlap treated honestly.
 
-The implemented POC renders a dependency-free SVG route diagram: no external map
-tiles, no tile-provider API key, and no map-provider request of any kind; the
-browser calls same-origin application APIs only (strict CSP in the API server).
-The former configurable Leaflet/OpenStreetMap tile option — and its attribution,
-IP/tile disclosure, origin-only Referer, provider caching/prefetch, and
-configurable-provider constraints — is superseded: with no tile path there is no
-provider party to disclose to and no tile-failure mode, so those criteria have no
-external party and Route Data remains usable unconditionally. The legacy tile
-option is retained only as non-binding archived material. Flight and user state
+As of 2026-08-15 the POC renders real OpenStreetMap raster tiles under a
+dependency-free Web Mercator tile layer (owner-authorized change from the
+earlier no-tile SVG boundary). Constraints restored from the legacy tile option
+and made normative again: tile URLs carry `{z}/{x}/{y}` only (no query string,
+no flight/route/API state), tile requests are `no-referrer`, the OSM attribution
+`© OpenStreetMap contributors` is always shown in tile mode, the API CSP allows
+`img-src 'self' data: https://tile.openstreetmap.org` (the only external
+destination; `connect-src` remains same-origin), zoom is bounded to 1-19 with at
+most 64 tiles per frame, and a tile failure or user toggle falls back to the
+schematic base map with Route Data still usable. The former "no external tile
+request" boundary is superseded by this owner decision; the legacy configurable-
+provider option remains non-binding archived material. Flight and user state
 stay out of URLs, and bulk, prefetch, offline, proxy, and headless scan behavior
 remain prohibited.
 
@@ -233,11 +236,13 @@ For the challenge profile, the following replace conflicting `AC-SD-*` and
   and NAVAIDs participate only through exact, ambiguity-preserving resolution.
   Evidence records the user-approved graphical-airway variance and never claims
   inferred airway-topology display.
-- `AC-POC-MAP-01`: the dependency-free SVG route diagram makes no external
-  map/tile/provider request (same-origin application APIs only; strict CSP), so
-  attribution, IP/tile disclosure, Referer, provider caching, configurable-
-  provider, and tile-failure criteria have no external party; deterministic
-  checks evidence the no-tile boundary.
+- `AC-POC-MAP-01`: owner-authorized OSM raster tiles (2026-08-15) render under
+  the dependency-free Web Mercator tile layer with the restored normative
+  constraints — `{z}/{x}/{y}`-only tile URLs, `no-referrer`, OSM attribution,
+  CSP `img-src` limited to `https://tile.openstreetmap.org`, zoom 1-19, at most
+  64 tiles per frame, and schematic fallback with Route Data still usable;
+  deterministic checks evidence the tile-URL contract, the single-host CSP
+  allowance, the fallback, and the preserved route overlay.
 - `AC-POC-SEC-01`: the browser never receives the CAAS key/raw object; strict
   application allow-list tests and the accepted no-firewall residual are
   recorded.

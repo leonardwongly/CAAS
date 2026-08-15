@@ -48,11 +48,11 @@ Airways is fetched and validated for contract conformance, but its unproven valu
 
 ## Route-diagram privacy
 
-The POC uses a dependency-free SVG route diagram. The browser makes no external map, tile-provider, or map-provider API request, so it discloses no map viewport, client IP, or route geometry to such a provider. Do not put callsigns, flight identifiers, coordinates, route state, or tokens in URLs. Render only normalized BFF fields; when exact geometry is absent or interrupted, preserve an unavailable state or visible gap rather than fabricating a substitute.
+Since 2026-08-15 the POC renders OpenStreetMap raster tiles under a dependency-free tile layer (owner-authorized; this decision completed the previously required privacy, CSP, attribution, caching, failure-mode, and data-use review). Tile requests carry `{z}/{x}/{y}` coordinates only — no query string, no callsigns, flight identifiers, route coordinates, tokens, or application query state — and are sent with `referrerPolicy="no-referrer"`, so the tile provider sees only tile coordinates and the client IP. The API CSP allows exactly one external destination (`img-src 'self' data: https://tile.openstreetmap.org`); `connect-src` remains same-origin. Zoom is bounded 1-19 with at most 64 tiles per frame. If tiles fail or are toggled off, the schematic base map renders and Route Data remains usable. Do not put callsigns, flight identifiers, coordinates, route state, or tokens in URLs. Render only normalized BFF fields; when exact geometry is absent or interrupted, preserve an unavailable state or visible gap rather than fabricating a substitute.
 
 Plan §2.4 conformance: callsign search is POST-only and carries its query in the request body. The search endpoints accept no URL query string (a query string is rejected with `400 INVALID_QUERY`), and GET requests to the search paths fail with `405` and an `Allow: POST` header, so no live flight identifier, callsign, coordinate, token, or query state can appear in a URL or in browser history on search or selection.
 
-Any later external-map decision requires a separate privacy, CSP, attribution, caching, failure-mode, and data-use review before implementation.
+A later change of tile provider, or any other external-map decision, requires a fresh privacy, CSP, attribution, caching, failure-mode, and data-use review before implementation.
 
 ## Evidence and authorization
 
