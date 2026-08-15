@@ -75,6 +75,10 @@ async function main(): Promise<void> {
 
 try {
   await main();
-} catch {
+} catch (error) {
+  // Fail closed loudly: a silent exit hides why startup aborted (missing
+  // credential, unusable mandatory family, bad option). Keep the message
+  // bounded and error-only — no upstream payload ever reaches this log.
+  console.error(`Startup failed: ${error instanceof Error ? error.message.slice(0, 500) : String(error)}`);
   process.exitCode = 1;
 }

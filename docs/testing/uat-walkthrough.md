@@ -5,19 +5,51 @@ implementation improvements into a retained manual UAT script a human
 reviewer can execute and file back. Deterministic content (exact strings,
 expected states, acceptance criteria) is pre-filled from the north-star design
 (design §0, §15.2, §15.4, §15.6, §15.7) so the reviewer records observations,
-not opinions. Actual UAT execution is tracked separately (issue #29) and is
-not claimed here.
+not opinions. Amended 2026-08-15: §1 corrected — the fixture values are
+reproducible only through the automated vitest lanes; a live rehearsal runs
+against real CAAS data. Actual UAT execution is tracked separately (issue #29)
+and is not claimed here.
 
 ## 1. How to execute
 
-1. Build and serve the app: `pnpm --filter web build && pnpm --filter web preview`
-   (or `pnpm --filter web dev`).
-2. Use the exact search term `FIXTURE1` and exact references `KOR1`,
-   `KDS1`, `MIDPT` from the deterministic fixture set so every expected value
-   below is reproducible.
-3. Record one ☐ pass / ☐ fail + note per row; attach a screenshot or notes to
-   any fail and store it in `docs/testing/artifacts/`.
-4. Return the completed file to the workstream owner.
+The pre-filled exact values below are deterministic **fixture** values
+(`FIXTURE1`, `KOR1`, `KDS1`, `MIDPT`). The runtime API has no synthetic-data
+mode (binding design §0.1 / `AC-POC-LIVE-01`: no synthetic runtime/demo
+fallback, fail-closed without a real CAAS credential), and `vite preview` has
+no API proxy — so those values cannot be reproduced against a served
+application. Two honest execution modes exist:
+
+**Mode A — deterministic fixture rehearsal (automated).** The vitest lanes
+run the §3 steps against the fixture harness and already prove them
+mechanically: interaction lane (search, drawers, route data, editing, error
+recovery, Clear session, Map Only) `pnpm run test:a11y`; keyboard lane
+(focus return, retries, skip link) `pnpm run test:e2e`; responsive lane
+`pnpm run test:responsive`. A pass there is the recorded evidence for every
+pre-filled expectation below; no browser session can add to it.
+
+**Mode B — live rehearsal (real CAAS data, authorized local run).** Build the
+UI, boot the API (which serves the built assets), and execute the script
+against real data:
+
+```bash
+pnpm --filter web build
+NODE_ENV=production WEB_ASSET_DIR="$PWD/apps/web/dist" \
+  node --experimental-strip-types apps/api/src/cli.ts --port 18080 --env-file .env
+# open http://localhost:18080 (local .env CAAS credential; authorized loopback
+# use; port 8080 is commonly occupied by other local services). Startup fails
+# loudly with a bounded message when the credential is missing or a mandatory
+# family is unusable.
+```
+
+In Mode B the exact fixture-specific values (search term, references, 512.4 NM
+figures, fixture gap text) do **not** apply: record the observed real values in
+the Result column instead. Data-independent expectations (safety copy, rank
+criterion text, Rank-1 label, status announcements, focus behavior) apply
+exactly in both modes.
+
+Record one ☐ pass / ☐ fail + note per row; attach a screenshot or notes to
+any fail and store it in `docs/testing/artifacts/`. Return the completed file
+to the workstream owner.
 
 Pre-filled data for this fixture set:
 
