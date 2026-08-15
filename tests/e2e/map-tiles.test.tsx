@@ -72,6 +72,24 @@ describe("map tiles", () => {
     expect(document.querySelectorAll(".route-path")).toHaveLength(1);
   });
 
+  it("wheel zoom steps one level per burst instead of slamming the range", async () => {
+    installApiStub();
+    render(<App />);
+    const zoomOf = (src: string | undefined) => Number(/^https:\/\/tile\.openstreetmap\.org\/(\d+)\//.exec(src ?? "")?.[1]);
+    const zBefore = zoomOf(tileImages()[0]?.src);
+    expect(zBefore).toBeGreaterThan(0);
+
+    // A single gesture fires many wheel events; only the first may zoom.
+    const stage = document.querySelector(".map-stage");
+    expect(stage).toBeTruthy();
+    fireEvent.wheel(stage!, { deltaY: -100, clientX: 100, clientY: 100 });
+    fireEvent.wheel(stage!, { deltaY: -100, clientX: 100, clientY: 100 });
+    fireEvent.wheel(stage!, { deltaY: -100, clientX: 100, clientY: 100 });
+
+    await waitFor(() => expect(zoomOf(tileImages()[0]?.src)).toBe(zBefore + 1));
+    expect(zoomOf(tileImages()[0]?.src)).toBe(zBefore + 1);
+  });
+
   it("falls back to the schematic base map when a tile fails, routes still drawn", async () => {
     installApiStub();
     const user = userEvent.setup();

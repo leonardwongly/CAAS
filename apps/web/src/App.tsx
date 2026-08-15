@@ -31,7 +31,7 @@ import {
   REFRESH_UNUSABLE_BANNER,
   SAFETY_NOTICE,
 } from "./labels";
-import { clampZoom, DEFAULT_SIZE, MAX_ZOOM, MIN_ZOOM, OSM_ATTRIBUTION, pixelFromView, projectWorldSegmentsMercator, TileLayer, viewFromPixelDelta, type MapSize, type TileView } from "./TileMap";
+import { clampZoom, coordinateFromScreen, DEFAULT_SIZE, MAX_ZOOM, MIN_ZOOM, OSM_ATTRIBUTION, pixelFromView, projectWorldSegmentsMercator, TileLayer, viewFromPixelDelta, type MapSize, type TileView } from "./TileMap";
 import ApiDataPage from "./ApiDataPage";
 import { compareDistanceOperands } from "@flight-route-explorer/route-engine/compare";
 
@@ -40,6 +40,9 @@ const emptySearch: SearchState = { query: "", matches: [], loading: false, searc
 // Type-ahead settles this long after the last keystroke; Enter fires a search
 // immediately (the timer is cancelled), so Enter flows stay deterministic.
 const SEARCH_DEBOUNCE_MS = 250;
+// Wheel zoom accepts one level per burst: a scroll gesture fires many wheel
+// events, and accepting every one slams the map through the zoom range.
+const WHEEL_ZOOM_DEBOUNCE_MS = 350;
 
 function formatDistance(value: number | undefined): string {
   return value === undefined ? "Not supplied" : `${value.toFixed(1)} NM`;
@@ -673,10 +676,22 @@ function RouteMap({ routes, selectedRoute, callsign }: { routes: RouteOption[]; 
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
   };
+  const wheelLockRef = useRef(0);
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     if (!tilesOn) return;
-    const next = clampZoom(view.zoom + (event.deltaY < 0 ? 1 : -1));
-    if (next !== view.zoom) setView({ ...view, zoom: next });
+    const nextZoom = clampZoom(view.zoom + (event.deltaY < 0 ? 1 : -1));
+    if (nextZoom === view.zoom) return; // at a zoom bound: nothing to do
+    // A scroll gesture fires many wheel events; accept at most one zoom
+    // level per burst so the map does not slam through the whole range.
+    const now = Date.now();
+    if (now - wheelLockRef.current < WHEEL_ZOOM_DEBOUNCE_MS) return;
+    wheelLockRef.current = now;
+    // Anchor the zoom on the point under the cursor: that geographic point
+    // stays under the pointer instead of the map jumping toward its center.
+    const rect = stageRef.current?.getBoundingClientRect();
+    const cursor = rect && rect.width > 0 ? { x: event.clientX - rect.left, y: event.clientY - rect.top } : { x: stageSize.width / 2, y: stageSize.height / 2 };
+    const anchor = coordinateFromScreen(cursor, view, stageSize);
+    setView({ lat: anchor.lat, lon: anchor.lon, zoom: nextZoom });
   };
   return <div className="map-stage" ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onWheel={onWheel}>
     <div className="map-canvas" role="img" aria-label={label}>

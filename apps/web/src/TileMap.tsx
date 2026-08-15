@@ -55,6 +55,19 @@ export function pixelFromView(coordinate: Coordinate, view: TileView, size: MapS
   return { x: size.width / 2 + dx, y: size.height / 2 + dy };
 }
 
+/** World coordinate under a screen point for the current view (inverse of pixelFromView). */
+export function coordinateFromScreen(point: { x: number; y: number }, view: TileView, size: MapSize): Coordinate {
+  const scale = TILE_SIZE * 2 ** view.zoom;
+  const center = worldPixel(view.lat, view.lon, view.zoom);
+  const worldX = center.x + (point.x - size.width / 2);
+  const worldY = center.y + (point.y - size.height / 2);
+  const unwrappedLon = (worldX / scale) * 360 - 180;
+  const lon = ((unwrappedLon + 180) % 360 + 360) % 360 - 180;
+  const n = Math.PI * (1 - (2 * worldY) / scale);
+  const lat = (Math.atan(Math.sinh(n)) * 180) / Math.PI;
+  return { lat: clampLat(lat), lon };
+}
+
 /** Inverse of pixelFromView: the view after dragging the content by screen px. */
 export function viewFromPixelDelta(dx: number, dy: number, view: TileView, size: MapSize): TileView {
   const scale = TILE_SIZE * 2 ** view.zoom;
