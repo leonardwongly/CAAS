@@ -1,6 +1,6 @@
 # Flight Route Explorer
 
-> **Status: implemented local-first POC.** The repository contains the Fastify BFF, React/Vite UI, five-family real-data adapter, route engine, offline tests, Linux container, and inert Azure artifacts. Secretless CI executes on pull requests (green at commit `116a84d`; see [What is evidenced now](#what-is-evidenced-now)). Azure resources, deployment, and UAT remain intentionally unevidenced and unauthorized; no push to `master` has been made.
+> **Status: implemented local-first POC.** The repository contains the Fastify BFF, React/Vite UI, five-family real-data adapter, route engine, offline tests, Linux container, and inert Azure artifacts. Secretless CI runs on pull requests and `master` (green at commit `0dec8aed`; see [What is evidenced now](#what-is-evidenced-now)). Azure resources, deployment, and rollback drills remain intentionally unevidenced and unauthorized; machine-executed UAT evidence is retained (`docs/testing/artifacts/`).
 
 Flight Route Explorer is intended to be a private, single-user, non-operational decision-support demonstration. It visualizes recorded flight routes, resolves reference points exactly where possible, computes modeled great-circle distance, and lets a user compare a recorded route with a local draft. It does not file, dispatch, approve, clear, navigate, or recommend a route.
 
@@ -119,10 +119,20 @@ AI-assisted tools were used for requirements analysis, design exploration, imple
 
 ## Known limitations and evidence boundary
 
-The discovery record confirms successful responses only. It did not deliberately induce throttling or upstream failures, observed no pagination metadata or Flight response rate-limit/retry headers, and makes no quota, retry, or failure-behavior claim. No executed Challenge Data Use Record is present (a [template](docs/data-use/data-use-record.md) and the [authorization gate](docs/data-use/data-use-authorization-gate.md) are defined, decision pending), so HTTP `200` and possession of a key do not authorize reviewer redistribution of live CAAS-derived data.
+The discovery record confirms successful responses only. It did not deliberately induce throttling or upstream failures, observed no pagination metadata or Flight response rate-limit/retry headers, and makes no quota, retry, or failure-behavior claim. An executed Challenge Data Use Record is present ([docs/data-use/data-use-record.md](docs/data-use/data-use-record.md), filled by the owner decision of 2026-08-15) with the [authorization gate](docs/data-use/data-use-authorization-gate.md) status `AUTHORIZED` ([status artifact](docs/data-use/data-use-authorization-gate-status.yaml)); beyond the record's decisions, HTTP `200` and possession of a key do not authorize reviewer redistribution of live CAAS-derived data.
 
 `PG-03` has passed on the exact CI-built subject: the container live lane
 (`scripts/validation/container-live-lane.mjs`) ran the CI image
 (`sha256:ae5dc6d1…`) loopback-only with real CAAS data — 5/5 checks — and the
 gate manifest records `pass` (4/4 checks). Not evidenced: Azure resources,
-deployment, rollback drills, UAT execution, or production approval. Secretless CI executes on pull requests and is green at commit `116a84d`: `ci-secretless-validation` (offline evidence validation, Semgrep, gitleaks secret scan, dependency audit), `oci-subject-build` (image assertions + Trivy), and `POC deployment artifact validation`; the CI-built subject digest is retained at [docs/evidence/oci-digest-bundle-e456dd0cd791.json](docs/evidence/oci-digest-bundle-e456dd0cd791.json). CI has run for pull requests only — no push to `master` has occurred. The local implementation is a non-operational demonstration only; public or broad organizational use remains prohibited until the separate production gate is approved.
+deployment, or rollback drills. Machine-executed UAT evidence is retained
+(`docs/testing/artifacts/`, 16/16 rows in Chrome/Chromium/WebKit); the live
+20-minute walkthrough has not been run. Secretless CI runs on pull requests
+and `master` and is green at commit `0dec8aed`: `ci-secretless-validation`
+(offline evidence validation, Semgrep, gitleaks secret scan, dependency
+audit), `oci-subject-build` (image assertions + Trivy), and `POC deployment
+artifact validation`; the CI-built subject digest is retained at
+[docs/evidence/oci-digest-bundle-0962c7fedb67.json](docs/evidence/oci-digest-bundle-0962c7fedb67.json).
+Production intent is declined by the owner (2026-08-15, issues #32–#34 closed
+out of scope): the project remains a private, non-operational local-first POC
+and production remains prohibited.

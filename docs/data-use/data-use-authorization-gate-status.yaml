@@ -1,0 +1,14 @@
+# docs/data-use/data-use-authorization-gate-status.yaml
+# The user (challenge decision authority) made the decision recorded here.
+status: AUTHORIZED                 # PENDING-DECISION | AUTHORIZED | DENIED | REVOKED
+updatedAt: "2026-08-15T10:45:00Z"  # ISO-8601, filled by the user on decision
+decidedBy: "The user (challenge decision authority)"
+dataUseRecord: "docs/data-use/data-use-record.md — SHA-256 d941b11de9a017312c63424444e4d3bac6e5c5219f68d0dc6944d295aaa9ee58"
+demoPlannedFor: "No fixed date; decided per demonstration window by the user (gate re-review applies before each window)"
+audienceDecision: "Any audience the user presents the demonstration to, at their discretion (owner decision 2026-08-15); the audience present is recorded in the walkthrough record per window"
+exposedFieldsDecision: "All normalized public DTO fields the application serves; standing exclusions unchanged (raw upstream records, credentials, restricted identifiers beyond the active request, airway values/types are never exposed)"
+retentionDecision: "24-hour teardown target after each demonstration; 7-day governance maximum requires explicit approval; no separately authorized retention"
+azureReleaseCheckpoint: "Release data-use gate embedded in the Azure release path (P-5 of docs/operations/azure-release-path.md); the Azure workstream itself still awaits its own authorization (issues #20/#23-#25 open)"
+walkthroughEvidence: "docs/testing/artifacts/ (Chrome UAT 16/16, 2026-08-15T10:22Z; timed-walkthrough checklist with filled UAT rows; browser compatibility record)"
+authorizationStatement: "Yes. All the fields can be shown if need to."   # The user, 2026-08-15, GitHub issues #26/#27
+decisionRetainedAt: "data-use-record.md SHA-256 d941b11de9a017312c63424444e4d3bac6e5c5219f68d0dc6944d295aaa9ee58; retained at the commit carrying this artifact"

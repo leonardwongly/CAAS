@@ -1,11 +1,13 @@
 # Release data-use gate (checkpoint shared by Azure and live-demo release paths)
 
-> Status: **checkpoint defined; execution pending.** This document is the
-> single checkpoint that the Azure release path (issue #20) and any live-demo
-> release procedure must embed so that no deployment or demonstration
-> accidentally broadens access to live CAAS-derived data. It is intentionally
-> independent of the Azure workstream's `docs/operations/local-and-azure.md`
-> and does not modify it.
+> Status: **checkpoint embedded; record filled and `AUTHORIZED` (2026-08-15).**
+> This document is the single checkpoint that the Azure release path (issue
+> #20) and any live-demo release procedure must embed so that no deployment or
+> demonstration accidentally broadens access to live CAAS-derived data. The
+> Data Use Record is filled from the owner decision of 2026-08-15 and the gate
+> status artifact is `AUTHORIZED`; checks 3–8 below remain per-window
+> release-time verifications. It is intentionally independent of the Azure
+> workstream's `docs/operations/local-and-azure.md` and does not modify it.
 
 ## 1. Purpose
 
@@ -52,8 +54,8 @@ When the Data Use Record or the authorization decision is absent:
 
 | # | Checkpoint | Evidence required | Verdict (recorded) |
 |---|---|---|---|
-| 1 | Data Use Record exists and is complete | Filled `docs/data-use/data-use-record.md` at a commit, SHA-256 recorded | `________` |
-| 2 | Gate status artifact is `AUTHORIZED` by the user | `docs/data-use/data-use-authorization-gate-status.yaml` | `________` |
+| 1 | Data Use Record exists and is complete | Filled `docs/data-use/data-use-record.md` at a commit, SHA-256 recorded | ☑ pass — filled 2026-08-15, SHA-256 `d941b11d…` (full hash in the status artifact) |
+| 2 | Gate status artifact is `AUTHORIZED` by the user | `docs/data-use/data-use-authorization-gate-status.yaml` | ☑ pass — `AUTHORIZED`, 2026-08-15 |
 | 3 | Intended demo audience matches the record's audience decision | Walkthrough plan + record comparison | `________` |
 | 4 | Every field exposed to the audience is in the record's normalized-field list | DTO review against record | `________` |
 | 5 | Retention and teardown decisions are recorded (24-hour teardown target; seven-day maximum requires explicit approval) | Record Section 6 | `________` |

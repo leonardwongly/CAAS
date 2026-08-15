@@ -1,16 +1,12 @@
-# CAAS Data Use Record (template)
+# CAAS Data Use Record — filled (owner decision 2026-08-15)
 
-> Status: **template only — no authority is granted by this file.** This is the
-> repository's template for a Challenge Data Use Record as referenced by the
-> [README, "Known limitations and evidence boundary"](../../README.md#known-limitations-and-evidence-boundary):
-> *"No Challenge Data Use Record is present, so HTTP `200` and possession of a
-> key do not authorize reviewer redistribution of live CAAS-derived data."*
->
-> Every decision field below is blank. Filling it is the user's decision
-> (challenge decision authority). A filled record must be retained at a
-> specific commit with a SHA-256 of its content, and the
-> [data-use authorization gate](data-use-authorization-gate.md) must be passed
-> before any externally accessible live-data demonstration.
+> Status: **filled and retained.** This is the repository's Challenge Data Use
+> Record, completed by the user's recorded decision of 2026-08-15 (GitHub
+> issue #26/#27): *"Yes. All the fields can be shown if need to."* The
+> [data-use authorization gate](data-use-authorization-gate.md) status artifact
+> records `AUTHORIZED` with the decision wording, the record hash, and the
+> retaining commit. Every exposure decision remains subject to the gate's
+> re-review before each demonstration window.
 
 ## 1. Purpose
 
@@ -22,22 +18,22 @@ not substitutes ([`docs/data-use/caas-contract.md`](caas-contract.md)).
 
 ## 2. Provider / challenge authority
 
-| Field | Value (blank until user decision) |
+| Field | Value |
 |---|---|
 | Data provider | CAAS (Singapore Civil Aviation Authority) Flight Object Manager and Aeronautical Data Service, via `https://api.swimapisg.info` |
 | Challenge decision authority | The user |
-| Authority cited for redistribution | **REQUIRES USER AUTHORIZATION** — exact wording of the written authority (license, permission notice, or challenge terms) |
-| Authority date and holder | `________` |
+| Authority cited for redistribution | The user's recorded decision of 2026-08-15 (GitHub issue #26/#27): **"Yes. All the fields can be shown if need to."** No external provider/challenge license document is cited by this record; if the provider or challenge organizer publishes terms that differ, those supersede this record and the gate status must be re-decided. |
+| Authority date and holder | 2026-08-15; the user (CAAS access holder) |
 
 ## 3. Data in scope
 
-| Field | Decision (blank until user decision) |
+| Field | Decision |
 |---|---|
 | Datasets | Flight Plan (`displayAll`); Airways (fetch/schema/count only — values/types are never exposed); Fixes; Airports; NAVAIDs |
 | Data form | Normalized public DTOs only (`id`, `flightId`, `callsign`, `origin`, `destination`, `pointCount`, route geometry, gaps, provenance, freshness, safety; distance/rank only when complete). **Never** raw upstream records, credentials, restricted identifiers beyond the active request, or airway values/types |
-| Normalized-field list approved for the audience | **REQUIRES USER AUTHORIZATION** — `________` |
+| Normalized-field list approved for the audience | **All normalized public DTO fields the application serves** — per the owner decision "All the fields can be shown if need to." The standing exclusions are unchanged and are not overridden by this approval: raw upstream records, credentials, restricted identifiers beyond the active request, and airway values/types are never exposed. |
 | Sanitization proof | Reference to the sanitizer and to tests proving raw fields never cross the BFF boundary |
-| Snapshot reference | Exact commit / OCI digest the record applies to: `________` |
+| Snapshot reference | The commit retaining this filled record (SHA-256 of this file recorded in `docs/data-use/data-use-authorization-gate-status.yaml`) |
 
 ## 4. Provenance
 
@@ -50,34 +46,35 @@ not substitutes ([`docs/data-use/caas-contract.md`](caas-contract.md)).
 
 ## 5. Permitted audience
 
-| Field | Decision (blank until user decision) |
+| Field | Decision |
 |---|---|
-| Audience definition | **REQUIRES USER AUTHORIZATION** — `________` (e.g. "the user only", "named reviewer: __", "no external audience") |
-| Audience size | **REQUIRES USER AUTHORIZATION** — `________` |
-| Access mechanism | **REQUIRES USER AUTHORIZATION** — `________` (loopback-only, private Azure ingress with `allowedPrincipals`, recorded screen share, etc.) |
-| Demo environment | **REQUIRES USER AUTHORIZATION** — `________` |
-| Expiry of audience permission | **REQUIRES USER AUTHORIZATION** — `________` |
+| Audience definition | Any audience the user (challenge decision authority) presents the demonstration to, at their discretion — owner decision 2026-08-15. The audience present at each demonstration window is recorded in the walkthrough record at that time. |
+| Audience size | As the user directs at demo time; no unattended or public exposure is authorized by this record |
+| Access mechanism | User-operated demo: local loopback, user-controlled screen share of the running app, or the private single-user Azure POC with ingress and `allowedPrincipals` restricted to the single allowed user |
+| Demo environment | User-operated local rehearsal server (loopback) or the private single-user Azure POC |
+| Expiry of audience permission | Each demonstration window; re-confirmed per the gate's review cadence (re-review before every external demonstration window) |
 
 The POC is single-user by design ([design §0.1](../../docs/superpowers/specs/2026-08-11-flight-route-explorer-design.md#01-delivery-profile-and-authority));
-any audience beyond the user is a deliberate, separately decided expansion.
+any audience beyond the user is a deliberate, separately decided expansion —
+recorded here by the owner decision of 2026-08-15.
 
 ## 6. Retention
 
-| Field | Decision (blank until user decision) |
+| Field | Decision |
 |---|---|
-| Live-data retention during demo | **REQUIRES USER AUTHORIZATION** — `________` |
-| Teardown target | 24 hours after the demonstration (plan §6.3) — confirm: `________` |
-| Seven-day governance maximum | Operator-enforced; requires explicit teardown approval or separately authorized retention — decision: `________` |
-| Evidence retention | Records named in the UAT/walkthrough kit retained per `docs/testing/evidence-and-validation.md` — confirm: `________` |
-| Logs/telemetry retention | **REQUIRES USER AUTHORIZATION** — `________` |
+| Live-data retention during demo | In-memory generation for the session; no persisted copy beyond the app's in-memory store |
+| Teardown target | 24 hours after each demonstration (plan §6.3) — confirmed for each window |
+| Seven-day governance maximum | Operator-enforced; requires explicit teardown approval or separately authorized retention — no current exception is authorized |
+| Evidence retention | Records named in the UAT/walkthrough kit retained per `docs/testing/evidence-and-validation.md` (sanitized, secret-free, at recorded commits) |
+| Logs/telemetry retention | The POC has no external log/telemetry sink; local server logs are session-scoped and not retained beyond the session |
 
 ## 7. Attribution and redistribution rules
 
-| Field | Decision (blank until user decision) |
+| Field | Decision |
 |---|---|
-| Attribution required | **REQUIRES USER AUTHORIZATION** — `________` |
-| Redistribution allowed | **REQUIRES USER AUTHORIZATION** — `________` (default: none) |
-| Derivative reuse allowed | **REQUIRES USER AUTHORIZATION** — `________` (default: none) |
+| Attribution required | CAAS provider attribution retained in the UI and evidence |
+| Redistribution allowed | None beyond the permitted demonstration windows (default: none) |
+| Derivative reuse allowed | None (default: none) |
 | Prohibited uses | Operational decision-making, filing, dispatch, clearance; presenting any candidate as safe/recommended/valid; broader accessibility without the production gate |
 
 ## 8. Evidence handling and restricted identifiers
@@ -93,16 +90,17 @@ any audience beyond the user is a deliberate, separately decided expansion.
 | Field | Decision |
 |---|---|
 | Record location | `docs/data-use/data-use-record.md` (this file, filled) |
-| Approval recorded at | Commit: `________`, SHA-256 of filled record: `________` |
-| Gate status artifact | `docs/data-use/data-use-authorization-gate-status.yaml` |
+| Approval recorded at | Commit retaining this record; SHA-256 of the filled record recorded in `docs/data-use/data-use-authorization-gate-status.yaml` |
+| Gate status artifact | `docs/data-use/data-use-authorization-gate-status.yaml` — `AUTHORIZED` (2026-08-15) |
 | Review cadence | Re-review before every external demonstration window; record changes at a new commit |
 | Revocation | Any user decision to revoke is recorded at a new commit and the gate status artifact moves to `REVOKED` |
 
 ## 10. Acceptance check
 
-This record is complete only when every `________` field above is filled by the
-user, the record is committed, and the data-use authorization gate passes.
-Absent that, Section 4 of the [gate document](data-use-authorization-gate.md)
-applies: **no external exposure**.
+This record is complete: every decision field above is filled from the owner
+decision of 2026-08-15, the record is committed, and the data-use
+authorization gate status is `AUTHORIZED`. Per-window prerequisites (audience
+naming, retention confirmation, release checkpoint signing) remain re-checked
+before each demonstration per the [gate document](data-use-authorization-gate.md).
 
-Resolved per GitHub issue #27.
+Resolved per GitHub issue #27 (owner decision 2026-08-15).

@@ -31,9 +31,9 @@ evidence; they do not prove Azure deployment or production operational controls.
 ## Data use and authorization
 
 - [Real CAAS data contract](data-use/caas-contract.md)
-- [CAAS data-use authorization gate](data-use/data-use-authorization-gate.md) (decision pending)
-- [CAAS Data Use Record (template)](data-use/data-use-record.md) (no authority granted by the template)
-- [Release data-use gate](data-use/release-data-use-gate.md) (checkpoint shared by Azure and live-demo release paths)
+- [CAAS data-use authorization gate](data-use/data-use-authorization-gate.md) (`AUTHORIZED` 2026-08-15)
+- [CAAS Data Use Record](data-use/data-use-record.md) (filled 2026-08-15 by owner decision)
+- [Release data-use gate](data-use/release-data-use-gate.md) (checkpoint shared by Azure and live-demo release paths; record + `AUTHORIZED` status retained)
 
 ## Testing, accessibility, and evidence
 
@@ -49,7 +49,7 @@ evidence; they do not prove Azure deployment or production operational controls.
 
 - [Production access approval record (template)](operations/production-access-approval.md)
 - [Production operations: ownership, SLOs, incident response, DR (design candidates)](operations/production-operations.md)
-- [Production-prerequisites register](operations/production-prerequisites-register.md) (every item open)
+- [Production-prerequisites register](operations/production-prerequisites-register.md) (closed out of scope by owner decision 2026-08-15; production remains prohibited)
 - [ADR: binding POC authority and legacy reconciliation](adr/0001-poc-authority-and-legacy-reconciliation.md)
 
 ## Evidence

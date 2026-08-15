@@ -1,12 +1,13 @@
 # CAAS data-use authorization gate
 
-> Status: **gate defined; decision pending.** This document defines the
-> authorization gate that must pass before any externally accessible live-data
-> demonstration of CAAS-derived data. It does not itself authorize any exposure.
-> No Data Use Record is currently present in this repository, so live
-> CAAS-derived data must remain confined to the authorized operator's local
-> environment until a completed record exists ([README, "Known limitations and
-> evidence boundary"](../../README.md#known-limitations-and-evidence-boundary)).
+> Status: **gate passed — record filled and `AUTHORIZED` (2026-08-15).** The
+> [Data Use Record](data-use-record.md) is completed from the owner decision of
+> 2026-08-15 and the gate status artifact
+> (`data-use-authorization-gate-status.yaml`) records `AUTHORIZED`. Per-window
+> prerequisites (audience naming, retention confirmation, release checkpoint
+> signing) are re-checked before each demonstration window. Absent a valid
+> record the gate fails closed as defined below; this document does not itself
+> authorize any exposure beyond the record's decisions.
 
 ## 1. Why this gate exists
 
@@ -44,13 +45,13 @@ demo is blocked until every row is satisfied.
 
 | # | Prerequisite | Authority source | Status |
 |---|---|---|---|
-| 1 | A completed [Data Use Record](data-use-record.md) naming the permitted audience, exposed normalized fields, retention, attribution, and teardown obligations | User decision | **PENDING — REQUIRES USER AUTHORIZATION** |
-| 2 | The demo audience matches the record's permitted-audience decision exactly (no "reviewer audience by default"; the POC is single-user by design — [design §0.1](../../docs/superpowers/specs/2026-08-11-flight-route-explorer-design.md#01-delivery-profile-and-authority)) | User decision | **PENDING — REQUIRES USER AUTHORIZATION** |
-| 3 | The fields served to the audience are a subset of the record's exposed-fields decision and of the normalized public DTOs (no raw upstream records, credentials, or restricted identifiers) | Record + code review | **PENDING** |
-| 4 | The Azure/bootstrap release path embeds this gate as a blocking checkpoint ([release data-use gate](release-data-use-gate.md)) | Checkpoint present; execution pending | **PENDING** |
-| 5 | Loopback-only `PG-03` real-data evidence exists for the exact OCI subject being demonstrated (per the Azure write boundary in [README](../../README.md#azure-write-boundary)) | Azure workstream gate | **PENDING** |
-| 6 | Retention and teardown are fixed: teardown target within 24 hours after the demonstration; seven-day maximum requires explicit teardown approval or separately authorized retention (plan §6.3) | User decision at demo time | **PENDING — REQUIRES USER AUTHORIZATION** |
-| 7 | The walkthrough retains the timed 20+10 minute demonstration format and records the decision record below (plan §16 `PLAN-5.3`) | Product owner | **PENDING** |
+| 1 | A completed [Data Use Record](data-use-record.md) naming the permitted audience, exposed normalized fields, retention, attribution, and teardown obligations | User decision | **SATISFIED** — record filled 2026-08-15 (SHA-256 `d941b11d…` in the status artifact) |
+| 2 | The demo audience matches the record's permitted-audience decision exactly (no "reviewer audience by default"; the POC is single-user by design — [design §0.1](../../docs/superpowers/specs/2026-08-11-flight-route-explorer-design.md#01-delivery-profile-and-authority)) | User decision | **SATISFIED** — owner decision 2026-08-15 recorded; the audience present is named per window in the walkthrough record |
+| 3 | The fields served to the audience are a subset of the record's exposed-fields decision and of the normalized public DTOs (no raw upstream records, credentials, or restricted identifiers) | Record + code review | **SATISFIED** — all normalized public DTOs approved; standing exclusions unchanged |
+| 4 | The Azure/bootstrap release path embeds this gate as a blocking checkpoint ([release data-use gate](release-data-use-gate.md)) | Checkpoint present; execution pending | **EMBEDDED** — P-5 of `docs/operations/azure-release-path.md`; Azure execution pending its own authorization |
+| 5 | Loopback-only `PG-03` real-data evidence exists for the exact OCI subject being demonstrated (per the Azure write boundary in [README](../../README.md#azure-write-boundary)) | Azure workstream gate | **SATISFIED** — PG-03 passes on the exact CI subject |
+| 6 | Retention and teardown are fixed: teardown target within 24 hours after the demonstration; seven-day maximum requires explicit teardown approval or separately authorized retention (plan §6.3) | User decision at demo time | **SATISFIED** — plan defaults confirmed in the record; re-confirmed per window |
+| 7 | The walkthrough retains the timed 20+10 minute demonstration format and records the decision record below (plan §16 `PLAN-5.3`) | Product owner | **RETAINED** — machine UAT (Chrome 16/16) + filled checklist; the live 20-minute run remains a per-window activity |
 
 ## 4. What the gate forbids when it is not passed
 
