@@ -223,7 +223,13 @@ For the challenge profile, the following replace conflicting `AC-SD-*` and
 - `AC-POC-BROWSE-01`: cursor traversal from first page through terminal cursor
   returns every active-generation flight exactly once without omission,
   duplication, silent truncation, or cross-generation reuse; callsign search and
-  duplicate selection are directly exercised.
+  duplicate selection are directly exercised. As of 2026-08-15 (owner request)
+  the criterion extends to the `/api/v1/data/*` browse family: paged
+  `flights`/`fixes`/`airports`/`navaids` endpoints serve normalized public DTO
+  fields only, with family-bound generation-bound cursors (409
+  `CURSOR_EXPIRED` on mismatch or refresh), `limit` 1-100, POST-body-only
+  transport, and a `/api/v1/data/summary` endpoint with family counts;
+  airways appear as counts only and have no browse endpoint.
 - `AC-POC-RANK-01`: present every tied Rank 1 candidate with provenance and
   modeled distance under the exact qualified label; never call a candidate
   valid, recommended, safe, cleared, or unqualified best.

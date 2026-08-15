@@ -67,3 +67,16 @@ The secretless CI workflows are configured with four security gates, all failing
 - Image vulnerability scan (`.github/workflows/oci-subject-build.yml`): Trivy `--scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1` against the exact built PG-03 subject; the Trivy database is fetched per run.
 
 These are configurations, not evidence: no CI-run result is retained in-tree, and no deployed auth negative test or Azure security control is evidenced (both are deployment-time concerns of the `test:live` lane and the PG-04 path). `SEC-PACKAGE-AUDIT` remains blocked until the authorized local `pnpm audit --prod` run's record is committed per its documented procedure. Future `PG-03`/`PG-04` evidence must bind results to the exact commit/OCI subject, environment, policy/validator hashes, measurements, artifact hashes, and failure fallback. A passing command exit alone is insufficient.
+
+## Bulk data browse
+
+The owner-authorized `/api/v1/data/*` endpoints (2026-08-15) serve paged
+views of the active in-memory generation: flights plus the fix/airport/navaid
+reference families through the same sanitized public location DTO as
+points/lookup, and a summary endpoint with family record counts. Boundaries:
+airway values/types never appear (counts only; no airway browse route
+exists); cursors are family-bound and generation-bound (any mismatch or
+refresh invalidates them with `409 CURSOR_EXPIRED`); `limit` is bounded
+1-100; requests carry `limit`/`cursor` in POST bodies only, never in URLs;
+the 2 MiB browser-response cap applies to every page; and the client retains
+no browse data across page switches or sessions.

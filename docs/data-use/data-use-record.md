@@ -104,3 +104,17 @@ naming, retention confirmation, release checkpoint signing) remain re-checked
 before each demonstration per the [gate document](data-use-authorization-gate.md).
 
 Resolved per GitHub issue #27 (owner decision 2026-08-15).
+
+## 11. Addendum — bulk data browse (owner request 2026-08-15)
+
+The owner directed a separate "API data" page showing the API data, with both
+an endpoint explorer and a bulk data browser (owner choice recorded
+2026-08-15). The browse endpoints (`/api/v1/data/flights|fixes|airports|
+navaids` and `/api/v1/data/summary`) serve only the normalized public DTO
+fields already defined by this record's normalized-field list: flight
+summaries (callsign, departure, destination, recorded point count) and
+fix/airport/navaid identifiers with coordinates through the public location
+DTO. Airway values/types are never exposed — counts only. Raw upstream
+records, credentials, and restricted identifiers beyond the active request
+remain excluded, and the standing 24-hour teardown / 7-day governance-max
+retention decisions are unchanged by this addendum.
