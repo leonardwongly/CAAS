@@ -106,6 +106,20 @@ describe("interaction review", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Remove MIDPT" })).toBeTruthy());
   });
 
+  it("shows search results as the user types without pressing Enter", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const input = screen.getByRole("combobox", { name: "Flight number or code" });
+    await user.type(input, "FIXTURE1");
+    // No Enter: the debounced type-ahead settles and opens the listbox.
+    const listbox = await screen.findByRole("listbox", { name: "Choose an exact flight-plan match" }, { timeout: 2000 });
+    expect(within(listbox).getAllByRole("option").length).toBe(2);
+    // The live region never announced a per-keystroke "Searching" message.
+    expect(screen.getByRole("status").textContent).not.toContain("Searching");
+  });
+
   it("recovers from a failed search without reloading", async () => {
     const options: StubOptions = { failSearch: true };
     installApiStub(options);

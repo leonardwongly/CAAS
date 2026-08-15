@@ -50,9 +50,10 @@ describe("ARIA structure", () => {
     expect(input.getAttribute("aria-autocomplete")).toBe("list");
     expect(input.getAttribute("aria-expanded")).toBe("false");
 
+    // Typing alone opens the listbox once the debounced type-ahead settles
+    // (~250 ms after the last keystroke); Enter is no longer required.
     await user.type(input, "FIXTURE1");
-    await user.keyboard("{Enter}");
-    const listbox = await screen.findByRole("listbox", { name: "Choose an exact flight-plan match" });
+    const listbox = await screen.findByRole("listbox", { name: "Choose an exact flight-plan match" }, { timeout: 2000 });
     expect(listbox.getAttribute("id")).toBe("flight-search-results");
     expect(input.getAttribute("aria-expanded")).toBe("true");
     expect(input.getAttribute("aria-controls")).toBe("flight-search-results");
@@ -70,6 +71,13 @@ describe("ARIA structure", () => {
     expect(screen.queryByRole("listbox", { name: "Choose an exact flight-plan match" })).toBeNull();
     expect(input.getAttribute("aria-expanded")).toBe("false");
     expect(input.getAttribute("aria-activedescendant")).toBeFalsy();
+
+    // Escape also cancels the pending type-ahead timer: a late settle must
+    // never reopen a closed listbox.
+    await user.type(input, "FIXTURE1");
+    await user.keyboard("{Escape}");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(screen.queryByRole("listbox", { name: "Choose an exact flight-plan match" })).toBeNull();
   });
 
   it("names the drawer per surface and syncs aria-pressed on the rail", async () => {

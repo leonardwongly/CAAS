@@ -51,6 +51,12 @@ export type StubOptions = {
    * can be exercised deterministically. Responses release in FIFO order.
    */
   deferDraft?: boolean | undefined;
+  /**
+   * Hold every callsign-search (POST /api/v1/callsigns/search) response until
+   * the returned releaseSearch() is called, so type-ahead supersession races
+   * can be exercised deterministically. Responses release in FIFO order.
+   */
+  deferSearch?: boolean | undefined;
 };
 
 export type CapturedCall = { method: string; url: string; body?: string | undefined };
@@ -222,9 +228,10 @@ function bodyOf(init?: RequestInit): Record<string, unknown> {
  * and returns the captured calls plus the underlying mock. Use
  * `vi.unstubAllGlobals()` in cleanup.
  */
-export function installApiStub(options: StubOptions = {}): { calls: CapturedCall[]; fetchMock: ReturnType<typeof vi.fn>; releaseDraft: () => void } {
+export function installApiStub(options: StubOptions = {}): { calls: CapturedCall[]; fetchMock: ReturnType<typeof vi.fn>; releaseDraft: () => void; releaseSearch: () => void } {
   const calls: CapturedCall[] = [];
   const draftResolvers: Array<() => void> = [];
+  const searchResolvers: Array<() => void> = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<StubResponse> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = (init?.method ?? "GET").toUpperCase();
@@ -235,7 +242,9 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     if (method === "POST" && url === "/api/v1/callsigns/search") {
       if (options.failSearch) return jsonResponse({ error: { message: "Search service unavailable (stub).", code: "SEARCH_FAIL" } }, 500);
       const query = String(bodyOf(init).query ?? "").toUpperCase();
-      return jsonResponse({ data: searchMatches.filter((match) => match.callsign.startsWith(query)) });
+      const respond = () => jsonResponse({ data: searchMatches.filter((match) => match.callsign.startsWith(query)) });
+      if (options.deferSearch) return new Promise<StubResponse>((resolve) => { searchResolvers.push(() => resolve(respond())); });
+      return respond();
     }
     // Route options: POST { flightId }, envelope { data, rankLabel, generation }.
     if (method === "POST" && url === "/api/v1/routes/options") {
@@ -290,5 +299,6 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     calls,
     fetchMock,
     releaseDraft: () => { while (draftResolvers.length > 0) draftResolvers.shift()?.(); },
+    releaseSearch: () => { while (searchResolvers.length > 0) searchResolvers.shift()?.(); },
   };
 }

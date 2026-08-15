@@ -35,6 +35,9 @@ import { clampZoom, DEFAULT_SIZE, MAX_ZOOM, MIN_ZOOM, OSM_ATTRIBUTION, pixelFrom
 
 type SearchState = { query: string; matches: CallsignMatch[]; loading: boolean; searched: boolean; error?: string | undefined };
 const emptySearch: SearchState = { query: "", matches: [], loading: false, searched: false };
+// Type-ahead settles this long after the last keystroke; Enter fires a search
+// immediately (the timer is cancelled), so Enter flows stay deterministic.
+const SEARCH_DEBOUNCE_MS = 250;
 
 function formatDistance(value: number | undefined): string {
   return value === undefined ? "Not supplied" : `${value.toFixed(1)} NM`;
@@ -111,6 +114,8 @@ function App() {
   const routeRequest = useRef(0);
   const draftRequest = useRef<AbortController | undefined>(undefined);
   const searchRequest = useRef<AbortController | undefined>(undefined);
+  const searchSeq = useRef(0);
+  const searchTimer = useRef<number | undefined>(undefined);
   const routesTriggerRef = useRef<HTMLButtonElement>(null);
   const dataTriggerRef = useRef<HTMLButtonElement>(null);
   const editorTriggerRef = useRef<HTMLButtonElement>(null);
@@ -162,26 +167,46 @@ function App() {
   }, []);
 
   function updateQuery(query: string) {
-    // Abort any in-flight search: matches from an older query must never land
-    // under the newly typed text.
+    // Abort any in-flight search and cancel the pending type-ahead timer:
+    // matches from an older query must never land under the newly typed text.
     searchRequest.current?.abort();
-    setSearch({ query, matches: [], loading: false, searched: false });
+    if (searchTimer.current !== undefined) { window.clearTimeout(searchTimer.current); searchTimer.current = undefined; }
+    const trimmed = query.trim();
+    if (!trimmed) { setSearch({ query, matches: [], loading: false, searched: false }); return; }
+    // Keep the current matches visible while typing; the settled type-ahead
+    // result replaces them once the debounce window elapses.
+    setSearch((current) => ({ ...current, query, loading: false, error: undefined }));
+    searchTimer.current = window.setTimeout(() => { searchTimer.current = undefined; void runSearch(trimmed); }, SEARCH_DEBOUNCE_MS);
   }
 
-  async function runSearch() {
-    const query = search.query.trim();
-    if (!query || search.loading) return;
+  /** Cancels the pending type-ahead without resetting the query text. */
+  function cancelSearch() {
+    if (searchTimer.current !== undefined) { window.clearTimeout(searchTimer.current); searchTimer.current = undefined; }
+    searchRequest.current?.abort();
+    searchSeq.current += 1;
+    setSearch((current) => ({ ...current, loading: false }));
+  }
+
+  async function runSearch(override?: string) {
+    const query = (override ?? search.query).trim();
+    if (!query) return;
+    if (searchTimer.current !== undefined) { window.clearTimeout(searchTimer.current); searchTimer.current = undefined; }
     searchRequest.current?.abort();
     const controller = new AbortController();
     searchRequest.current = controller;
-    setSearch((current) => ({ ...current, loading: true, matches: [], searched: false, error: undefined }));
-    setStatus(`Searching flight plans for ${query}.`);
+    const requestId = ++searchSeq.current;
+    setSearch((current) => ({ ...current, query, loading: true, searched: false, error: undefined }));
     try {
       const matches = await searchCallsigns(query, controller.signal);
+      // A superseded search (newer keystrokes or a cancel) must never land:
+      // the abort above usually stops it, and the sequence guard makes the
+      // staleness deterministic even when the transport ignores the abort.
+      if (requestId !== searchSeq.current) return;
       setSearch((current) => ({ ...current, loading: false, matches, searched: true }));
       setStatus(matches.length ? `${matches.length} flight plan match${matches.length === 1 ? "" : "es"} found. Choose one to continue.` : `No flight plans matched ${query}.`);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestId !== searchSeq.current) return;
       setSearch((current) => ({ ...current, loading: false, searched: false, error: apiMessage(error) }));
       setStatus("Flight-plan search failed.");
     }
@@ -189,6 +214,7 @@ function App() {
 
   function chooseFlight(match: CallsignMatch) {
     searchRequest.current?.abort();
+    if (searchTimer.current !== undefined) { window.clearTimeout(searchTimer.current); searchTimer.current = undefined; }
     setSelectedFlight(match);
     setSearch({ query: match.callsign, matches: [], loading: false, searched: false });
     setStatus(`Selected flight ${match.callsign}, departing ${match.departure} for ${match.destination}. Loading route options.`);
@@ -267,6 +293,7 @@ function App() {
 
   function resetAll() {
     searchRequest.current?.abort();
+    if (searchTimer.current !== undefined) { window.clearTimeout(searchTimer.current); searchTimer.current = undefined; }
     draftRequest.current?.abort();
     draftRequest.current = undefined;
     routeRequest.current += 1;
@@ -308,7 +335,7 @@ function App() {
       {!mapOnly && <header className="map-topbar">
         <a className="skip-link" href="#flight-search">Skip to flight search</a>
         <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Map-first route comparison</h1></div>
-        <div className="toolbar-search"><SearchBox selected={undefined} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={chooseFlight} /></div>
+        <div className="toolbar-search"><SearchBox selected={undefined} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={chooseFlight} onCancelSearch={cancelSearch} /></div>
         <div className="toolbar-flight" role="group" aria-label="Selected flight">
           {selectedFlight ? <><strong>{selectedFlight.callsign}</strong><span>{selectedFlight.departure} → {selectedFlight.destination}</span><small>{selectedRoute?.complete ? `${formatDistance(selectedRoute.distanceNm)} · ${selectedRoute.rank !== undefined ? `Rank ${selectedRoute.rank}` : "Unranked"}` : "Recorded route is incomplete and unranked"}</small></> : <span>Search for a recorded flight plan to begin.</span>}
         </div>
@@ -356,7 +383,7 @@ function App() {
   );
 }
 
-function SearchBox({ selected, state, onFocus, onQuery, onSearch, onSelect }: { selected?: CallsignMatch | undefined; state: SearchState; onFocus: () => void; onQuery: (value: string) => void; onSearch: () => void; onSelect: (match: CallsignMatch) => void }) {
+function SearchBox({ selected, state, onFocus, onQuery, onSearch, onSelect, onCancelSearch }: { selected?: CallsignMatch | undefined; state: SearchState; onFocus: () => void; onQuery: (value: string) => void; onSearch: () => void; onSelect: (match: CallsignMatch) => void; onCancelSearch: () => void }) {
   const [activeIndex, setActiveIndex] = useState(-1);
   const [resultsOpen, setResultsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -381,7 +408,7 @@ function SearchBox({ selected, state, onFocus, onQuery, onSearch, onSelect }: { 
           if (event.key === "ArrowDown" && hasResults) { event.preventDefault(); setActiveIndex((index) => Math.min(index + 1, state.matches.length - 1)); }
           else if (event.key === "ArrowUp" && hasResults) { event.preventDefault(); setActiveIndex((index) => Math.max(index - 1, 0)); }
           else if (event.key === "Enter") { event.preventDefault(); if (activeIndex >= 0 && state.matches[activeIndex]) select(state.matches[activeIndex]); else onSearch(); }
-          else if (event.key === "Escape") { event.preventDefault(); setActiveIndex(-1); setResultsOpen(false); }
+          else if (event.key === "Escape") { event.preventDefault(); onCancelSearch(); setActiveIndex(-1); setResultsOpen(false); }
         }} aria-expanded={hasResults} aria-controls={hasResults ? resultId : undefined} aria-activedescendant={activeIndex >= 0 ? `flight-match-${activeIndex}` : undefined} aria-autocomplete="list" placeholder="For example: SQ321" autoComplete="off" />
         <button className="search-button" type="button" onClick={onSearch} disabled={state.loading || !state.query.trim()} aria-label="Search flight plans">{state.loading ? <span className="spinner" /> : "↗"}</button>
       </div>
