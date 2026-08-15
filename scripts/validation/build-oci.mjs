@@ -187,7 +187,7 @@ if (isMain) {
     subject: {
       type: "oci",
       identifiers: { digest: imageId, commit, tarSha256 },
-      environment: verify ? "local-verify" : "local-build",
+      environment: process.env.CI === "true" ? "ci-build" : verify ? "local-verify" : "local-build",
     },
     image: {
       tag,

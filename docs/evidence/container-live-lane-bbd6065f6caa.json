@@ -1,0 +1,136 @@
+{
+  "recordKind": "lane-results",
+  "lane": "live-five-family-container-lane",
+  "subject": {
+    "type": "oci",
+    "identifiers": {
+      "digest": "sha256:ec1624d8fb4599302c1d28dd4ed7578f861a732c9b771a43f619e999a55266c9",
+      "commit": "bbd6065",
+      "imageTag": "flight-route-explorer:release-evidence"
+    },
+    "environment": "authorized-container-run"
+  },
+  "startedAt": "2026-08-15T08:19:43.732Z",
+  "endedAt": "2026-08-15T08:19:53.080Z",
+  "mode": "authorized-run",
+  "credentialHandling": "authorized key injected into the container environment as apikey; never printed or recorded",
+  "checks": [
+    {
+      "checkId": "CONTAINER-LIVE-EXACT-SUBJECT",
+      "name": "exact subject digest",
+      "procedure": "The loaded image ID equals the authoritative CI-built digest passed as --subject-digest.",
+      "startedAt": "2026-08-15T08:19:43.732Z",
+      "endedAt": "2026-08-15T08:19:43.762Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "exact subject digest",
+        "value": true,
+        "units": "digest",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/container-live-lane.mjs",
+          "sha256": "c4a6fd8ed943a7b9b5e1bb85d7c6e708664e414e72cfea31c04a2d8b1943d3ab"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "CONTAINER-LIVE-LIVENESS",
+      "name": "container liveness",
+      "procedure": "GET /api/v1/health/live on the running container returns 200.",
+      "startedAt": "2026-08-15T08:19:43.732Z",
+      "endedAt": "2026-08-15T08:19:49.843Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "container liveness",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/container-live-lane.mjs",
+          "sha256": "c4a6fd8ed943a7b9b5e1bb85d7c6e708664e414e72cfea31c04a2d8b1943d3ab"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "CONTAINER-LIVE-FIVE-FAMILY",
+      "name": "container five-family acquisition",
+      "procedure": "The container acquired and validated all five families from the real origin: Flight Plan, Fixes, Airports, NAVAIDs in the families payload plus Airways validated separately.",
+      "startedAt": "2026-08-15T08:19:43.732Z",
+      "endedAt": "2026-08-15T08:19:49.855Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "container five-family acquisition",
+        "value": true,
+        "units": "families",
+        "sampleCount": 4
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/container-live-lane.mjs",
+          "sha256": "c4a6fd8ed943a7b9b5e1bb85d7c6e708664e414e72cfea31c04a2d8b1943d3ab"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "CONTAINER-LIVE-BROWSE-EXACT-ONCE",
+      "name": "container browse exact-once traversal",
+      "procedure": "Cursor traversal from first page to terminal cursor returns every flight exactly once and terminates within the page cap.",
+      "startedAt": "2026-08-15T08:19:43.732Z",
+      "endedAt": "2026-08-15T08:19:49.861Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "container browse exact-once traversal",
+        "value": true,
+        "units": "flights",
+        "sampleCount": 92
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/container-live-lane.mjs",
+          "sha256": "c4a6fd8ed943a7b9b5e1bb85d7c6e708664e414e72cfea31c04a2d8b1943d3ab"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "CONTAINER-LIVE-SECRET-EXCLUDED",
+      "name": "credential never surfaces",
+      "procedure": "The runtime key never appears in any API response from the container.",
+      "startedAt": "2026-08-15T08:19:43.732Z",
+      "endedAt": "2026-08-15T08:19:49.861Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "credential never surfaces",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/container-live-lane.mjs",
+          "sha256": "c4a6fd8ed943a7b9b5e1bb85d7c6e708664e414e72cfea31c04a2d8b1943d3ab"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    }
+  ],
+  "summary": {
+    "checks": 5,
+    "passed": 5,
+    "blocked": 0,
+    "failed": 0
+  },
+  "artifacts": [
+    {
+      "path": "scripts/validation/container-live-lane.mjs",
+      "sha256": "c4a6fd8ed943a7b9b5e1bb85d7c6e708664e414e72cfea31c04a2d8b1943d3ab"
+    }
+  ]
+}

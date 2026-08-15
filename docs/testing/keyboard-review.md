@@ -1,7 +1,9 @@
 # Keyboard-only map-first E2E review (issue #16)
 
-Status: **Automated portion proved (2026-08-14); assistive-technology
-verification pending manual execution.**
+Status: **Automated portion proved (2026-08-14); a recorded keyboard-first
+live-data pass exists (2026-08-15, `artifacts/uat-execution-record-*.md`,
+16/16 rows in Chromium and WebKit); assistive-technology verification remains
+pending manual execution.**
 
 Scope (from issue #16): search, duplicate selection, drawers, route data,
 comparison, editing, error recovery, retries, and Map Only — executed with the

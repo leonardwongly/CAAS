@@ -55,7 +55,20 @@ test("the committed PG-03 gate manifest binds the real policy and validator hash
     return;
   }
   assert.equal(manifest.gateId, "PG-03");
-  assert.equal(manifest.gateResult, "blocked", "PG-03 must stay blocked until exact-subject loopback passes");
+  // The gate lifts exactly when an authorized container live run exists whose
+  // subject digest equals the bundle's image ID; otherwise it stays blocked.
+  const evidenceDir = resolve(root, "docs/evidence");
+  const containerLive = (await readdir(evidenceDir)).filter((name) => name.startsWith("container-live-lane-") && name.endsWith(".json")).sort();
+  let exactRun;
+  for (const name of containerLive) {
+    const record = JSON.parse(await readFile(resolve(evidenceDir, name), "utf8"));
+    if (record.mode === "authorized-run" && record.subject?.identifiers?.digest === manifest.subject.identifiers.digest && record.summary?.failed === 0) {
+      exactRun = record;
+      break;
+    }
+  }
+  const expectedGateResult = exactRun ? "pass" : "blocked";
+  assert.equal(manifest.gateResult, expectedGateResult, `PG-03 must be ${expectedGateResult} — the exact-subject container live run is ${exactRun ? "retained" : "absent"}`);
   const policySha = createHash("sha256").update(await readFile(resolve(root, "deploy/poc-policy.yaml"), "utf8")).digest("hex");
   assert.equal(manifest.policy.policySha256, policySha);
   const validatorSha = createHash("sha256").update(await readFile(resolve(root, "scripts/validation/validate-evidence-bundle.mjs"), "utf8")).digest("hex");
