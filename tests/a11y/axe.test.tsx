@@ -8,9 +8,10 @@ import { installApiStub } from "../fixtures/web-app.ts";
 /**
  * Automated axe audit of every reachable surface (issue #19 / #17 automated
  * portion). jsdom does not parse apps/web/index.html, so mirror its static
- * contract (lang, title, viewport) before auditing. Layout-dependent rules
- * (color-contrast, link-in-text-block, scrollable-region-focusable) return
- * "incomplete" in jsdom and are recorded, then re-checked in a real browser
+ * contract (lang, title, viewport) before auditing. The color-contrast rule
+ * is disabled here because axe requires canvas/layout APIs that jsdom does not
+ * implement; contrast remains covered by the real-browser evidence. Other
+ * layout-dependent rules are recorded as incomplete and re-checked there too
  * (docs/testing/accessibility-evidence.md, issue #18).
  *
  * Generation data is enabled: the merged apps/web/src/App.tsx renders the
@@ -32,11 +33,13 @@ const INCOMPLETE_RULES = new Set<string>();
 async function audit(label: string) {
   const results = await axe.run(document.body, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "best-practice"] },
+    rules: {
+      "color-contrast": { enabled: false },
+    },
   });
   const violationIds = results.violations.map((violation) => violation.id);
   expect(violationIds, `${label}: ${JSON.stringify(results.violations, null, 2)}`).toEqual([]);
   for (const rule of results.incomplete) {
-    if (rule.id === "color-contrast") continue; // layout-dependent, checked in real browser
     INCOMPLETE_RULES.add(rule.id);
   }
   console.info(`[axe:${label}] ${results.passes.length} passed, ${results.violations.length} violations, ${results.incomplete.length} incomplete (${results.incomplete.map((rule) => rule.id).join(", ")})`);

@@ -1310,7 +1310,9 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   let lastRefreshStartedAt = -Infinity;
   const app = Fastify({
     logger: options.logger ?? false,
-    maxParamLength: 2048,
+    routerOptions: {
+      maxParamLength: 2048,
+    },
     bodyLimit: 64 * 1024,
     // Framework-level errors (invalid percent-escapes, malformed URLs) bypass
     // setErrorHandler; answer them with the same bounded envelope so no raw
