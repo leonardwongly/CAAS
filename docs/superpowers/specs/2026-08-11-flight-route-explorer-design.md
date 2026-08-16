@@ -1,12 +1,14 @@
 # Flight Route Explorer - System Design
 
-Status: Local-first POC design; version 1.2-rc4 independently reviewed with no unresolved P0/P1. Version 1.2-rc5 amends §0.5/§0.6 to the implemented no-tile SVG map boundary and awaits independent exact-hash re-review. The local-first POC implementation now exists beneath this document, while Azure resources, deployment, and UAT remain intentionally un-evidenced and unauthorized; `PG-00` remains blocked only by an explicitly authorized exact-hash commit and later implementation authorization
-Version: 1.2-rc5
-Date: 2026-08-12 (amended 2026-08-14)
-Last reviewed: 2026-08-12 (v1.2-rc4); v1.2-rc5 pending independent exact-hash review
+Status: Binding local-first POC design. Neutral comparison, all-route overview, shared selection, and bundled airport-name amendments are implemented and focused-tested locally. Historical generated evidence remains subject-bound; Azure resources, deployment, rollback, and revised live UAT remain unauthorized and unexecuted.
+Version: 1.3
+Date: 2026-08-12 (amended 2026-08-16)
+Last reviewed: 2026-08-16 for implementation reconciliation
 POC decision authority: The user; no separate named-owner or reviewer-audience register is required
 Technical execution authority: Not granted
 Source brief: `CAAS Tech Challenge_v2.21.pdf`
+
+> [Master product document](../../product/master-product-document.md) governs product direction, target experience, personas, terminology, and priorities. This system design remains authoritative for binding technical contracts, safety constraints, acceptance criteria, and gate definitions. The 2026-08-16 neutral comparison, all-route overview, shared-selection, and airport-name decisions are reconciled below; evidence remains subject-bound and is never upgraded by documentation alone.
 
 ## 0. Normative POC reconciliation - 2026-08-12
 
@@ -86,24 +88,53 @@ Airway fields existed, but route-text association was inconsistent and 236 of
 889 values were absent from the separate airway-name list. No authoritative
 occurrence/directed-leg relation was proved. Upstream `airway` and `airwayType`
 therefore do not enter presentation DTOs, signatures, diffs, tables, map labels,
-geometry, completeness, or ranking. The user, as challenge decision authority,
+geometry, completeness, or route comparison. The user, as challenge decision authority,
 accepts this as a safety-driven POC variance from a literal requirement to draw
 recorded airway topology: the app exercises and validates the Airways API but
 draws selected routes only from exact resolved waypoint/reference coordinates.
 It must not claim literal airway-topology conformance unless a later authoritative
 contract proves the relation.
 
-### 0.4 Candidate ranking and presentation
+### 0.4 Neutral route comparison and presentation
 
-Leg and total Haversine distance use full precision with `R = 3440.065 NM`.
-Only for competition-rank equality, derive `rankDistanceNm` by rounding the full
-sum to `0.000001 NM`. Complete candidates with the same value share rank; every
-Rank 1 candidate is presented together. Point count and canonical signature
-stabilize display order only. Visible distance remains rounded to `0.1 NM`.
-Incomplete candidates remain available but unranked. The only qualified label is
-“Rank 1 by shortest modeled distance among complete candidates.” It never means
-operationally valid, recommended, safe, cleared, or suitable for flight;
-“valid” and unqualified “best” are not candidate labels.
+Leg and total Haversine distance use full precision with `R = 3440.065 NM`;
+visible distance rounds to `0.1 NM`. Modeled distance is descriptive only and
+never determines preference or default order. For same-endpoint recorded routes,
+the explicitly selected route appears first, remaining candidates retain
+immutable source order, and canonical signature is only a deterministic final
+fallback. Complete and incomplete routes remain visible in neutral groups;
+incomplete routes preserve explicit gaps and omit unavailable **source total
+distance**.
+
+The client-only Estimated gap preview may separately display exact-anchor
+geometric lower bounds for bounded gap corridors and, only after an approved
+historical corpus passes route-group-held-out and conformal calibration gates,
+a non-operational statistical annotation. These values never populate source
+`distanceNm`, completeness, route comparison, ordering, ranking, export, API
+payloads, persistence, or server state. Multiple explicit gaps sharing one
+anchor pair are one corridor; endpoint-only or unmapped gaps remain unavailable.
+
+Public DTOs and UI surfaces must not emit `rank`, `rankDistanceNm`, `rankLabel`,
+or `operationalProxy`, and must not call any route best, winner, recommended,
+valid, safe, cleared, or suitable. The former competition-rank contract and
+`AC-POC-RANK-01` are superseded. Historical records containing those checks are
+immutable evidence for their named older subject only.
+
+The ready client traverses every generation-bound overview cursor exactly once,
+rejects duplicate flight identities, generation changes, and non-progressing
+pages, and renders every safe flight plus every available resolved route
+component without a 10-route cap. Map, full list, callsign filter, HUD, and
+detail surfaces share one selected `flightId`. Exactly overlapping rendered
+paths use an explicit chooser; the full list is the keyboard-equivalent path.
+Unresolved endpoints split the occurrence chain but must not erase independently
+resolvable interior components or bridge a gap.
+
+Airport labels use `Full Airport Name (ICAO)` and `Name unavailable (ICAO)`.
+Names come only from the bundled OurAirports exact-ICAO reference pinned at
+commit `be07e33e6cc10087f57064f2bb3fccfcd39f5801`: 10,444 records,
+Public Domain/Unlicense, community-maintained and not an official ICAO
+publication. The bundle is deterministically generated and checksummed; no
+fuzzy, proximity, generated-code, or runtime third-party join is permitted.
 
 ### 0.5 POC Azure, identity, map, and egress boundaries
 
@@ -220,19 +251,28 @@ For the challenge profile, the following replace conflicting `AC-SD-*` and
   capabilities, exact-once browse-all, resource measurements, secret/telemetry
   boundaries, automated accessibility, restart, and failure checks before any
   Azure write.
-- `AC-POC-BROWSE-01`: cursor traversal from first page through terminal cursor
-  returns every active-generation flight exactly once without omission,
-  duplication, silent truncation, or cross-generation reuse; callsign search and
-  duplicate selection are directly exercised. As of 2026-08-15 (owner request)
+- `AC-POC-BROWSE-01`: server and client cursor traversal from first page through
+  terminal cursor returns every active-generation flight exactly once without
+  omission, duplication, silent truncation, non-progressing pages, or
+  cross-generation reuse; the ready UI shows all safe flights and all available
+  resolved route components without a 10-route cap, and callsign filtering does
+  not create a separate result universe. As of 2026-08-15 (owner request)
   the criterion extends to the `/api/v1/data/*` browse family: paged
   `flights`/`fixes`/`airports`/`navaids` endpoints serve normalized public DTO
   fields only, with family-bound generation-bound cursors (409
   `CURSOR_EXPIRED` on mismatch or refresh), `limit` 1-100, POST-body-only
   transport, and a `/api/v1/data/summary` endpoint with family counts;
   airways appear as counts only and have no browse endpoint.
-- `AC-POC-RANK-01`: present every tied Rank 1 candidate with provenance and
-  modeled distance under the exact qualified label; never call a candidate
-  valid, recommended, safe, cleared, or unqualified best.
+- `AC-POC-COMPARE-01`: present same-endpoint recorded routes in selected-first,
+  immutable source order with neutral complete/incomplete grouping, descriptive
+  modeled distance only when complete, explicit gaps, and no public preference
+  fields or winner language.
+- `AC-POC-EST-01`: the left-side Estimated gap preview groups explicit gaps by
+  exact anchor corridor, shows Release 1 Haversine lower-bound components without
+  mutating source facts, and exposes Release 2 central/interval values only from
+  an aggregate artifact that passes independent-route, held-out coverage,
+  privacy, and confidence-support gates. Missing support remains visibly
+  unavailable and annotation values never enter API or comparison output.
 - `AC-POC-LIVE-01`: local and Azure POC flows acquire and validate real Flight
   Plan, Airways, Fixes, Airports, and NAVAIDs data through the server adapter;
   cold startup fails on any unusable family, refresh retains only a still-usable
@@ -292,12 +332,12 @@ This document is the architecture and lifecycle source of truth for the challeng
 Build a TypeScript flight-route exploration application that:
 
 - retrieves recorded flight plans and aeronautical reference data from the supplied CAAS APIs;
-- lets a user find and select a flight by callsign;
+- shows all safe active-generation flights and resolved route components after readiness, with optional callsign filtering;
 - resolves its ordered route points to latitude and longitude;
 - draws the filed route and comparable candidates on a global map;
 - calculates per-leg and total modeled distance in nautical miles;
-- ranks every complete same-endpoint recorded route and computationally complete local draft by shortest modeled distance;
-- lets the user copy a route into a local draft, edit its waypoint sequence, and compare the result;
+- compares same-endpoint recorded routes in stable neutral order with descriptive modeled distance only;
+- lets the user optionally explore a local unsaved route variation and compare its modeled result;
 - deploys a tested, containerized application to Azure Container Apps through a gated CI/CD pipeline.
 
 This is a decision-support demonstration. It is not an operational flight-planning, navigation, filing, dispatch, clearance, or safety system.
@@ -322,7 +362,7 @@ This is a decision-support demonstration. It is not an operational flight-planni
 | ID | Requirement |
 |---|---|
 | `USR-01` | Show distance between consecutive waypoints and total route distance. |
-| `USR-02` | List complete recorded routes and computationally complete local drafts ranked by shortest modeled distance. |
+| `USR-02` | List all same-endpoint recorded routes in stable neutral order, preserve incomplete routes and gaps, and expose modeled distance only as a descriptive complete-route value. |
 | `USR-03` | Let the pilot select, copy, and change a route locally. |
 | `USR-04` | Explain differences between routes. |
 | `USR-05` | Keep cards and controls from obscuring excessive map content. |

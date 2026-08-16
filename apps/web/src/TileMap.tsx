@@ -37,7 +37,7 @@ export function worldPixel(lat: number, lon: number, zoom: number): { x: number;
   const clamped = clampLat(lat);
   const sinLat = Math.sin((clamped * Math.PI) / 180);
   const x = ((lon + 180) / 360) * scale;
-  const y = ((1 - Math.log((1 + sinLat) / (1 - sinLat)) / Math.PI) / 2) * scale;
+  const y = ((1 - Math.log((1 + sinLat) / (1 - sinLat)) / (2 * Math.PI)) / 2) * scale;
   return { x, y };
 }
 
@@ -81,20 +81,86 @@ export function viewFromPixelDelta(dx: number, dy: number, view: TileView, size:
   return { lat: clampLat(lat), lon, zoom: view.zoom };
 }
 
+export function viewFromZoomAtPoint(point: { x: number; y: number }, view: TileView, nextZoom: number, size: MapSize): TileView {
+  const zoomed = { ...view, zoom: clampZoom(nextZoom) };
+  if (zoomed.zoom === view.zoom) return view;
+  const anchor = coordinateFromScreen(point, view, size);
+  const projectedAnchor = pixelFromView(anchor, zoomed, size);
+  return viewFromPixelDelta(point.x - projectedAnchor.x, point.y - projectedAnchor.y, zoomed, size);
+}
+
+function normalizeLongitude(lon: number): number {
+  return ((lon + 180) % 360 + 360) % 360 - 180;
+}
+
+function latitudeFromWorldY(y: number, zoom: number): number {
+  const scale = TILE_SIZE * 2 ** zoom;
+  const n = Math.PI * (1 - (2 * y) / scale);
+  return (Math.atan(Math.sinh(n)) * 180) / Math.PI;
+}
+
+/** Fit a route and its endpoint pins into the map with a small visual margin. */
+export function fitViewToCoordinates(coordinates: Coordinate[], size: MapSize, padding = 96): TileView | undefined {
+  const valid = coordinates.filter((coordinate) => Number.isFinite(coordinate.lat) && Number.isFinite(coordinate.lon));
+  if (!valid.length || size.width <= 0 || size.height <= 0) return undefined;
+
+  const longitudes = valid.map((coordinate) => normalizeLongitude(coordinate.lon)).sort((left, right) => left - right);
+  let largestGap = -1;
+  let largestGapIndex = 0;
+  for (let index = 0; index < longitudes.length; index += 1) {
+    const current = longitudes[index]!;
+    const next = longitudes[(index + 1) % longitudes.length]! + (index + 1 === longitudes.length ? 360 : 0);
+    const gap = next - current;
+    if (gap > largestGap) {
+      largestGap = gap;
+      largestGapIndex = index;
+    }
+  }
+  const rawLongitudeSpan = Math.max(0, 360 - largestGap);
+  const longitudeSpan = Math.max(rawLongitudeSpan, 4);
+  const startLongitude = longitudes[(largestGapIndex + 1) % longitudes.length]!;
+  const centerLongitude = normalizeLongitude(startLongitude + rawLongitudeSpan / 2);
+
+  const minLatitude = Math.min(...valid.map((coordinate) => clampLat(coordinate.lat)));
+  const maxLatitude = Math.max(...valid.map((coordinate) => clampLat(coordinate.lat)));
+  const latitudePadding = Math.max((maxLatitude - minLatitude) * 0.12, 2);
+  const fitMinLatitude = clampLat(minLatitude - latitudePadding);
+  const fitMaxLatitude = clampLat(maxLatitude + latitudePadding);
+  const availableWidth = Math.max(size.width - padding * 2, 160);
+  const availableHeight = Math.max(size.height - padding * 2, 160);
+  const centerY = (worldPixel(fitMinLatitude, centerLongitude, MIN_ZOOM).y + worldPixel(fitMaxLatitude, centerLongitude, MIN_ZOOM).y) / 2;
+  const centerLatitude = clampLat(latitudeFromWorldY(centerY, MIN_ZOOM));
+
+  let zoom = MIN_ZOOM;
+  for (let candidate = MAX_ZOOM; candidate >= MIN_ZOOM; candidate -= 1) {
+    const scale = TILE_SIZE * 2 ** candidate;
+    const projectedWidth = (longitudeSpan / 360) * scale;
+    const projectedHeight = Math.abs(worldPixel(fitMaxLatitude, centerLongitude, candidate).y - worldPixel(fitMinLatitude, centerLongitude, candidate).y);
+    if (projectedWidth <= availableWidth && projectedHeight <= availableHeight) {
+      zoom = candidate;
+      break;
+    }
+  }
+  return { lat: centerLatitude, lon: centerLongitude, zoom };
+}
+
 /** Visible tile coordinates for the view; bounded by the per-frame tile cap. */
 export function tileRange(view: TileView, size: MapSize): Array<{ x: number; y: number; z: number }> {
   const z = Math.round(clampZoom(view.zoom));
   const n = 2 ** z;
   const centerX = ((view.lon + 180) / 360) * n * TILE_SIZE;
   const centerY = worldPixel(view.lat, view.lon, z).y;
-  const xMin = Math.max(0, Math.floor((centerX - size.width / 2) / TILE_SIZE));
-  const xMax = Math.min(n - 1, Math.floor((centerX + size.width / 2) / TILE_SIZE));
+  // Keep x unwrapped for placement. The world repeats horizontally, so a
+  // viewport wider than one world (or centered near the antimeridian) needs
+  // duplicate render columns whose URL x is wrapped separately.
+  const xMin = Math.floor((centerX - size.width / 2) / TILE_SIZE);
+  const xMax = Math.floor((centerX + size.width / 2 - 1) / TILE_SIZE);
   const yMin = Math.max(0, Math.floor((centerY - size.height / 2) / TILE_SIZE));
-  const yMax = Math.min(n - 1, Math.floor((centerY + size.height / 2) / TILE_SIZE));
+  const yMax = Math.min(n - 1, Math.floor((centerY + size.height / 2 - 1) / TILE_SIZE));
   const tiles: Array<{ x: number; y: number; z: number }> = [];
   for (let y = yMin; y <= yMax && tiles.length < MAX_TILES_PER_FRAME; y++) {
     for (let x = xMin; x <= xMax && tiles.length < MAX_TILES_PER_FRAME; x++) {
-      tiles.push({ x: ((x % n) + n) % n, y, z });
+      tiles.push({ x, y, z });
     }
   }
   return tiles;
@@ -103,7 +169,9 @@ export function tileRange(view: TileView, size: MapSize): Array<{ x: number; y: 
 export function tileUrl(tile: { x: number; y: number; z: number }): string {
   // z/x/y only: no query string, no application state, per the tile-URL
   // contract (design legacy §21, restored as normative evidence in tests).
-  return `${TILE_HOST}/${tile.z}/${tile.x}/${tile.y}.png`;
+  const n = 2 ** tile.z;
+  const wrappedX = ((tile.x % n) + n) % n;
+  return `${TILE_HOST}/${tile.z}/${wrappedX}/${tile.y}.png`;
 }
 
 /** Projects route segments to screen pixels under the current tile view. */

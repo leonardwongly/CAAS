@@ -15,8 +15,7 @@ UAT, `PLAN-5.3` walkthrough) and design §21.7's UAT gate ("an unresolved
 severity-1 accessibility or acceptance defect blocks release") into a retained
 evidence record.
 
-The walkthrough must describe modeled-distance ranking as non-operational and
-must not imply deployment or data-sharing authority (issue #29 scope note).
+The walkthrough must describe modeled distance as descriptive only, show neutral route comparison without a winner, and must not imply deployment or data-sharing authority (issue #29 scope note).
 
 ## 2. Timing requirements (binding)
 
@@ -24,9 +23,9 @@ must not imply deployment or data-sharing authority (issue #29 scope note).
   (plan §16 `PLAN-5.3`):
   1. Problem, safety boundary, architecture, code structure — 2 minutes.
   2. Real API evidence, sanitization, live refresh, limits — 2 minutes.
-  3. Callsign search, duplicate selection, real route map/table — 3 minutes.
-  4. Gaps, hidden/unproven airway data, distance, Rank 1 ties, user choice — 3 minutes.
-  5. Edit copy and directed comparison — 3 minutes.
+  3. All-flight overview, shared map/list/callsign selection, real route map/table — 3 minutes.
+  4. Gaps, airport-name provenance/fallback, hidden Airways, descriptive distance, neutral comparison — 3 minutes.
+  5. Explore a route variation and directed variation comparison — 3 minutes.
   6. Tests, accessibility/failure states, build/test/deploy code — 3 minutes.
   7. Exact digest, direct Azure POC deployment, auth, rollback — 2 minutes.
   8. Limitations, AI use, lessons learned, requested feedback, separate
@@ -42,15 +41,15 @@ deployed digest (or, before deployment authorization, the exact local subject):
 
 | # | UAT item | Pass criteria | Evidence to record |
 |---|---|---|---|
-| 1 | Browse-all exact-once | Traverse the bounded flight-list cursor from first page to terminal cursor; every record in the active generation appears exactly once, no duplicate, omission, silent truncation, or cursor reuse across a generation change (`AC-POC-BROWSE-01`) | Page count, total records, terminal-cursor behavior |
-| 2 | Callsign search | Query matches by normalized callsign; bounded results; empty and non-matching queries behave; query length limits enforced | Search terms used, result counts |
-| 3 | Duplicate selection | Ambiguous reference resolves to an explicit duplicate list (e.g. navaid `DUPX` in fixtures / real duplicates); user selects from the list; ambiguity is never silently resolved | Duplicate term, match count, selection outcome |
-| 4 | Route map and Route Data | SVG diagram renders only exact resolved segments; visible gaps preserved without connecting them; Route Data usable when geometry is absent (`AC-POC-MAP-01`) | Screenshots, notes |
-| 5 | Ranked and unranked candidates | All Rank 1 candidates sharing minimum `rankDistanceNm` listed under the exact label; provenance and modeled distance shown; user can choose (`AC-POC-RANK-01`) | Candidate list, label text |
-| 6 | Draft/compare behavior | Local draft accepted; directed comparison shows added/removed waypoints; gap status when incomplete; no distance/geometry inferred across gaps | Draft content, comparison output |
+| 1 | Overview exact-once | Traverse every generation-bound cursor; every safe flight appears exactly once, every available resolved component is shown, and duplicate/generation/non-progressing pages fail explicitly (`AC-POC-BROWSE-01`) | Page count, total records, terminal behavior, rendered list/path count |
+| 2 | Callsign filter | Filter the populated overview by normalized callsign; map/list subset and shown/total HUD count agree | Search terms used, result counts, map/list counts |
+| 3 | Shared and overlap selection | Select from full list, map, and callsign filter; exact overlaps use an explicit chooser; every surface shares one `flightId` | Selected identities, overlap count, `aria-current`, HUD |
+| 4 | Route map and Route Data | OSM/schematic map renders only exact resolved segments; visible gaps are not connected; resolvable interior components survive endpoint gaps; Route Data remains usable | Screenshots, notes |
+| 5 | Neutral route comparison | Selected route first, remaining immutable source order, neutral complete/incomplete groups, descriptive distance, no preference fields or winner language (`AC-POC-COMPARE-01`) | Candidate order, groups, copy, payload fields |
+| 6 | Explore variation | Local unsaved variation accepted; exact point controls and directed delta work when complete; incomplete state keeps explicit gaps and unavailable values | Variation content, comparison output |
 | 7 | Safety wording | The safety copy is exactly: "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated."; no candidate called valid/recommended/safe/cleared/best | Exact strings recorded |
 | 8 | Errors and failure states | Cold-start/refresh failure, stale generation, cursor expiry, capacity errors surface as bounded fail-closed errors; no silent truncation | Error codes observed |
-| 9 | Limitations walkthrough | The presenter explains modeled-distance ranking as non-operational and states the evidence boundary and that no deployment/data-sharing authority is implied | Notes |
+| 9 | Limitations walkthrough | The presenter explains descriptive modeled distance, neutral ordering, non-official airport metadata, historical evidence limits, and the absence of deployment/data-sharing authority | Notes |
 
 ## 4. Timed walkthrough record (template)
 
@@ -97,8 +96,8 @@ segments:
   problem_safety_arch: ""     # seconds, target 120
   live_evidence: ""           # seconds, target 120
   search_selection_map: ""    # seconds, target 180
-  gaps_airway_distance: ""    # seconds, target 180
-  edit_compare: ""            # seconds, target 180
+  overview_gaps_names_compare: "" # seconds, target 180
+  explore_variation: ""       # seconds, target 180
   tests_a11y_failure: ""      # seconds, target 180
   digest_deploy_rollback: ""  # seconds, target 120
   limitations_roadmap: ""     # seconds, target 120

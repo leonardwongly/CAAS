@@ -1,8 +1,9 @@
 // Loopback-only five-family lane. Runs the REAL server and REAL adapter over
 // loopback HTTP against a deterministic sanitized mock upstream, exercising
-// acquisition, browse, search, ranking, drafts, refresh, restart, fail-closed,
-// airway exclusion, and security-header mechanics. No live CAAS call, no cloud
-// write, no credential: the fixture apikey is consumed only by the mock.
+// acquisition, browse, search, neutral route comparison, drafts, refresh,
+// restart, fail-closed, airway exclusion, and security-header mechanics. No live
+// CAAS call, no cloud write, no credential: the fixture apikey is consumed only
+// by the mock.
 //
 // This is the lane MECHANICS; the authorized live-data run is the separate
 // live-lane.mjs and remains pending explicit authorization.
@@ -10,7 +11,6 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createApiServer } from "../../apps/api/src/index.ts";
 import { createCaasAdapter } from "../../packages/upstream-caas/src/index.ts";
-import { RANK_ONE_LABEL } from "../../packages/contracts/src/index.ts";
 import { CheckCollector, isoNow, reportAndExit, root, sha256Hex, shortSha } from "./lib-evidence.mjs";
 import { FIXTURE_API_KEY, FIXTURE_AIRWAY_VALUES, FIXTURE_REFRESH_SECRET, createMockTransport, fixtureBodies, fixtureFlightBodies } from "./fixtures.mjs";
 
@@ -123,19 +123,18 @@ async function runChecksOn(server, transport) {
   collector.pass("LANE-SEARCH-NEGATIVE", "negative search", "A callsign with no match returns an empty page.", startedAt, isoNow(),
     negative.status === 200 && (negative.json().data ?? []).length === 0, "boolean", 1, artifactsFor());
 
-  // 8. Route options: exact resolution, rankLabel envelope, rank-1/other-ranked/
-  // incomplete groups, dedup, incomplete unranked.
+  // 8. Route options: exact resolution, selected-first immutable source order,
+  // neutral grouping, deduplication, and visible incomplete routes.
   const firstId = searchData[0].id;
   const options = await post("/api/v1/routes/options", { flightId: firstId });
   const optionsGen = options.json().generation;
   const routeData = options.json().data ?? [];
   const complete = routeData.filter((route) => route.complete);
-  const incomplete = routeData.filter((route) => !route.complete);
-  const rankOne = complete.filter((route) => route.rank === 1);
-  const otherRanked = complete.filter((route) => route.rank !== undefined && route.rank > 1);
+  const selectedRoute = routeData.find((route) => route.flightId === firstId);
+  const noPreferenceFields = routeData.every((route) => !["rank", "rankDistanceNm", "rankLabel", "operationalProxy"].some((field) => field in route));
   const everyDtoBound = routeData.every((route) => route.provenance === "CAAS normalized live generation" && typeof route.safety === "string" && route.safety.includes("Demonstration only."));
-  collector.pass("LANE-RANK-TIES", "rank-1/other-ranked/incomplete presentation", "Complete candidates are ranked by modeled distance, the rankLabel envelope is present with the bound first-place label, the rank-1 group is presented together, and incomplete candidates are never ranked.", startedAt, isoNow(),
-    options.status === 200 && options.json().rankLabel === RANK_ONE_LABEL && complete.length === 2 && rankOne.length === 1 && rankOne.every((route) => route.rank === 1) && otherRanked.length === 1 && otherRanked.every((route) => route.rank === 2) && incomplete.every((route) => route.rank === undefined) && everyDtoBound, "boolean", routeData.length, artifactsFor());
+  collector.pass("LANE-NEUTRAL-ORDER", "selected-first neutral route presentation", "The explicitly selected route appears first, remaining candidates preserve source order, modeled distance is descriptive, and no preference fields are emitted.", startedAt, isoNow(),
+    options.status === 200 && options.json().rankLabel === undefined && routeData.length === 2 && selectedRoute === routeData[0] && routeData.map((route) => route.callsign).join(",") === "FIXTURE1,FIXTURE2" && complete.every((route) => typeof route.distanceNm === "number") && noPreferenceFields && everyDtoBound, "boolean", routeData.length, artifactsFor());
   // FIXTURE1, FIXTURE5, FIXTURE6 share the exact MIDPT signature -> one deduplicated candidate.
   const signatureGroupPresent = routeData.filter((route) => ["FIXTURE1", "FIXTURE5", "FIXTURE6"].includes(route.callsign)).length === 1;
   collector.pass("LANE-DEDUP-SIGNATURE", "exact-signature candidate dedup", "Candidates with identical normalized signatures are deduplicated with source provenance retained.", startedAt, isoNow(), signatureGroupPresent, "boolean", 1, artifactsFor());
@@ -155,7 +154,7 @@ async function runChecksOn(server, transport) {
   // POST /api/v1/routes/compare (plan §8 comparison.status complete|incomplete).
   const draft = await post("/api/v1/drafts", { origin: "KJFK", via: ["MIDPT"], destination: "KLAX", selections: [] });
   const draftId = draft.json().id;
-  const routeCompare = await post("/api/v1/routes/compare", { baselineId: rankOne[0].id, targetDraftId: draftId });
+  const routeCompare = await post("/api/v1/routes/compare", { baselineId: selectedRoute?.id, targetDraftId: draftId });
   const routeComparison = routeCompare.json().comparison;
   const draftCompare = await post("/api/v1/drafts/compare", { draftId });
   collector.pass("LANE-DRAFT-COMPARE", "bounded local draft and server comparison", "A complete draft with explicit selections is stored, compared against a recorded baseline via POST /api/v1/routes/compare with a complete comparison status and server-computed distance delta, and the stored draft compares with server-computed distance.", startedAt, isoNow(),

@@ -29,6 +29,8 @@
     "validate:config": "node scripts/validate-config.mjs",
     "validate:policy": "node scripts/validation/validate-offline.mjs",
     "validate:evidence": "node scripts/validation/validate-evidence-bundle.mjs",
+    "evidence:archive": "node scripts/validation/archive-stale-evidence.mjs",
+    "evidence:settle": "node scripts/validation/settle-evidence.mjs",
     "container:smoke": "node scripts/smoke-container.mjs",
     "oci:build": "node scripts/validation/build-oci.mjs && node scripts/validation/oci-subject-manifest.mjs",
     "oci:verify": "node scripts/validation/build-oci.mjs --verify",

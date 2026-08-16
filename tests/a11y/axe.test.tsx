@@ -47,7 +47,7 @@ async function selectFixtureFlight(user: ReturnType<typeof userEvent.setup>) {
   await user.type(input, "FIXTURE1");
   await user.keyboard("{Enter}");
   await user.keyboard("{ArrowDown}{Enter}");
-  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("route options returned"));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("same-endpoint recorded routes returned"));
 }
 
 describe("axe audits", () => {
@@ -99,8 +99,8 @@ describe("axe audits", () => {
     const user = userEvent.setup();
     render(<App />);
     await selectFixtureFlight(user);
-    await user.click(screen.getByRole("button", { name: "Edit copy" }));
-    await waitFor(() => expect(screen.getByRole("region", { name: "Local route editor" })).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Explore variation" }));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Explore a route variation" })).toBeTruthy());
     await audit("draft-editor");
   });
 
@@ -109,7 +109,7 @@ describe("axe audits", () => {
     const user = userEvent.setup();
     render(<App />);
     await selectFixtureFlight(user);
-    await user.click(screen.getByRole("button", { name: "Edit copy" }));
+    await user.click(screen.getByRole("button", { name: "Explore variation" }));
     const input = screen.getByRole("combobox", { name: "Add an exact reference point" });
     await user.type(input, "MIDPT");
     await user.keyboard("{Enter}");

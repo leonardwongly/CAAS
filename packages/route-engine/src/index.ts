@@ -49,13 +49,6 @@ export interface LeafletRoute {
   positions: LeafletCoordinate[];
 }
 
-export interface Ranked<T> {
-  item: T;
-  distanceNm: number;
-  rankDistanceNm: number;
-  rank: number;
-}
-
 export interface DraftResult<T> {
   ok: boolean;
   value?: T;
@@ -67,7 +60,6 @@ function draftIssues(issues: readonly { code: string; path: (string | number)[];
 }
 
 const EARTH_RADIUS_NM = 3440.065;
-const RANK_SCALE = 1_000_000;
 
 function normalizedToken(value: string): string {
   return value.trim().toUpperCase();
@@ -169,17 +161,9 @@ export function degreesToRadians(degrees: number): number {
   return degrees * (Math.PI / 180);
 }
 
-export function rankDistanceNm(distanceNm: number): number {
-  if (!Number.isFinite(distanceNm) || distanceNm < 0) {
-    throw new RangeError("distanceNm must be a finite, non-negative number");
-  }
-  return Math.round((distanceNm + Number.EPSILON) * RANK_SCALE) / RANK_SCALE;
-}
-
 export const haversineNm = haversineDistanceNm;
-export const roundRankDistanceNm = rankDistanceNm;
 
-/** Distance display rounding: 0.1 NM. Used for UI copy only, never for competition equality. */
+/** Distance display rounding: 0.1 NM. Used for UI copy only. */
 export function displayDistanceNm(distanceNm: number): number {
   if (!Number.isFinite(distanceNm) || distanceNm < 0) {
     throw new RangeError("distanceNm must be a finite, non-negative number");
@@ -189,47 +173,12 @@ export function displayDistanceNm(distanceNm: number): number {
 
 export { compareDistanceOperands, type DistanceComparison, type DistanceComparisonStatus, type DistanceComparisonUnavailable } from "./compare.ts";
 
-export function competitionRank(values: readonly number[]): number[] {
-  const normalizedValues = values.map(rankDistanceNm);
-  const sorted = [...normalizedValues].sort((left, right) => left - right);
-  const rankByValue = new Map<number, number>();
-  sorted.forEach((value, index) => {
-    if (!rankByValue.has(value)) rankByValue.set(value, index + 1);
-  });
-  return normalizedValues.map((value) => rankByValue.get(value)!);
-}
-
 export function sumDistanceNm(distances: readonly number[]): number {
   return distances.reduce((sum, distance) => {
     if (!Number.isFinite(distance) || distance < 0) throw new RangeError("distances must be finite and non-negative");
     return sum + distance;
   }, 0);
 }
-
-export function rankRouteCandidates<T extends { distanceNm: number }>(
-  items: readonly T[],
-): Array<Ranked<T>> {
-  const sorted = items
-    .map((item, index) => ({ item, index, distanceNm: item.distanceNm, rankDistanceNm: rankDistanceNm(item.distanceNm) }))
-    .sort((left, right) => left.rankDistanceNm - right.rankDistanceNm || left.index - right.index);
-  const ranks = competitionRank(sorted.map((entry) => entry.rankDistanceNm));
-  return sorted.map((entry, index) => ({
-    item: entry.item,
-    distanceNm: entry.distanceNm,
-    rankDistanceNm: entry.rankDistanceNm,
-    rank: ranks[index]!,
-  }));
-}
-
-export const rankCandidates = rankRouteCandidates;
-
-export function compareRouteCandidates(left: RouteCandidate, right: RouteCandidate): number {
-  return left.rankDistanceNm - right.rankDistanceNm ||
-    left.legs.length - right.legs.length ||
-    left.id.localeCompare(right.id);
-}
-
-export const compareCandidates = compareRouteCandidates;
 
 export function toGeoJsonPosition(value: unknown): GeoJsonPosition {
   const coordinate = toCoordinate(value);
@@ -343,6 +292,5 @@ export function createRouteCandidate(
     destination: { value: destination.id, kind: destination.kind },
     legs,
     distanceNm,
-    rankDistanceNm: rankDistanceNm(distanceNm),
   });
 }

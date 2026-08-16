@@ -1,10 +1,11 @@
 # Accessibility and UAT evidence hub
 
-Status: **Deterministic evidence complete; machine-executed live-data UAT
-passes are recorded (2026-08-15, `artifacts/uat-execution-record-*.md`, 16/16
-rows in Chrome, Chromium, and WebKit — the Chrome run refreshed at 10:22Z).
-The named-screen-reader (VoiceOver) and Firefox rows were waived by the owner
-on 2026-08-15 in favor of the real-Chrome standard** (issues #15–#19).
+Status: **Current focused deterministic suites pass: 17 accessibility tests,
+28 interaction/keyboard tests, 4 exact-once overview-client tests, and 8
+responsive tests.** Machine-executed 2026-08-15 browser/UAT artifacts are
+retained as immutable evidence for their older subject and wording; they do not
+prove the revised overview-first contract. Human assistive-technology execution
+remains separate (issues #15–#19).
 
 This document is the single entry point for accessibility and UAT evidence on
 the map-first flight route explorer. It records exactly what was run, with
@@ -35,45 +36,39 @@ the terms are used as follows:
 
 ## 2. Automated suites (proved)
 
-All lanes run from the worktree root. Commands and real results:
+Current focused commands run from `tests/`:
 
 ```
-pnpm run test:a11y        # vitest run --config vitest.config.ts a11y
-#   Test Files 2 passed, Tests 15 passed
-pnpm run test:e2e         # vitest run --config vitest.config.ts e2e
-#   Test Files 2 passed, Tests 16 passed
-pnpm run test:responsive  # vitest run --config vitest.config.ts responsive
-#   Test Files 1 passed, Tests 8 passed
-pnpm run validate:config  # "Root JSON, YAML, TypeScript config, and environment placeholders are valid."
-pnpm run typecheck        # all packages Done
-pnpm --filter web build   # dist built
+node_modules/.bin/vitest run --config vitest.config.ts a11y
+# Test Files 2 passed; Tests 17 passed; zero axe violations
+node_modules/.bin/vitest run --config vitest.config.ts \
+  e2e/overview-api.test.tsx e2e/interaction.test.tsx e2e/keyboard.test.tsx
+# Test Files 3 passed; Tests 32 passed (4 traversal + 28 interaction/keyboard)
+node_modules/.bin/vitest run --config vitest.config.ts responsive
+# Test Files 1 passed; Tests 8 passed
 ```
 
 Lanes:
 
-- `tests/a11y/aria-structure.test.tsx` — ARIA contract: landmarks, combobox
-  listbox contract (expanded/controls/activedescendant), drawer naming,
-  `aria-pressed` sync, route chooser `aria-current`, route-leg table headers,
-  draft combobox contract, binding strings, map-endpoints naming.
+- `tests/a11y/aria-structure.test.tsx` — ARIA contract: landmarks, populated
+  overview/filter combobox, drawer naming, `aria-pressed`, neutral route
+  `aria-current`, route-leg table, variation combobox, and current binding copy.
 - `tests/a11y/axe.test.tsx` — axe-core 4.13.0, tags `wcag2a`, `wcag2aa`,
-  `best-practice`, asserted **0 violations** in 7 UI states (jsdom; the
-  layout-dependent `color-contrast` rule reports incomplete there, see §4).
-- `tests/e2e/keyboard.test.tsx` — keyboard-only path: skip link, duplicate
-  disambiguation, drawer close focus return, route selection focus return,
-  Map Only enter/exit with deterministic focus, route retry, draft retry,
-  draft point add/remove via keyboard.
-- `tests/e2e/interaction.test.tsx` — pointer-path interaction review: search,
-  duplicate selection, drawers, route data, unranked route + visible gap,
-  comparison metrics, edit copy + reference point, failed-search recovery,
-  Clear session, Map Only hide/restore, close-button focus return for all
-  three drawers.
+  `best-practice`, asserted **0 violations** in 9 UI states. jsdom canvas/color
+  contrast remains incomplete where pixel analysis is unavailable.
+- `tests/e2e/keyboard.test.tsx` — 11 keyboard-only scenarios including the
+  full-list equivalent for map selection, drawer focus return, retries,
+  Explore variation controls, Map Only, and API-data page focus.
+- `tests/e2e/interaction.test.tsx` — 17 pointer scenarios including >10 routes,
+  map/list/HUD synchronization, shared callsign filtering, exact-overlap chooser,
+  neutral comparison, Explore variation, reset-to-overview, retry, and Map Only.
 - `tests/responsive/responsive-css.test.ts` — static CSS contract for §15.7:
   zoom-capable viewport, 320 px minimum, 760 px reflow rules, named
   independently scrollable table region, reduced-motion fallback,
   forced-colors rules (17 selectors + `outline-color: Highlight`), visible
   focus outlines, and page-title h1 never `display:none` at mobile.
 
-## 3. Real-browser axe audits (proved)
+## 3. Historical real-browser axe audits (older subject)
 
 axe-core 4.13.0 injected into the headless Chrome session; same tags as the
 jsdom lane. Ten states audited, each asserting **0 violations**:

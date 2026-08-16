@@ -8,15 +8,11 @@ The UI must permanently display:
 
 > Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.
 
-Use only this candidate label:
-
-> Rank 1 by shortest modeled distance among complete candidates
-
-“Rank 1” means the shortest modeled Haversine total among the admitted complete candidates after tie-key rounding. It does not mean valid, recommended, safe, cleared, suitable, or operationally usable. Avoid those words in candidate names, table headings, API fields, telemetry, and demo narration.
+Route comparison is neutral. Modeled Haversine distance is descriptive only and never determines a preferred route. Default order is selected-first, then immutable source order, with canonical signature only as a deterministic final fallback. Public DTOs and UI copy omit `rank`, `rankDistanceNm`, `rankLabel`, and `operationalProxy`. Avoid valid, recommended, safe, cleared, suitable, best, or winner language in candidate names, headings, API fields, telemetry, and demo narration.
 
 ## Data trust boundary
 
-The browser is untrusted and never supplies authoritative coordinates, geometry, endpoint identity, distance, provenance, completeness, or rank. The server recomputes these values from the active generation. Public DTOs are allow-listed and sanitized; raw Flight Plan objects and unnecessary fields never cross the BFF boundary.
+The browser is untrusted and never supplies authoritative coordinates, geometry, endpoint identity, distance, provenance, completeness, or route ordering. The server recomputes these values from the active generation. Public DTOs are allow-listed and sanitized; raw Flight Plan objects and unnecessary fields never cross the BFF boundary.
 
 The server alone owns the CAAS credential and performs bounded, allow-listed HTTPS GETs. Controls include:
 
@@ -44,7 +40,9 @@ The target Azure topology uses Key Vault-backed runtime injection and a runtime 
 
 ## Airways and route integrity
 
-Airways is fetched and validated for contract conformance, but its unproven values and types are a prohibited output field. Never expose or log them, use them in signatures/diffs/completeness/rank, or infer directed topology from names or adjacency. Exact Fix/Airport/NAVAID resolution preserves ambiguity and explicit gaps. Never connect a gap or select a nearby point silently.
+Airways is fetched and validated for contract conformance, but its unproven values and types are a prohibited output field. Never expose or log them, use them in signatures/diffs/completeness/route comparison, or infer directed topology from names or adjacency. Exact Fix/Airport/NAVAID resolution preserves ambiguity and explicit gaps. Never silently connect a gap or select a nearby point. The separately labelled client-only potential layer may show a dotted estimate between exact anchors with no span-distance upper limit; it cannot alter recorded geometry, route facts, source data, or server state.
+
+The optional distance annotation uses only exact public route coordinates already present in the browser. Its lower bound and any calibrated interval remain ephemeral client values and must not enter API payloads, logs, evidence records, comparison, ranking, export, or persistence. A training corpus may be processed only offline after explicit retention/data-use approval; active or previous in-memory generations must not be silently accumulated as history. The browser model artifact may contain aggregate cells, support counts, residuals, validation metrics, and a corpus digest, but no callsign, flight identifier, named fix, raw coordinate, or individual training record. Invalid, sparse, unsupported, or under-covered artifacts fail closed.
 
 ## Route-diagram privacy
 
@@ -56,7 +54,7 @@ A later change of tile provider, or any other external-map decision, requires a 
 
 ## Evidence and authorization
 
-The PG-00 discovery manifest is secret-free aggregate evidence. It proves neither data redistribution rights nor implementation. No Challenge Data Use Record is present, so live CAAS-derived data may not be shown to a reviewer audience based solely on HTTP `200` or key possession. Public production requires the separate production gate covering redistribution/privacy authority, access, egress, edge protection, telemetry, retention, incident response, accessibility, and release ownership.
+The PG-00 discovery manifest is secret-free aggregate evidence. It proves neither data redistribution rights nor implementation. The executed Challenge Data Use Record governs its named audience and window; HTTP `200` or key possession alone still grants no redistribution authority. Public production requires the separate production gate covering redistribution/privacy authority, access, egress, edge protection, telemetry, retention, incident response, accessibility, and release ownership.
 
 ## Security status
 

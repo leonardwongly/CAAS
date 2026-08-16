@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import {
   ApiError,
   fetchReadiness,
+  fetchRouteOverview,
   fetchRouteOptions,
   lookupPoint,
   refreshLiveData,
@@ -17,24 +18,22 @@ import {
   type RouteOption,
 } from "./api";
 import {
-  COMPLETE_RANKED_GROUP_DESCRIPTION,
-  COMPLETE_RANKED_GROUP_TITLE,
+  COMPLETE_GROUP_DESCRIPTION,
+  COMPLETE_GROUP_TITLE,
   DRAFT_SAFETY_COPY,
-  INCOMPLETE_GROUP_DESCRIPTION,
-  INCOMPLETE_GROUP_TITLE,
-  OPERATIONAL_PROXY_EXPLANATION,
-  RANK_CRITERION,
-  RANK_ONE_GROUP_DESCRIPTION,
-  RANK_ONE_LABEL,
+  GAP_DISTANCE_ANNOTATION_CAVEAT,
   REFRESH_CONFIRM,
-  REFRESH_STALE_BANNER,
-  REFRESH_UNUSABLE_BANNER,
+  ROUTE_COMPARISON_EXPLANATION,
   SAFETY_NOTICE,
 } from "./labels";
-import { clampZoom, coordinateFromScreen, DEFAULT_SIZE, MAX_ZOOM, MIN_ZOOM, OSM_ATTRIBUTION, pixelFromView, projectWorldSegmentsMercator, TileLayer, viewFromPixelDelta, type MapSize, type TileView } from "./TileMap";
+import { clampZoom, DEFAULT_SIZE, fitViewToCoordinates, MAX_ZOOM, MIN_ZOOM, OSM_ATTRIBUTION, pixelFromView, projectWorldSegmentsMercator, TileLayer, viewFromPixelDelta, viewFromZoomAtPoint, type MapSize, type TileView } from "./TileMap";
 import ApiDataPage from "./ApiDataPage";
 import { compareDistanceOperands } from "@flight-route-explorer/route-engine/compare";
+import { deriveConservativePotentialRoute, type ConservativePotentialRoute, type PotentialEndpoints } from "./potentialRoute";
+import { analyzeIncompleteRouteDistance, type IncompleteRouteDistanceAnalysis } from "./gapDistanceEstimate";
+import { BUNDLED_GAP_DISTANCE_MODEL } from "./gapDistanceModel";
 
+type Surface = "none" | "routes" | "route-data" | "editor" | "compare" | "potential";
 type SearchState = { query: string; matches: CallsignMatch[]; loading: boolean; searched: boolean; error?: string | undefined };
 const emptySearch: SearchState = { query: "", matches: [], loading: false, searched: false };
 // Type-ahead settles this long after the last keystroke; Enter fires a search
@@ -48,8 +47,8 @@ function formatDistance(value: number | undefined): string {
   return value === undefined ? "Not supplied" : `${value.toFixed(1)} NM`;
 }
 
-function formatRankDistance(value: number | undefined): string {
-  return value === undefined ? "Not supplied" : `${value.toFixed(6)} NM`;
+function isCompleteRoute(route: RouteOption): boolean {
+  return route.complete && route.gaps.length === 0;
 }
 
 /** A malformed timestamp must never render the literal "Invalid Date". */
@@ -63,7 +62,7 @@ const CODE_MESSAGES: Readonly<Record<string, string>> = {
   TOO_MANY_CANDIDATES: "Too many route options for this airport pair. Try a more specific flight.",
   TOO_MANY_MATCHES: "This reference matches too many locations. Use a narrower search term.",
   UPSTREAM_UNAVAILABLE: "Live route data is unavailable right now. Try refreshing in a moment.",
-  GENERATION_STALE: "The live data generation has expired. Refresh live data to reacquire it.",
+  GENERATION_STALE: "This source-data snapshot has expired. Refresh source data to acquire a new snapshot.",
   REQUEST_DEADLINE_EXCEEDED: "The route service timed out. Try again.",
 };
 
@@ -90,30 +89,35 @@ function refreshFailureMessage(error: unknown): string {
       if (live.state === "unusable") {
         return `Live data refresh failed and the prior generation is no longer usable (retrieved ${formatRetrievedAt(live.retrievedAt)}). No live data is serving requests — retry refresh.`;
       }
-      return `Live data refresh failed. The prior generation (retrieved ${formatRetrievedAt(live.retrievedAt)}, ${live.state ?? "state unknown"}) is still serving requests.`;
+      return `Live data refresh failed. The prior generation retrieved at ${formatRetrievedAt(live.retrievedAt)} is still serving requests.`;
     }
   }
   return apiMessage(error);
 }
 
 function App() {
+  const [overview, setOverview] = useState<RouteOption[]>([]);
+  const [overviewLoading, setOverviewLoading] = useState(true);
+  const [overviewError, setOverviewError] = useState<string>();
+  const [overviewReload, setOverviewReload] = useState(0);
   const [selectedFlight, setSelectedFlight] = useState<CallsignMatch>();
   const [search, setSearch] = useState<SearchState>(emptySearch);
   const [options, setOptions] = useState<RouteOption[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<RouteOption>();
+  const [potentialRoute, setPotentialRoute] = useState<RouteOption>();
+  const [potentialEndpointCoordinates, setPotentialEndpointCoordinates] = useState<PotentialEndpoints>({});
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState<string>();
   const [routeReload, setRouteReload] = useState(0);
   const [draft, setDraft] = useState<DraftComparison>();
   const [draftActive, setDraftActive] = useState(false);
-  const [primarySurface, setPrimarySurface] = useState<"none" | "routes" | "route-data" | "editor" | "compare">("none");
+  const [primarySurface, setPrimarySurface] = useState<Surface>("none");
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftError, setDraftError] = useState<string>();
   const [mapOnly, setMapOnly] = useState(false);
   const [page, setPage] = useState<"map" | "api-data">("map");
   const [status, setStatus] = useState("");
   const [generation, setGeneration] = useState<GenerationSummary>();
-  const [rankLabel, setRankLabel] = useState<string>();
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string>();
   const [readinessError, setReadinessError] = useState<string>();
@@ -122,6 +126,10 @@ function App() {
   const searchRequest = useRef<AbortController | undefined>(undefined);
   const searchSeq = useRef(0);
   const searchTimer = useRef<number | undefined>(undefined);
+  // Refresh completion and overview readiness are one user-visible operation.
+  // Preserve the refresh announcement until traversal settles instead of
+  // letting the overview effect replace it with a generic load message.
+  const overviewStatusPrefix = useRef<string | undefined>(undefined);
   const routesTriggerRef = useRef<HTMLButtonElement>(null);
   const dataTriggerRef = useRef<HTMLButtonElement>(null);
   const editorTriggerRef = useRef<HTMLButtonElement>(null);
@@ -130,9 +138,13 @@ function App() {
   const restoreControlsRef = useRef<HTMLButtonElement>(null);
   const apiDataTriggerRef = useRef<HTMLButtonElement>(null);
 
+  useEffect(() => {
+    setPotentialEndpointCoordinates({});
+  }, [potentialRoute?.id]);
+
   // Design §15.2: focus return is deterministic after closing a surface,
   // selecting a route, retrying an error, or leaving Map Only.
-  function closeSurface(surface: "none" | "routes" | "route-data" | "editor" | "compare") {
+  function closeSurface(surface: Surface) {
     setPrimarySurface("none");
     const trigger = surface === "routes" ? routesTriggerRef : surface === "route-data" ? dataTriggerRef : surface === "editor" ? editorTriggerRef : surface === "compare" ? compareTriggerRef : undefined;
     if (trigger) requestAnimationFrame(() => trigger.current?.focus());
@@ -173,6 +185,31 @@ function App() {
       });
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setOverviewLoading(true);
+    setOverviewError(undefined);
+    fetchRouteOverview(controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        setOverview(result.routes);
+        setGeneration(result.generation);
+        const loadMessage = `${result.routes.length} source flight record${result.routes.length === 1 ? "" : "s"} loaded. This is a refreshed dataset, not real-time tracking.`;
+        const prefix = overviewStatusPrefix.current;
+        overviewStatusPrefix.current = undefined;
+        setStatus(prefix ? `${prefix} ${loadMessage}` : loadMessage);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setOverviewError(apiMessage(error));
+        const prefix = overviewStatusPrefix.current;
+        overviewStatusPrefix.current = undefined;
+        setStatus(prefix ? `${prefix} The refreshed overview could not be loaded.` : "The all-flight route overview could not be loaded.");
+      })
+      .finally(() => { if (!controller.signal.aborted) setOverviewLoading(false); });
+    return () => controller.abort();
+  }, [overviewReload]);
 
   function updateQuery(query: string) {
     // Abort any in-flight search and cancel the pending type-ahead timer:
@@ -220,12 +257,47 @@ function App() {
     }
   }
 
-  function chooseFlight(match: CallsignMatch) {
+  function chooseFlight(match: CallsignMatch, preserveSearchFilter = false) {
     searchRequest.current?.abort();
     if (searchTimer.current !== undefined) { window.clearTimeout(searchTimer.current); searchTimer.current = undefined; }
     setSelectedFlight(match);
-    setSearch({ query: match.callsign, matches: [], loading: false, searched: false });
-    setStatus(`Selected flight ${match.callsign}, departing ${match.departure} for ${match.destination}. Loading route options.`);
+    setPotentialRoute(undefined);
+    setSelectedRoute(overview.find((route) => route.flightId === match.flightId && isCompleteRoute(route)));
+    setSearch(preserveSearchFilter ? { query: match.callsign, matches: [], loading: false, searched: false } : emptySearch);
+    setStatus(`Selected flight ${match.callsign}, departing ${match.departure} for ${match.destination}. Loading complete same-endpoint recorded routes.`);
+  }
+
+  function chooseOverviewRoute(route: RouteOption) {
+    if (!isCompleteRoute(route)) return;
+    setPotentialRoute(undefined);
+    chooseFlight({
+      id: route.flightId,
+      flightId: route.flightId,
+      callsign: route.callsign,
+      departure: route.origin ?? "Unknown departure",
+      destination: route.destination ?? "Unknown destination",
+      routePointCount: route.pointCount,
+    });
+    setSelectedRoute(route);
+  }
+
+  function openPotentialRouteChooser() {
+    resetDraftState();
+    setSelectedRoute(undefined);
+    setPotentialRoute(undefined);
+    setPrimarySurface("potential");
+  }
+
+  function choosePotentialRoute(route?: RouteOption) {
+    if (!route) {
+      setPotentialRoute(undefined);
+      return;
+    }
+    if (isCompleteRoute(route)) return;
+    resetDraftState();
+    setSelectedRoute(undefined);
+    setPotentialRoute(route);
+    setStatus(`Showing a visual gap estimate for ${route.callsign}. Dotted spans join exact anchors only; this is not a route suggestion and does not change source route facts.`);
   }
 
   useEffect(() => {
@@ -250,21 +322,16 @@ function App() {
     const requestId = ++routeRequest.current;
     setRouteLoading(true);
     setRouteError(undefined);
-    setSelectedRoute(undefined);
     fetchRouteOptions(selectedFlight.flightId, controller.signal)
       .then((result) => {
         if (requestId !== routeRequest.current) return;
-        const routes = result.options;
-        setOptions(routes);
-        setRankLabel(result.rankLabel);
+        const completeRoutes = result.options.filter(isCompleteRoute);
+        setOptions(completeRoutes);
         if (result.generation) setGeneration(result.generation);
-        const rankOne = routes.filter((route) => route.rank === 1);
-        if (rankOne.length === 1) setSelectedRoute(rankOne[0]);
-        else if (rankOne.length === 0) setSelectedRoute(routes[0] ?? undefined);
-        else setSelectedRoute(undefined);
-        setStatus(rankOne.length > 1
-          ? `${routes.length} route option${routes.length === 1 ? "" : "s"} returned for ${selectedFlight.callsign}. ${rankOne.length} candidates tie for Rank 1 — choose among them.`
-          : `${routes.length} route option${routes.length === 1 ? "" : "s"} returned for ${selectedFlight.callsign}.`);
+        const synchronized = completeRoutes.find((route) => route.flightId === selectedFlight.flightId)
+          ?? overview.find((route) => route.flightId === selectedFlight.flightId && isCompleteRoute(route));
+        setSelectedRoute(synchronized);
+        setStatus(`${completeRoutes.length} complete same-endpoint recorded route${completeRoutes.length === 1 ? "" : "s"} returned for neutral comparison with ${selectedFlight.callsign}.`);
       })
       .catch((error) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -287,10 +354,10 @@ function App() {
     setDraftError(undefined);
     setStatus("Validating the local draft against exact reference data.");
     try {
-      const result = await validateDraft(selectedRoute.origin, selectedRoute.destination, via, selections, selectedRoute.flightId, controller.signal);
+      const result = await validateDraft(endpointReference(selectedRoute.origin), endpointReference(selectedRoute.destination), via, selections, selectedRoute.flightId, controller.signal);
       if (draftRequest.current !== controller) return;
       setDraft(result);
-      setStatus(result.comparison.status === "complete" ? "Local draft validated against exact reference data." : "Local draft has unresolved gaps and is not ranked.");
+      setStatus(result.comparison.status === "complete" ? "Route variation validated against exact reference data." : "Route variation has unresolved gaps; distance comparison is unavailable.");
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       if (draftRequest.current === controller) setDraftError(apiMessage(error));
@@ -309,9 +376,9 @@ function App() {
     setSearch(emptySearch);
     setOptions([]);
     setSelectedRoute(undefined);
+    setPotentialRoute(undefined);
     setRouteLoading(false);
     setRouteError(undefined);
-    setRankLabel(undefined);
     setStatus("Session reset.");
   }
 
@@ -321,13 +388,17 @@ function App() {
     if (!confirmed) return;
     setRefreshing(true);
     setRefreshError(undefined);
-    setStatus("Refreshing the live data generation. The current selection will be cleared.");
+    setStatus("Refreshing the source-data snapshot. The current selection will be cleared.");
     try {
       const result = await refreshLiveData();
       setGeneration(result.generation);
       setReadinessError(undefined);
       resetAll();
-      setStatus(`Live data refreshed. New generation retrieved at ${formatRetrievedAt(result.generation.retrievedAt)}; selection cleared.`);
+      setOverview([]);
+      const refreshMessage = `Source data refreshed at ${formatRetrievedAt(result.generation.retrievedAt)}; selection cleared. This is not real-time tracking.`;
+      overviewStatusPrefix.current = refreshMessage;
+      setOverviewReload((current) => current + 1);
+      setStatus(`${refreshMessage} Overview reloading.`);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       setRefreshError(refreshFailureMessage(error));
@@ -337,62 +408,136 @@ function App() {
     }
   }
 
+  const filteredOverview = useMemo(() => {
+    const query = search.query.trim().toUpperCase();
+    return query ? overview.filter((route) => route.callsign.toUpperCase().includes(query)) : overview;
+  }, [overview, search.query]);
+
+  const filteredPotentialOverview = useMemo(() => filteredOverview.filter((route) => !isCompleteRoute(route)), [filteredOverview]);
+  const potentialDistanceAnalysis = useMemo(
+    () => potentialRoute ? analyzeIncompleteRouteDistance(potentialRoute, potentialEndpointCoordinates, BUNDLED_GAP_DISTANCE_MODEL) : undefined,
+    [potentialRoute, potentialEndpointCoordinates],
+  );
+
   return (
     <div className="app-shell map-first-shell">
       <div className="safety-banner compact-safety" role="region" aria-label="Safety notice"><strong><span aria-hidden="true">⚠</span> Safety notice</strong><span>{SAFETY_NOTICE}</span></div>
       {!mapOnly && page === "map" && <header className="map-topbar">
         <a className="skip-link" href="#flight-search">Skip to flight search</a>
         <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Map-first route comparison</h1></div>
-        <div className="toolbar-search"><SearchBox selected={undefined} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={chooseFlight} onCancelSearch={cancelSearch} /></div>
-        <div className="toolbar-flight" role="group" aria-label="Selected flight">
-          {selectedFlight ? <><strong>{selectedFlight.callsign}</strong><span>{selectedFlight.departure} → {selectedFlight.destination}</span><small>{selectedRoute?.complete ? `${formatDistance(selectedRoute.distanceNm)} · ${selectedRoute.rank !== undefined ? `Rank ${selectedRoute.rank}` : "Unranked"}` : "Recorded route is incomplete and unranked"}</small></> : <span>Search for a recorded flight plan to begin.</span>}
+        <div className="toolbar-search"><SearchBox selected={selectedFlight} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={(match) => chooseFlight(match, true)} onCancelSearch={cancelSearch} /></div>
+        <div className={`toolbar-flight ${selectedFlight ? "has-selection" : ""}`} role="group" aria-label="Selected flight">
+          {selectedFlight ? <><div className="selected-route-label"><span className="selection-kicker">SELECTED ROUTE</span><strong>{selectedFlight.callsign}</strong></div><div className="selected-route-endpoints">{selectedFlight.departure} → {selectedFlight.destination}</div><div className="selected-route-distance">{selectedRoute?.complete ? formatDistance(selectedRoute.distanceNm) : "No complete recorded route available"}</div></> : <span>{overviewLoading ? "Loading the all-flight overview…" : `${filteredOverview.length} source flight record${filteredOverview.length === 1 ? "" : "s"} available. Select a route from the map or list.`}</span>}
         </div>
+        <button ref={mapOnlyTriggerRef} className="quiet-button toolbar-map-action" type="button" onClick={enterMapOnly}>Map only</button>
         <button className="quiet-button toolbar-clear" ref={apiDataTriggerRef} type="button" onClick={() => { setPage("api-data"); requestAnimationFrame(() => document.getElementById("api-data-heading")?.focus()); }}>API data</button>
         <button className="quiet-button toolbar-clear" type="button" onClick={() => { setPrimarySurface("none"); resetAll(); }}>Clear session</button>
       </header>}
 
       {(generation || refreshError || readinessError) && (
-        <div className="generation-strip" role="region" aria-label="Live data freshness">
-          {generation && <span className={`status-chip freshness-chip freshness-${generation.live.state}`}>Live data {generation.live.state} · retrieved {formatRetrievedAt(generation.live.retrievedAt)}</span>}
+        <div className="generation-strip" role="region" aria-label="Source data controls">
           {(refreshError || readinessError) && <span className="refresh-error" role="alert">{refreshError ?? readinessError}</span>}
-          <button className="quiet-button" type="button" onClick={() => void runRefresh()} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh live data"}</button>
+          <button className="quiet-button" type="button" onClick={() => void runRefresh()} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh source data"}</button>
         </div>
-      )}
-      {generation && (generation.live.state === "stale" || generation.live.state === "unusable") && (
-        <div className={`notice freshness-banner ${generation.live.state === "unusable" ? "freshness-banner-unusable" : ""}`} role="status">{generation.live.state === "stale" ? REFRESH_STALE_BANNER : REFRESH_UNUSABLE_BANNER}</div>
       )}
 
       {page === "api-data" ? <ApiDataPage selectedFlight={selectedFlight} selectedRoute={selectedRoute} onBack={() => { setPage("map"); requestAnimationFrame(() => apiDataTriggerRef.current?.focus()); }} /> : <main className="map-workspace">
         {mapOnly && <h1 className="sr-only">Map-first route comparison</h1>}
         <section className="map-panel map-first-panel" aria-labelledby="map-heading">
           <h2 className="sr-only" id="map-heading">Global route map</h2>
-          <RouteMap routes={options} selectedRoute={selectedRoute} callsign={selectedFlight?.callsign} />
-          <div className="map-hud">{selectedRoute ? <><span className="eyebrow">ACTIVE RECORDED ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? `${formatDistance(selectedRoute.distanceNm)} · ${selectedRoute.rank === 1 ? RANK_ONE_LABEL : selectedRoute.rank !== undefined ? `Rank ${selectedRoute.rank}` : RANK_CRITERION}` : "Incomplete · not included in ranking"}</span></> : <><span className="eyebrow">GLOBAL MAP</span><strong>Recorded routes appear after selection</strong><span>Only exact, server-resolved geometry is shown.</span></>}</div>
+          <RouteMap routes={filteredOverview} selectedRoute={selectedRoute} potentialRoute={potentialRoute} callsign={selectedFlight?.callsign} onSelectRoute={chooseOverviewRoute} onPotentialEndpointsChange={setPotentialEndpointCoordinates} />
+          <div className="map-hud">{selectedRoute ? <><span className="eyebrow">SELECTED SOURCE ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? formatDistance(selectedRoute.distanceNm) : "No complete source route available"}</span></> : potentialRoute ? <><span className="eyebrow">ESTIMATED GAP PREVIEW</span><strong>{potentialRoute.label ?? potentialRoute.callsign}</strong><span>Dotted geometry is a visual estimate between exact anchors—not a route suggestion, plan, or operational data.</span></> : <><span className="eyebrow">SOURCE ROUTE OVERVIEW</span><strong>{overviewLoading ? "Loading source route records…" : `${filteredOverview.length} of ${overview.length} source route records shown`}</strong><span>{overviewError ?? "Refreshed source data, not real-time tracking. Select a route from the map or list."}</span></>}</div>
+          {!mapOnly && <div className={`map-left-stack ${selectedRoute ? "has-route-legs" : ""}`}>
+            <FlightOverviewList routes={filteredOverview} incompleteRoutes={filteredPotentialOverview} total={overview.length} selected={selectedRoute} loading={overviewLoading} error={overviewError} onRetry={() => setOverviewReload((current) => current + 1)} onSelect={chooseOverviewRoute} onSelectIncomplete={choosePotentialRoute} onExplorePotential={openPotentialRouteChooser} />
+            {selectedRoute && <RouteLegPanel route={selectedRoute} />}
+          </div>}
           {!mapOnly && <nav className="map-rail" aria-label="Route workspace controls">
             <div className="rail-entry">
               <button ref={routesTriggerRef} type="button" aria-pressed={primarySurface === "routes"} onClick={() => setPrimarySurface((surface) => surface === "routes" ? "none" : "routes")} disabled={!selectedFlight}>Routes</button>
-              {options.length > 1 && <span className="rail-count" aria-hidden="true">{options.length}</span>}
+              {options.length > 1 && <span className="toolbar-count rail-count" aria-hidden="true">{options.length}</span>}
             </div>
             <button ref={dataTriggerRef} type="button" aria-pressed={primarySurface === "route-data"} onClick={() => setPrimarySurface((surface) => surface === "route-data" ? "none" : "route-data")} disabled={!selectedRoute}>Data</button>
-            <button ref={editorTriggerRef} type="button" aria-pressed={primarySurface === "editor"} onClick={() => { if (!selectedRoute) return; setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} disabled={!selectedRoute}>Edit copy</button>
+            <button ref={editorTriggerRef} type="button" aria-pressed={primarySurface === "editor"} onClick={() => { if (!selectedRoute) return; setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} disabled={!selectedRoute}>Explore variation</button>
             <button ref={compareTriggerRef} type="button" aria-pressed={primarySurface === "compare"} onClick={() => setPrimarySurface((surface) => surface === "compare" ? "none" : "compare")} disabled={!selectedRoute || options.length < 2}>Compare</button>
-            <button ref={mapOnlyTriggerRef} type="button" onClick={enterMapOnly}>Map only</button>
           </nav>}
           {mapOnly && <button ref={restoreControlsRef} className="restore-controls" type="button" onClick={leaveMapOnly} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leaveMapOnly(); } }}>Restore controls</button>}
-          {!mapOnly && primarySurface !== "none" && <aside className="map-drawer" role="region" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : primarySurface === "compare" ? "Route comparison" : "Local route editor"}>
-            <div className="drawer-header"><p className="eyebrow">{primarySurface === "compare" ? "COMPARE ROUTES" : primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : "EDIT COPY"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>
-            {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} rankLabel={rankLabel} onRetry={() => { setRouteReload((current) => current + 1); requestAnimationFrame(() => document.getElementById("options-heading")?.focus()); }} onSelect={(option) => { resetDraftState(); setSelectedRoute(option); setStatus(`Selected ${option.label ?? "route option"}.`); closeSurface("routes"); }} />}
-            {primarySurface === "compare" && selectedRoute && <RouteCompare baseline={selectedRoute} options={options} onSelect={(option) => { setSelectedRoute(option); setStatus(`Comparing ${selectedRoute.label ?? "route"} with ${option.label ?? "route option"}.`); }} />}
+          {!mapOnly && primarySurface !== "none" && <aside className="map-drawer map-bottom-sheet" role="region" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : primarySurface === "compare" ? "Route comparison" : primarySurface === "potential" ? "Estimated gap preview" : "Explore a route variation"}>
+            <div className="drawer-header"><p className="eyebrow">{primarySurface === "compare" ? "COMPARE ROUTES" : primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : primarySurface === "potential" ? "ESTIMATED GAP PREVIEW" : "EXPLORE VARIATION"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>
+            {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} onRetry={() => { setRouteReload((current) => current + 1); requestAnimationFrame(() => document.getElementById("options-heading")?.focus()); }} onSelect={(option) => { resetDraftState(); chooseOverviewRoute(option); setStatus(`Selected flight ${option.callsign} from the neutral route comparison.`); closeSurface("routes"); }} />}
+            {primarySurface === "potential" && <PotentialRouteExplorer routes={filteredPotentialOverview} selected={potentialRoute} analysis={potentialDistanceAnalysis} onSelect={choosePotentialRoute} />}
+            {primarySurface === "compare" && selectedRoute && <RouteCompare baseline={selectedRoute} options={options} onSelect={(option) => { chooseOverviewRoute(option); setStatus(`Comparing ${selectedRoute.label ?? "route"} with ${option.label ?? "route option"}.`); }} />}
             {primarySurface === "route-data" && selectedRoute && <RouteDetails route={selectedRoute} onStartDraft={() => { setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); requestAnimationFrame(() => document.getElementById("draft-heading")?.focus()); }} />}
             {primarySurface === "editor" && selectedRoute && draftActive && <DraftEditor draft={draft} baseline={selectedRoute} loading={draftLoading} error={draftError} onUpdate={(via, selections) => void updateDraft(via, selections)} onClose={() => { resetDraftState(); closeSurface("editor"); }} />}
           </aside>}
-          {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected recorded route</span><span><i className="legend-line legend-line-alt" /> Alternate recorded route</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
+          {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected source route</span><span><i className="legend-line legend-line-alt" /> Alternate source route</span><span><i className="legend-line legend-line-potential" /> Dotted visual estimate (not a route)</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
           <div className="sr-status" role="status" aria-live="polite">{routeLoading ? "Loading route options." : status}</div>
         </section>
       </main>}
     </div>
   );
 }
+
+function FlightOverviewList({ routes, incompleteRoutes, total, selected, loading, error, onRetry, onSelect, onSelectIncomplete, onExplorePotential }: { routes: RouteOption[]; incompleteRoutes: RouteOption[]; total: number; selected?: RouteOption | undefined; loading: boolean; error?: string | undefined; onRetry: () => void; onSelect: (route: RouteOption) => void; onSelectIncomplete: (route: RouteOption) => void; onExplorePotential: () => void }) {
+  return <section className="flight-overview-list" aria-label="Full flight list">
+    <div className="overview-list-heading"><div><span className="eyebrow">SOURCE FLIGHT RECORDS</span><strong>{routes.length} of {total}</strong></div></div>
+    {loading && <div className="loading-row"><span className="spinner dark" /> Loading all route pages…</div>}
+    {error && <div className="notice error-notice" role="alert"><span>{error}</span><button className="retry-button" type="button" onClick={onRetry}>Retry overview</button></div>}
+    {!loading && !error && routes.length === 0 && <p className="muted-copy">No source flight records match the current filter.</p>}
+    {!loading && !error && incompleteRoutes.length > 0 && <div className="potential-route-prompt"><div><span className="eyebrow">ESTIMATED GAPS</span><strong>{incompleteRoutes.length} source route record{incompleteRoutes.length === 1 ? "" : "s"} with gaps</strong><p>Dotted previews are visual estimates only—not route suggestions or operational data.</p></div><button className="quiet-button" type="button" onClick={onExplorePotential}>Show visual estimate</button></div>}
+    <div className="overview-flight-buttons">
+      {routes.map((route) => {
+        const complete = isCompleteRoute(route);
+        return <button key={route.flightId} type="button" className={`${selected?.flightId === route.flightId ? "selected" : ""} ${complete ? "" : "has-gap"}`} aria-current={selected?.flightId === route.flightId ? "true" : undefined} onClick={() => complete ? onSelect(route) : onSelectIncomplete(route)}>
+          <span><strong>{route.callsign}</strong><small>{route.origin ?? "Unknown departure"} → {route.destination ?? "Unknown destination"} · {complete ? "Complete source route" : `${route.gaps.length} visible gap${route.gaps.length === 1 ? "" : "s"}`}</small></span>
+          <span>{complete ? formatDistance(route.distanceNm) : "Visible gap"}</span>
+        </button>;
+      })}
+    </div>
+  </section>;
+}
+
+function PotentialRouteExplorer({ routes, selected, analysis, onSelect }: { routes: RouteOption[]; selected?: RouteOption | undefined; analysis?: IncompleteRouteDistanceAnalysis | undefined; onSelect: (route?: RouteOption) => void }) {
+  const aggregate = analysis?.aggregateEstimate;
+  const intervalCopy = aggregate
+    ? `${Math.round(aggregate.interval.confidenceLevel * 100)}% aggregate interval ${formatDistance(aggregate.interval.lowerNm)}–${formatDistance(aggregate.interval.upperNm)}. Central value ${formatDistance(aggregate.centralNm)} is a sum of corridor medians, not a source route total.`
+    : analysis?.message ?? "Select an incomplete source route to evaluate exact anchor coverage.";
+  return <section className="potential-route-section" aria-labelledby="potential-route-heading">
+    {!selected ? <>
+      <div className="section-title"><div><p className="eyebrow">VISUAL ESTIMATE ONLY</p><h2 id="potential-route-heading">Choose a source route with gaps</h2></div><span className="count-label">{routes.length} available</span></div>
+      <p className="criterion-copy">This preview never changes a source route. It draws dotted geometry only between exact anchors, with no span-distance cap; it is not a route suggestion, plan, or operational data.</p>
+      <div className="potential-route-options">{routes.map((route) => <button type="button" key={route.flightId} onClick={() => onSelect(route)}><span><strong>{route.callsign}</strong><small>{route.label ?? "Recorded route"} · {route.gaps.length} gap{route.gaps.length === 1 ? "" : "s"}</small></span><span>{route.origin ?? "Unknown departure"} → {route.destination ?? "Unknown destination"}</span></button>)}</div>
+      {!routes.length && <p className="muted-copy">No incomplete recorded routes match the current filter.</p>}
+    </> : <>
+      <div className="section-title"><div><p className="eyebrow">VISUAL ESTIMATE ONLY</p><h2 id="potential-route-heading">Estimated gap preview</h2></div><button className="quiet-button" type="button" onClick={() => onSelect()}>Choose another</button></div>
+      <p className="criterion-copy">Known source geometry and gaps remain unchanged. Dotted spans and distance annotations are client-only; midpoint dots are synthetic coordinates, never named fixes or route waypoints.</p>
+      <div className="metric-grid">
+        <Metric label="Source gaps" value={String(selected.gaps.length)} />
+        <Metric label="Gap corridors" value={analysis ? String(analysis.corridors.length) : "Unavailable"} note="Each anchor-bounded corridor is counted once" />
+        <Metric label="Source resolved legs" value={formatDistance(analysis?.sourceResolvedLegSubtotalNm)} note="Subtotal only when every resolved leg supplies distance" />
+        <Metric label="Recorded geometry" value={analysis ? formatDistance(analysis.recordedGeometrySubtotalNm) : "Unavailable"} note="Haversine subtotal from exact source coordinates" />
+      </div>
+      <div className="metric-grid">
+        <Metric label="Gap anchor minimum" value={formatDistance(analysis?.gapMinimumSubtotalNm)} note="Shortest geometric span across bounded gaps" />
+        <Metric label="Continuous-route minimum" value={formatDistance(analysis?.continuousRouteMinimumNm)} note="Not an expected or source route total" />
+        <Metric label="Statistical estimate" value={aggregate ? formatDistance(aggregate.centralNm) : "Unavailable"} note={aggregate ? "Sum of calibrated corridor medians" : "Historical release gates not met"} />
+        <Metric label="Confidence interval" value={aggregate ? `${formatDistance(aggregate.interval.lowerNm)}–${formatDistance(aggregate.interval.upperNm)}` : "Unavailable"} note={aggregate ? `${Math.round(aggregate.interval.confidenceLevel * 100)}% aggregate confidence` : "No calibrated interval released"} />
+      </div>
+      <div className="metric-grid">
+        <Metric label="Named fixes inferred" value="0" />
+        <Metric label="Ranking" value="Excluded" />
+        <Metric label="Comparison" value="Excluded" />
+        <Metric label="Source route mutation" value="None" />
+      </div>
+      <div className="evidence-stack">
+        <Evidence label="Distance interpretation" value={GAP_DISTANCE_ANNOTATION_CAVEAT} tone="amber" />
+        <Evidence label={aggregate ? `Calibrated estimate · ${aggregate.modelVersion}` : "Calibration status"} value={intervalCopy} tone={aggregate ? "blue" : "amber"} />
+        <Evidence label="Gap coverage" value={analysis?.corridors.length ? analysis.corridors.map((corridor) => `Gap position${corridor.gapSequences.length === 1 ? "" : "s"} ${corridor.gapSequences.map((sequence) => sequence + 1).join(", ")}: minimum ${formatDistance(corridor.minimumNm)}.`).join(" ") : "No complete exact-anchor corridor could be established; no distance was fabricated."} tone={analysis?.corridors.length ? "blue" : "red"} />
+      </div>
+      <p className="muted-copy">{selected.callsign} · {selected.origin ?? "Unknown departure"} → {selected.destination ?? "Unknown destination"}</p>
+    </>}
+  </section>;
+}
+
 
 function SearchBox({ selected, state, onFocus, onQuery, onSearch, onSelect, onCancelSearch }: { selected?: CallsignMatch | undefined; state: SearchState; onFocus: () => void; onQuery: (value: string) => void; onSearch: () => void; onSelect: (match: CallsignMatch) => void; onCancelSearch: () => void }) {
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -431,25 +576,14 @@ function SearchBox({ selected, state, onFocus, onQuery, onSearch, onSelect, onCa
   );
 }
 
-function rankOf(option: RouteOption): number | undefined {
-  return option.rank ?? option.operationalProxy?.rank;
+function RouteOptions({ options, selected, loading, error, onRetry, onSelect }: { options: RouteOption[]; selected?: RouteOption | undefined; loading: boolean; error?: string | undefined; onRetry: () => void; onSelect: (route: RouteOption) => void }) {
+  const complete = options.filter(isCompleteRoute);
+  if (!loading && !error && complete.length === 0) return <section className="empty-options"><span className="empty-icon">⌁</span><div><h2>No complete routes available</h2><p>Select a recorded flight with fully resolved route references.</p></div></section>;
+  return <section className="options-section" aria-labelledby="options-heading"><div className="section-title"><div><p className="eyebrow">COMPARE</p><h2 id="options-heading" tabIndex={-1}>Complete recorded route options</h2></div>{complete.length > 0 && <span className="count-label">{complete.length} returned</span>}</div>{loading && <div className="loading-row"><span className="spinner dark" /> Loading complete same-endpoint recorded routes…</div>}{error && <div className="notice error-notice" role="alert"><strong>Could not load route options.</strong><span>{error}</span><button className="retry-button" type="button" onClick={onRetry}>Retry route options</button></div>}{complete.length > 0 && <p className="criterion-copy">{ROUTE_COMPARISON_EXPLANATION}</p>}{complete.length > 0 && <p className="criterion-copy">Only routes with every recorded reference resolved exactly are shown.</p>}{complete.length > 0 && <RouteGroup title={COMPLETE_GROUP_TITLE} description={COMPLETE_GROUP_DESCRIPTION} count={`${complete.length} complete route${complete.length === 1 ? "" : "s"}`} options={complete} selected={selected} onSelect={onSelect} />}</section>;
 }
 
-function isCompleteCandidate(option: RouteOption): boolean {
-  return option.complete ?? option.operationalProxy?.eligible ?? false;
-}
-
-function RouteOptions({ options, selected, loading, error, rankLabel, onRetry, onSelect }: { options: RouteOption[]; selected?: RouteOption | undefined; loading: boolean; error?: string | undefined; rankLabel?: string | undefined; onRetry: () => void; onSelect: (route: RouteOption) => void }) {
-  if (!loading && !error && options.length === 0) return <section className="empty-options"><span className="empty-icon">⌁</span><div><h2>Route options will appear here</h2><p>Select one flight plan above to request its recorded route options.</p></div></section>;
-  const ranked = options.filter(isCompleteCandidate);
-  const rankOne = ranked.filter((option) => rankOf(option) === 1);
-  const otherRanked = ranked.filter((option) => (rankOf(option) ?? 0) > 1);
-  const unranked = options.filter((option) => !isCompleteCandidate(option));
-  return <section className="options-section" aria-labelledby="options-heading"><div className="section-title"><div><p className="eyebrow">COMPARE</p><h2 id="options-heading" tabIndex={-1}>Route options</h2></div>{options.length > 0 && <span className="count-label">{options.length} returned</span>}</div>{loading && <div className="loading-row"><span className="spinner dark" /> Asking for the selected flight’s options…</div>}{error && <div className="notice error-notice" role="alert"><strong>Could not load route options.</strong><span>{error}</span><button className="retry-button" type="button" onClick={onRetry}>Retry route options</button></div>}{!loading && !error && options.length === 0 && <p className="muted-copy">The service returned no route options. This is a visible gap, not an estimated route.</p>}{options.length > 0 && <p className="criterion-copy">{OPERATIONAL_PROXY_EXPLANATION}</p>}{rankOne.length > 0 && <RouteGroup title={rankLabel ?? RANK_ONE_LABEL} description={RANK_ONE_GROUP_DESCRIPTION} count={`${rankOne.length} tied first-place candidate${rankOne.length === 1 ? "" : "s"}`} options={rankOne} selected={selected} onSelect={onSelect} />}{otherRanked.length > 0 && <RouteGroup title={COMPLETE_RANKED_GROUP_TITLE} description={COMPLETE_RANKED_GROUP_DESCRIPTION} count={`${otherRanked.length} ranked candidate${otherRanked.length === 1 ? "" : "s"}`} criterion={RANK_CRITERION} options={otherRanked} selected={selected} onSelect={onSelect} />}{unranked.length > 0 && <RouteGroup title={INCOMPLETE_GROUP_TITLE} description={INCOMPLETE_GROUP_DESCRIPTION} count={`${unranked.length} unranked candidate${unranked.length === 1 ? "" : "s"}`} options={unranked} selected={selected} onSelect={onSelect} />}</section>;
-}
-
-function RouteGroup({ title, description, count, criterion, options, selected, onSelect }: { title: string; description: string; count: string; criterion?: string | undefined; options: RouteOption[]; selected?: RouteOption | undefined; onSelect: (route: RouteOption) => void }) {
-  return <div className="route-group"><div className="group-heading"><div><h3>{title}</h3><p className="criterion-copy">{description}</p>{criterion && <p className="criterion-copy">{criterion} It does not account for safety, clearance, legality, weather, fuel, or airline dispatch constraints.</p>}</div><span className="group-count">{count}</span></div><div className="option-grid">{options.map((option) => <button type="button" className={`route-card ${selected?.id === option.id ? "selected" : ""} ${option.operationalProxy?.eligible ? "is-complete" : "is-incomplete"}`} key={option.id} onClick={() => onSelect(option)} aria-current={selected?.id === option.id ? "true" : undefined}><span className="route-card-top"><strong>{option.label ?? "Route option"}</strong><span>{option.operationalProxy?.eligible && option.operationalProxy.rank !== undefined ? `Rank ${option.operationalProxy.rank}` : "Unranked"}</span></span><span className="route-card-distance">{formatDistance(option.distanceNm ?? option.rankDistanceNm)}</span><span className="route-card-meta">{option.pointCount} points · {option.legs.length} legs · {option.gaps.length} visible gaps · {option.provenance ?? "provenance not supplied"}</span><span className="route-card-meta">{option.operationalProxy?.eligible ? "All waypoints found. Included in ranking." : option.operationalProxy?.exclusion ?? "This route has unresolved waypoints and cannot be ranked."}</span></button>)}</div></div>;
+function RouteGroup({ title, description, count, options, selected, onSelect }: { title: string; description: string; count: string; options: RouteOption[]; selected?: RouteOption | undefined; onSelect: (route: RouteOption) => void }) {
+  return <div className="route-group"><div className="group-heading"><div><h3>{title}</h3><p className="criterion-copy">{description}</p></div><span className="group-count">{count}</span></div><div className="option-grid">{options.map((option) => <button type="button" className={`route-card ${selected?.flightId === option.flightId ? "selected" : ""} ${option.complete ? "is-complete" : "is-incomplete"}`} key={option.id} onClick={() => onSelect(option)} aria-current={selected?.flightId === option.flightId ? "true" : undefined}><span className="route-card-top"><strong>{option.label ?? "Route option"}</strong><span>{option.complete ? "Complete" : "Visible gaps"}</span></span><span className="route-card-distance">{formatDistance(option.distanceNm)}</span><span className="route-card-meta">{option.pointCount} points · {option.legs.length} legs · {option.gaps.length} visible gaps · {option.provenance ?? "provenance not supplied"}</span><span className="route-card-meta">{option.complete ? "All recorded references resolved exactly." : "Resolved components remain visible; gaps are not bridged."}</span></button>)}</div></div>;
 }
 
 function RouteCompare({ baseline, options, onSelect }: { baseline: RouteOption; options: RouteOption[]; onSelect: (option: RouteOption) => void }) {
@@ -458,19 +592,19 @@ function RouteCompare({ baseline, options, onSelect }: { baseline: RouteOption; 
   // the selected route, so the side-by-side must keep comparing against the
   // route that was selected before the click.
   const [source, setSource] = useState<RouteOption>(baseline);
-  const candidates = options.filter((option) => option.id !== source.id);
+  const candidates = options.filter((option) => option.id !== source.id && isCompleteRoute(option));
   const target = candidates.find((option) => option.id === targetId);
   const comparison = target ? compareDistanceOperands(source.distanceNm, target.distanceNm) : undefined;
   const delta = comparison?.distanceDeltaNm;
   const percentage = comparison?.percentageDistanceDelta;
   return <section className="compare-section" aria-labelledby="compare-heading">
     <div className="section-title"><div><p className="eyebrow">COMPARE</p><h2 id="compare-heading" tabIndex={-1}>Side-by-side route comparison</h2></div></div>
-    <div className="compare-baseline"><p className="eyebrow">SELECTED ROUTE</p><strong>{source.label ?? "Selected route"}</strong><span>{formatDistance(source.distanceNm)}</span><span>{source.rank === 1 ? RANK_ONE_LABEL : source.rank !== undefined ? `Rank ${source.rank}` : RANK_CRITERION}</span></div>
+    <div className="compare-baseline"><p className="eyebrow">SELECTED ROUTE</p><strong>{source.label ?? "Selected route"}</strong><span>{formatDistance(source.distanceNm)}</span><span>No preferred route is declared.</span></div>
     {candidates.length > 0 && <div className="compare-candidates"><p className="criterion-copy">Choose a route option to compare against the selected route.</p><div className="option-grid">{candidates.map((option) => <button type="button" className="route-card" key={option.id} onClick={() => { setSource(baseline); setTargetId(option.id); onSelect(option); }} aria-label={`Compare ${source.label ?? "selected route"} with ${option.label ?? "route option"}`}><span className="route-card-top"><strong>{option.label ?? "Route option"}</strong><span>{option.complete ? "Complete" : "Incomplete"}</span></span><span className="route-card-distance">{formatDistance(option.distanceNm)}</span></button>)}</div></div>}
     {target && comparison && <div className="compare-result">
       <div className="compare-columns">
-        <div className="metric-grid"><Metric label="Baseline" value={source.label ?? "Selected route"} /><Metric label="Distance" value={formatDistance(source.distanceNm)} /><Metric label="Ranked distance" value={formatRankDistance(source.rankDistanceNm)} /><Metric label="Rank" value={source.rank !== undefined ? `Rank ${source.rank}` : "Not ranked"} /><Metric label="Points" value={String(source.pointCount)} /><Metric label="Legs" value={String(source.legs.length)} /><Metric label="Gaps" value={String(source.gaps.length)} /><Metric label="Status" value={source.complete ? "Complete" : "Incomplete"} /></div>
-        <div className="metric-grid"><Metric label="Target" value={target.label ?? "Route option"} /><Metric label="Distance" value={formatDistance(target.distanceNm)} /><Metric label="Ranked distance" value={formatRankDistance(target.rankDistanceNm)} /><Metric label="Rank" value={target.rank !== undefined ? `Rank ${target.rank}` : "Not ranked"} /><Metric label="Points" value={String(target.pointCount)} /><Metric label="Legs" value={String(target.legs.length)} /><Metric label="Gaps" value={String(target.gaps.length)} /><Metric label="Status" value={target.complete ? "Complete" : "Incomplete"} /></div>
+        <div className="metric-grid"><Metric label="Baseline" value={source.label ?? "Selected route"} /><Metric label="Distance" value={formatDistance(source.distanceNm)} /><Metric label="Points" value={String(source.pointCount)} /><Metric label="Legs" value={String(source.legs.length)} /><Metric label="Gaps" value={String(source.gaps.length)} /><Metric label="Status" value={source.complete ? "Complete" : "Incomplete"} /></div>
+        <div className="metric-grid"><Metric label="Target" value={target.label ?? "Route option"} /><Metric label="Distance" value={formatDistance(target.distanceNm)} /><Metric label="Points" value={String(target.pointCount)} /><Metric label="Legs" value={String(target.legs.length)} /><Metric label="Gaps" value={String(target.gaps.length)} /><Metric label="Status" value={target.complete ? "Complete" : "Incomplete"} /></div>
       </div>
       <div className="metric-grid"><Metric label="Change from selected route" value={delta === undefined ? "Unavailable" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} NM`} note={percentage !== undefined ? `Directed baseline → target · ${percentage >= 0 ? "+" : ""}${percentage.toFixed(1)}%` : "Directed baseline → target"} /></div>
       {(comparison.status !== "complete" || comparison.unavailable?.includes("INCOMPLETE_OPERAND")) && <div className="evidence-stack"><Evidence label="Comparison limitation" value="Both routes must be complete for a modeled-distance difference." tone="amber" /></div>}
@@ -478,9 +612,12 @@ function RouteCompare({ baseline, options, onSelect }: { baseline: RouteOption; 
   </section>;
 }
 
+function RouteLegPanel({ route }: { route: RouteOption }) {
+  return <section className="route-leg-panel" aria-labelledby="route-legs-heading"><div className="route-leg-panel-heading"><div><p className="eyebrow">SELECTED ROUTE</p><h2 id="route-legs-heading">Route legs</h2></div><span>{route.legs.length} leg{route.legs.length === 1 ? "" : "s"}</span></div><RouteTable legs={route.legs} /></section>;
+}
+
 function RouteDetails({ route, onStartDraft }: { route: RouteOption; onStartDraft: () => void }) {
-  const proxy = route.operationalProxy;
-  return <section className="details-section" aria-labelledby="details-heading"><div className="section-title"><div><p className="eyebrow">INSPECT</p><h2 id="details-heading">Route data</h2></div><div className="detail-actions"><button className="edit-copy-button" type="button" onClick={onStartDraft}>Edit copy</button><span className="opaque-id" title="Opaque server flight ID">Flight ID {route.flightId}</span></div></div><div className="metric-grid"><Metric label="Route data" value={route.complete ? "All waypoints found" : "Some waypoints missing"} /><Metric label="Distance" value={formatDistance(route.distanceNm)} /><Metric label="Ranked distance" value={formatRankDistance(route.rankDistanceNm)} note="Full-precision modeled distance used for ranking" /><Metric label="Route rank" value={proxy?.eligible && proxy.rank !== undefined ? `Rank ${proxy.rank}` : "Not ranked"} /><Metric label="Points" value={String(route.pointCount)} note="Server-reported count" /></div><div className="detail-columns"><div className="table-wrap"><h3 id="route-legs-heading">Structured route detail</h3><RouteTable legs={route.legs} /></div><div className="evidence-stack"><Evidence label="How route ranking works" value={proxy?.eligible ? (proxy.rank === 1 ? RANK_ONE_LABEL : RANK_CRITERION) : proxy?.exclusion ?? "This route has unresolved waypoints and cannot be ranked."} tone={proxy?.eligible ? "blue" : "red"} /><Evidence label="Provenance" value={route.provenance ?? "Not supplied by the route service."} tone="blue" /><Evidence label="Safety boundary" value={SAFETY_NOTICE} tone="amber" /><Evidence label={`Visible gaps${route.gaps.length ? ` · ${route.gaps.length}` : ""}`} value={route.gaps.length ? route.gaps.map((gap) => `Route position ${gap.sequence + 1}: ${gap.reason}`).join(" ") : "No gaps reported by the route service."} tone={route.gaps.length ? "red" : "green"} /></div></div></section>;
+  return <section className="details-section" aria-labelledby="details-heading"><div className="section-title"><div><p className="eyebrow">INSPECT</p><h2 id="details-heading">Route data</h2></div><div className="detail-actions"><button className="edit-copy-button" type="button" onClick={onStartDraft}>Explore variation</button><span className="opaque-id" title="Opaque server flight ID">Flight ID {route.flightId}</span></div></div><div className="metric-grid"><Metric label="Route data" value={route.complete ? "All references resolved" : "Some references unresolved"} /><Metric label="Modeled distance" value={formatDistance(route.distanceNm)} /><Metric label="Points" value={String(route.pointCount)} note="Server-reported count" /><Metric label="Visible gaps" value={String(route.gaps.length)} /></div><div className="evidence-stack"><Evidence label="Neutral comparison" value={ROUTE_COMPARISON_EXPLANATION} tone="blue" /><Evidence label="Provenance" value={route.provenance ?? "Not supplied by the route service."} tone="blue" /><Evidence label="Safety boundary" value={SAFETY_NOTICE} tone="amber" /><Evidence label={`Visible gaps${route.gaps.length ? ` · ${route.gaps.length}` : ""}`} value={route.gaps.length ? route.gaps.map((gap) => `Route position ${gap.sequence + 1}: ${gap.reason}`).join(" ") : "No gaps reported by the route service."} tone={route.gaps.length ? "red" : "green"} /></div></section>;
 }
 
 function Metric({ label, value, note }: { label: string; value: string; note?: string }) { return <div className="metric"><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div>; }
@@ -593,8 +730,14 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
 
 type EndpointLocation = Pick<PointMatch, "coordinate" | "name">;
 
-function RouteMap({ routes, selectedRoute, callsign }: { routes: RouteOption[]; selectedRoute?: RouteOption | undefined; callsign?: string | undefined }) {
+function endpointReference(label: string): string {
+  return /\(([A-Z]{4})\)$/.exec(label)?.[1] ?? label;
+}
+
+function RouteMap({ routes, selectedRoute, potentialRoute, callsign, onSelectRoute, onPotentialEndpointsChange }: { routes: RouteOption[]; selectedRoute?: RouteOption | undefined; potentialRoute?: RouteOption | undefined; callsign?: string | undefined; onSelectRoute: (route: RouteOption) => void; onPotentialEndpointsChange: (endpoints: PotentialEndpoints) => void }) {
+  const [overlapChoices, setOverlapChoices] = useState<RouteOption[]>([]);
   const [endpoints, setEndpoints] = useState<{ departure?: EndpointLocation | undefined; arrival?: EndpointLocation | undefined }>({});
+  const [potentialEndpoints, setPotentialEndpoints] = useState<{ departure?: EndpointLocation | undefined; arrival?: EndpointLocation | undefined }>({});
   const [view, setView] = useState<TileView>({ lat: 20, lon: 0, zoom: 2 });
   const [tilesEnabled, setTilesEnabled] = useState(true);
   const [tilesFailed, setTilesFailed] = useState(false);
@@ -618,17 +761,41 @@ function RouteMap({ routes, selectedRoute, callsign }: { routes: RouteOption[]; 
   // Candidates without resolved geometry are intentionally not drawn. In tile
   // mode the overlay is projected through the Web Mercator view; the
   // equirectangular projection remains for the schematic fallback.
-  const projections = useMemo(() => routes.map((route) => {
+  const projections = useMemo(() => routes.filter(isCompleteRoute).map((route) => {
     const sourceSegments = route.segments ?? (route.geometry ? [route.geometry] : []);
     return { route, projection: tilesOn ? projectWorldSegmentsMercator(sourceSegments, view, stageSize) : projectWorldSegments(sourceSegments) };
   }), [routes, tilesOn, view, stageSize]);
-  const selectedProjection = selectedRoute ? projections.find(({ route }) => route.id === selectedRoute.id)?.projection : undefined;
-  const alternates = projections.flatMap(({ route, projection }) => route.id !== selectedRoute?.id && projection && projection.segments.length ? [{ route, projection }] : []);
+  const selectedProjection = useMemo(() => {
+    if (!selectedRoute || !isCompleteRoute(selectedRoute)) return undefined;
+    const sourceSegments = selectedRoute.segments ?? (selectedRoute.geometry ? [selectedRoute.geometry] : []);
+    return tilesOn ? projectWorldSegmentsMercator(sourceSegments, view, stageSize) : projectWorldSegments(sourceSegments);
+  }, [selectedRoute, tilesOn, view, stageSize]);
+  const alternates = projections.flatMap(({ route, projection }) => route.flightId !== selectedRoute?.flightId && projection && projection.segments.length ? [{ route, projection }] : []);
+  const conservativePotential = useMemo<ConservativePotentialRoute | undefined>(() => potentialRoute ? deriveConservativePotentialRoute(potentialRoute, { origin: potentialEndpoints.departure?.coordinate, destination: potentialEndpoints.arrival?.coordinate }) : undefined, [potentialRoute, potentialEndpoints]);
+  const potentialKnownProjection = useMemo(() => {
+    if (!conservativePotential) return undefined;
+    const sourceSegments = conservativePotential.knownSegments;
+    return tilesOn ? projectWorldSegmentsMercator(sourceSegments, view, stageSize) : projectWorldSegments(sourceSegments);
+  }, [conservativePotential, tilesOn, view, stageSize]);
+  const potentialInferredProjection = useMemo(() => {
+    if (!conservativePotential) return undefined;
+    const sourceSegments = conservativePotential.inferredSegments;
+    return tilesOn ? projectWorldSegmentsMercator(sourceSegments, view, stageSize) : projectWorldSegments(sourceSegments);
+  }, [conservativePotential, tilesOn, view, stageSize]);
+  function chooseProjectedRoute(route: RouteOption, projection: ProjectedSegments) {
+    const signature = projection.segments.map((segment) => segment.path).join("|");
+    const overlaps = projections.flatMap((candidate) => candidate.projection?.segments.map((segment) => segment.path).join("|") === signature ? [candidate.route] : []);
+    if (overlaps.length > 1) setOverlapChoices(overlaps);
+    else onSelectRoute(route);
+  }
   const hasLine = Boolean(selectedProjection?.segments.length);
-  const hasAnyLine = hasLine || alternates.length > 0;
-  const incomplete = selectedRoute ? !selectedRoute.complete : false;
-  const departure = selectedRoute?.origin ?? "Not supplied";
-  const arrival = selectedRoute?.destination ?? "Not supplied";
+  const potentialHasLine = Boolean(potentialKnownProjection?.segments.length || potentialInferredProjection?.segments.length);
+  const hasAnyLine = hasLine || alternates.length > 0 || potentialHasLine;
+  const incomplete = Boolean(potentialRoute);
+  const displayRoute = selectedRoute ?? potentialRoute;
+  const displayEndpoints = selectedRoute ? endpoints : potentialEndpoints;
+  const departure = displayRoute?.origin ?? "Not supplied";
+  const arrival = displayRoute?.destination ?? "Not supplied";
 
   useEffect(() => {
     const controller = new AbortController();
@@ -638,27 +805,70 @@ function RouteMap({ routes, selectedRoute, callsign }: { routes: RouteOption[]; 
     };
     if (!selectedRoute?.origin && !selectedRoute?.destination) { setEndpoints({}); return () => controller.abort(); }
     void Promise.all([
-      selectedRoute?.origin ? lookupPoint(selectedRoute.origin, controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
-      selectedRoute?.destination ? lookupPoint(selectedRoute.destination, controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
+      selectedRoute?.origin ? lookupPoint(endpointReference(selectedRoute.origin), controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
+      selectedRoute?.destination ? lookupPoint(endpointReference(selectedRoute.destination), controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
     ]).then(([departurePoint, arrivalPoint]) => {
       if (!controller.signal.aborted) setEndpoints({ departure: departurePoint, arrival: arrivalPoint });
     });
     return () => controller.abort();
   }, [selectedRoute?.id, selectedRoute?.origin, selectedRoute?.destination]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    const exact = (matches: PointMatch[]): EndpointLocation | undefined => {
+      const unique = matches.filter((match) => !match.duplicateGroup);
+      return unique.length === 1 ? unique[0] : undefined;
+    };
+    if (!potentialRoute?.origin && !potentialRoute?.destination) {
+      setPotentialEndpoints({});
+      onPotentialEndpointsChange({});
+      return () => controller.abort();
+    }
+    void Promise.all([
+      potentialRoute?.origin ? lookupPoint(endpointReference(potentialRoute.origin), controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
+      potentialRoute?.destination ? lookupPoint(endpointReference(potentialRoute.destination), controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
+    ]).then(([departurePoint, arrivalPoint]) => {
+      if (controller.signal.aborted) return;
+      setPotentialEndpoints({ departure: departurePoint, arrival: arrivalPoint });
+      onPotentialEndpointsChange({
+        ...(departurePoint ? { origin: departurePoint.coordinate } : {}),
+        ...(arrivalPoint ? { destination: arrivalPoint.coordinate } : {}),
+      });
+    });
+    return () => controller.abort();
+  }, [potentialRoute?.id, potentialRoute?.origin, potentialRoute?.destination, onPotentialEndpointsChange]);
+
+  useEffect(() => {
+    if (!tilesOn || (!selectedRoute && !potentialRoute)) return;
+    const sourceSegments = selectedRoute ? (selectedRoute.segments ?? (selectedRoute.geometry ? [selectedRoute.geometry] : [])) : [];
+    const coordinates = [
+      ...sourceSegments.flat(),
+      ...(conservativePotential?.knownSegments.flat() ?? []),
+      ...(conservativePotential?.inferredSegments.flat() ?? []),
+    ];
+    if (endpoints.departure) coordinates.push(endpoints.departure.coordinate);
+    if (endpoints.arrival) coordinates.push(endpoints.arrival.coordinate);
+    if (potentialEndpoints.departure) coordinates.push(potentialEndpoints.departure.coordinate);
+    if (potentialEndpoints.arrival) coordinates.push(potentialEndpoints.arrival.coordinate);
+    const fitted = fitViewToCoordinates(coordinates, stageSize);
+    if (fitted) setView(fitted);
+  }, [selectedRoute, potentialRoute, conservativePotential, endpoints, potentialEndpoints, stageSize.width, stageSize.height, tilesOn]);
+
   const projectPoint = (coordinate: Coordinate): Point => tilesOn ? pixelFromView(coordinate, view, stageSize) : projectWorldPoint(coordinate);
-  const departurePoint = endpoints.departure ? projectPoint(endpoints.departure.coordinate) : undefined;
-  const arrivalPoint = endpoints.arrival ? projectPoint(endpoints.arrival.coordinate) : undefined;
-  const departureLabel = endpoints.departure?.name && endpoints.departure.name !== departure ? `${endpoints.departure.name} (${departure})` : departure;
-  const arrivalLabel = endpoints.arrival?.name && endpoints.arrival.name !== arrival ? `${endpoints.arrival.name} (${arrival})` : arrival;
+  const departurePoint = displayEndpoints.departure ? projectPoint(displayEndpoints.departure.coordinate) : undefined;
+  const arrivalPoint = displayEndpoints.arrival ? projectPoint(displayEndpoints.arrival.coordinate) : undefined;
+  const departureLabel = displayEndpoints.departure?.name && displayEndpoints.departure.name !== departure ? `${displayEndpoints.departure.name} (${departure})` : departure;
+  const arrivalLabel = displayEndpoints.arrival?.name && displayEndpoints.arrival.name !== arrival ? `${displayEndpoints.arrival.name} (${arrival})` : arrival;
   const selectedSegmentCount = selectedProjection?.segments.length ?? 0;
-  const label = hasLine
-    ? `${callsign ?? "Selected flight"} world map showing ${departureLabel} departure and ${arrivalLabel} arrival with ${selectedSegmentCount} resolved segment${selectedSegmentCount === 1 ? "" : "s"}${incomplete ? " and visible unresolved gaps" : ""}${alternates.length ? `; ${alternates.length} alternate recorded route${alternates.length === 1 ? "" : "s"} shown dimmed` : ""}`
-    : hasAnyLine
-      ? `${callsign ?? "Selected flight"} world map showing ${routes.length} recorded route${routes.length === 1 ? "" : "s"}; select one to highlight it`
-      : "World map waiting for server-returned route segments";
+  const label = potentialRoute
+    ? `${callsign ?? potentialRoute.callsign} world map showing an estimated gap preview for ${departureLabel} to ${arrivalLabel}; dotted geometry is a visual estimate only, not a route suggestion, plan, or operational data`
+    : hasLine
+      ? `${callsign ?? "Selected flight"} world map showing ${departureLabel} departure and ${arrivalLabel} arrival with ${selectedSegmentCount} resolved segment${selectedSegmentCount === 1 ? "" : "s"}${alternates.length ? `; ${alternates.length} alternate recorded route${alternates.length === 1 ? "" : "s"} shown dimmed` : ""}`
+      : hasAnyLine
+        ? `${callsign ?? "Selected flight"} world map showing ${routes.length} recorded route${routes.length === 1 ? "" : "s"}; select one to highlight it`
+        : "World map waiting for server-returned route segments";
   const baseName = tilesOn ? "World map" : "Schematic base map";
-  const banner = incomplete ? `${baseName} · showing resolved segments only; gaps are not connected.` : hasAnyLine ? `${baseName} · server route geometry` : `${baseName} · no route geometry returned yet.`;
+  const banner = potentialRoute ? `${baseName} · estimated gap preview · dotted geometry is a visual estimate, not a route suggestion.` : hasAnyLine ? `${baseName} · source route geometry` : `${baseName} · no route geometry returned yet.`;
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!tilesOn) return;
     dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
@@ -679,6 +889,7 @@ function RouteMap({ routes, selectedRoute, callsign }: { routes: RouteOption[]; 
   const wheelLockRef = useRef(0);
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     if (!tilesOn) return;
+    event.preventDefault();
     const nextZoom = clampZoom(view.zoom + (event.deltaY < 0 ? 1 : -1));
     if (nextZoom === view.zoom) return; // at a zoom bound: nothing to do
     // A scroll gesture fires many wheel events; accept at most one zoom
@@ -686,33 +897,35 @@ function RouteMap({ routes, selectedRoute, callsign }: { routes: RouteOption[]; 
     const now = Date.now();
     if (now - wheelLockRef.current < WHEEL_ZOOM_DEBOUNCE_MS) return;
     wheelLockRef.current = now;
-    // Anchor the zoom on the point under the cursor: that geographic point
-    // stays under the pointer instead of the map jumping toward its center.
     const rect = stageRef.current?.getBoundingClientRect();
     const cursor = rect && rect.width > 0 ? { x: event.clientX - rect.left, y: event.clientY - rect.top } : { x: stageSize.width / 2, y: stageSize.height / 2 };
-    const anchor = coordinateFromScreen(cursor, view, stageSize);
-    setView({ lat: anchor.lat, lon: anchor.lon, zoom: nextZoom });
+    setView(viewFromZoomAtPoint(cursor, view, nextZoom, stageSize));
   };
-  return <div className="map-stage" ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onWheel={onWheel}>
+  return <div className={`map-stage ${selectedRoute ? "has-selected-route" : ""}`} ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onWheel={onWheel}>
     <div className="map-canvas" role="img" aria-label={label}>
       {tilesOn && <TileLayer view={view} size={stageSize} onTileFailure={() => setTilesFailed(true)} />}
       <svg className="route-svg" viewBox={tilesOn ? `0 0 ${stageSize.width} ${stageSize.height}` : "0 0 800 440"} aria-hidden="true">
         {!tilesOn && <WorldMapBase />}
         {alternates.map(({ route, projection }) => <g key={route.id} className="route-line-alternate">{projection.segments.map((segment, index) => <path key={`alternate-segment-${index}`} d={segment.path} className="route-path-alternate" />)}</g>)}
+        {potentialKnownProjection && <g className="route-line-potential-known">{potentialKnownProjection.segments.map((segment, index) => <path key={`potential-known-segment-${index}`} d={segment.path} className="route-path-potential-known" />)}</g>}
+        {potentialInferredProjection && <g className="route-line-potential-inferred">{potentialInferredProjection.segments.map((segment, index) => <path key={`potential-inferred-segment-${index}`} d={segment.path} className="route-path-potential" />)}</g>}
+        {conservativePotential?.derivedPoints.map((coordinate, index) => { const point = projectPoint(coordinate); return <g key={`potential-point-${index}`} className="potential-derived-point"><circle cx={point.x} cy={point.y} r="4" /><title>Synthetic visual-estimate point only; not a named fix or route waypoint</title></g>; })}
         {selectedRoute && selectedProjection && <g className="route-line-selected">{selectedProjection.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" filter="url(#glow)" /><path d={segment.path} className="route-path" /></g>)}</g>}
+        {projections.map(({ route, projection }) => projection && <g key={`hit-${route.flightId}`} className="route-hit-lines">{projection.segments.map((segment, index) => <path key={`hit-segment-${index}`} d={segment.path} className="route-hit" onClick={(event) => { event.stopPropagation(); chooseProjectedRoute(route, projection); }} />)}</g>)}
         {departurePoint && <MapMarker point={departurePoint} label={departure} tone="origin" />}
         {arrivalPoint && <MapMarker point={arrivalPoint} label={arrival} tone="destination" />}
         {selectedProjection?.gapBoundaries.map((point, index) => <g key={`gap-${index}`} className="gap-boundary"><circle cx={point.x} cy={point.y} r="7" /><text x={point.x + 12} y={point.y + 4}>Gap</text></g>)}
       </svg>
     </div>
+    {overlapChoices.length > 0 && <section className="map-overlap-chooser" role="dialog" aria-modal="false" aria-label="Choose an overlapping recorded flight"><div><strong>{overlapChoices.length} routes overlap here</strong><button type="button" className="quiet-button" onClick={() => setOverlapChoices([])}>Close</button></div>{overlapChoices.map((route) => <button key={route.flightId} type="button" onClick={() => { setOverlapChoices([]); onSelectRoute(route); }}><strong>{route.callsign}</strong><span>{route.origin} → {route.destination}</span></button>)}</section>}
     <div className="map-fallback-banner"><span className="map-pin">◇</span><span>{banner}</span></div>
     <div className="map-zoom-controls" role="group" aria-label="Map zoom and base layer">
       <button type="button" aria-label="Zoom in" disabled={!tilesOn || view.zoom >= MAX_ZOOM} onClick={() => setView((current) => ({ ...current, zoom: clampZoom(current.zoom + 1) }))}>+</button>
       <button type="button" aria-label="Zoom out" disabled={!tilesOn || view.zoom <= MIN_ZOOM} onClick={() => setView((current) => ({ ...current, zoom: clampZoom(current.zoom - 1) }))}>−</button>
       <button type="button" aria-pressed={tilesOn} onClick={() => { setTilesEnabled((current) => !current); setTilesFailed(false); }}>Toggle base map</button>
     </div>
-    {selectedRoute && <section className="map-endpoints" aria-label="Route endpoint locations"><div className="map-endpoint departure"><b>Departure</b><span>{departureLabel}</span></div><div className="map-endpoint arrival"><b>Arrival</b><span>{arrivalLabel}</span></div></section>}
-    {!hasAnyLine && <div className="map-empty"><span>◎</span><strong>{routes.length ? "No resolved geometry returned" : "Select a flight plan"}</strong><p>{routes.length ? "The world map does not infer a line across missing route data." : "The map will use only coordinates and route segments returned by the server."}</p></div>}
+    {(selectedRoute || potentialRoute) && <section className="map-endpoints" aria-label="Route endpoint locations"><div className="map-endpoint departure"><b>Departure</b><span>{departureLabel}</span></div><div className="map-endpoint arrival"><b>Arrival</b><span>{arrivalLabel}</span></div></section>}
+    {!hasAnyLine && <div className="map-empty"><span>◎</span><strong>{routes.length ? "No resolved geometry returned" : "No overview routes to display"}</strong><p>{routes.length ? "The world map does not infer a line across missing route data." : "Clear the callsign filter or retry the all-flight overview."}</p></div>}
     <div className="map-attribution">{tilesOn ? OSM_ATTRIBUTION : "Schematic base map only"}</div>
   </div>;
 }

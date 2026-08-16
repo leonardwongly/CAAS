@@ -54,13 +54,13 @@ test("ambiguous draft waypoints fail closed without an explicit selection", asyn
   const response = await draftCompare(server, { draft: { origin: "KOR1", destination: "KDS1", via: ["DUPX"], selections: [] } });
   assert.equal(response.statusCode, 200);
   const body = response.json() as {
-    route: { distanceNm?: number; rankDistanceNm?: number; geometry?: unknown; gaps: Array<{ sequence: number; reason: string }>; legs: Array<{ status: string }> };
+    route: { distanceNm?: number; geometry?: unknown; gaps: Array<{ sequence: number; reason: string }>; legs: Array<{ status: string }> };
     comparison: { status: string };
   };
   // The draft is never resolved by proximity: it stays a gap until an explicit selection binds a coordinate.
   assert.equal(body.comparison.status, "gap");
   assert.equal(body.route.distanceNm, undefined);
-  assert.equal(body.route.rankDistanceNm, undefined);
+  assert.equal("rankDistanceNm" in body.route, false);
   assert.equal(body.route.geometry, undefined);
   assert.deepEqual(body.route.gaps.map((gap) => gap.reason), ["ambiguous"]);
   assert.ok(body.route.legs.some((leg) => leg.status === "gap"));
@@ -76,12 +76,12 @@ test("an explicit generation-bound selection binds the exact coordinate and comp
   const selected = await draftCompare(server, { draft: { origin: "KOR1", destination: "KDS1", via: ["DUPX"], selections: [{ sequence: 0, locationId: first.id }] } });
   assert.equal(selected.statusCode, 200);
   const selectedBody = selected.json() as {
-    route: { distanceNm: number; rankDistanceNm: number; geometry: { coordinates: Array<[number, number]> }; gaps: unknown[] };
+    route: { distanceNm: number; geometry: { coordinates: Array<[number, number]> }; gaps: unknown[] };
     comparison: { status: string };
   };
   assert.equal(selectedBody.comparison.status, "complete");
   assert.equal(typeof selectedBody.route.distanceNm, "number");
-  assert.equal(typeof selectedBody.route.rankDistanceNm, "number");
+  assert.equal("rankDistanceNm" in selectedBody.route, false);
   assert.deepEqual(selectedBody.route.gaps, []);
   // The geometry passes through the chosen exact coordinate, never a nearby guess.
   assert.ok(

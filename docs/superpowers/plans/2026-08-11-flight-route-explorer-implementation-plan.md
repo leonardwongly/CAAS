@@ -1,16 +1,18 @@
 # Flight Route Explorer - Implementation Plan
 
-Status: Local-first POC plan; version 1.4-rc4 independently reviewed with no unresolved P0/P1. Version 1.4-rc5 amends Section 18 (per-command tree status), Section 5.5 and PLAN-3.5/PLAN-4.1 (supply-chain scope: the POC CI does not generate SBOM/provenance/signature or export an OCI layout), and PLAN-R-18 (implemented eligibility API) and awaits independent exact-hash re-review. The local-first POC implementation now exists, while Azure resources, deployment, and UAT remain un-evidenced and unauthorized; `PG-00` remains blocked only by an explicitly authorized exact-hash commit and later implementation authorization
+Status: Binding local-first POC plan. Neutral comparison, the uncapped all-route overview, synchronized selection, and the governed airport-name bundle are implemented and focused-tested locally. Historical generated evidence remains subject-bound; Azure resources, deployment, rollback, and revised live UAT remain unauthorized and unexecuted.
 
-Version: 1.4-rc5
+Version: 1.5
 
-Date: 2026-08-12 (amended 2026-08-14)
+Date: 2026-08-12 (amended 2026-08-16)
 
 POC owner: The user; no separate named-owner register is required
 
 Source design: [Flight Route Explorer system design](../specs/2026-08-11-flight-route-explorer-design.md)
 
 Source brief: `CAAS Tech Challenge_v2.21.pdf`
+
+> [Master product document](../../product/master-product-document.md) governs product direction, target experience, personas, terminology, and priorities. This plan remains authoritative for current delivery sequencing, command contracts, gates, and implementation evidence until explicitly reconciled with approved product changes.
 
 ## 1. Objective and conformance position
 
@@ -23,18 +25,15 @@ The application will:
 - retrieve real Flight Plan, Airways, Waypoints/Fixes, Airports, and NAVAIDs
   data through a server-side allow-listed adapter;
 - sanitize weak and drifting upstream schemas into stable runtime contracts;
-- list flight-plan records and find flights by callsign and opaque identity;
+- traverse and list every safe active-generation flight exactly once, with callsign as an optional filter over the same identities;
 - resolve a selected recorded route to ordered coordinates without guessing;
 - calculate per-leg and total modeled great-circle distance only for complete,
   exactly resolved routes;
-- rank every computationally complete same-endpoint **recorded** candidate;
-- prominently list every Rank 1 recorded candidate tied for the shortest modeled
-  distance, while retaining access to lower-ranked and incomplete options;
+- compare every same-endpoint recorded candidate in selected-first, immutable source order while retaining complete and incomplete options and explicit gaps;
 - let the user inspect only server-returned provenance, freshness, route-point,
   leg, gap, and modeled-distance information;
-- draw only resolved route components in the dependency-free SVG diagram without
-  connecting gaps or requesting external map tiles;
-- let the user copy a route into a local computational draft, add/remove/reorder
+- draw every available resolved route component without connecting gaps, using the constrained OSM tile layer or schematic fallback;
+- let the user optionally explore a local unsaved route variation, add/remove/reorder
   exact unambiguous reference points, reset it, and view its server-computed
   distance delta when both routes are complete;
 - preserve unresolved, ambiguous, or unavailable data as a visible gap or
@@ -47,17 +46,16 @@ The application will:
 - provide a README, AI-use declaration, and a 20-minute demonstration that
   leaves 10 minutes of the 30-minute session for questions.
 
-The only qualified top-ranked label is **“Rank 1 by shortest modeled distance
-among complete candidates.”** It does not mean recommended, operationally
-valid, safe, cleared, or suitable for flight. The application is a
-non-operational decision-support demonstration and never files, dispatches,
-clears, or navigates a route.
+Modeled distance is descriptive only and never determines a preferred route.
+Public DTOs omit `rank`, `rankDistanceNm`, `rankLabel`, and `operationalProxy`.
+The application is a non-operational decision-support demonstration and never
+files, dispatches, clears, recommends, or navigates a route.
 
 ### 1.1 Conformance summary
 
 | Source obligation | Binding POC outcome |
 |---|---|
-| `SRC-01`, `SRC-02` | Search/list, select, resolve, rank, and display only resolved recorded-route components in the dependency-free SVG route diagram. |
+| `SRC-01`, `SRC-02` | Traverse all flights exactly once, filter/select through one identity, compare neutrally, and display every available resolved component with explicit gaps. |
 | `SRC-03` | Exercise the three supplied API families against real data through tested server-side adapters. Under the user's explicit safety direction, the source phrase “using recorded Airways and waypoints” is an accepted POC variance: Airways is fetched/validated, but selected-route geometry uses only exact resolved waypoint/reference coordinates and never infers or displays unproven airway topology. |
 | `SRC-04` | Keep frontend, backend, domain, and upstream-adapter responsibilities separate even though one image deploys them. |
 | `SRC-05` | Build on Linux and produce a non-root container. |
@@ -78,8 +76,8 @@ public browse response exposed `id`, `flightId`, `callsign`, `origin`,
 `destination`, and `routePointCount`. Route responses exposed a bounded subset
 of `id`, `flightId`, `callsign`, `label`, `origin`, `destination`, `pointCount`,
 `status`, `complete`, `legs`, `segments`, `gaps`, `provenance`, `freshness`, and
-`safety`; `distanceNm`, `rankDistanceNm`, `rank`, and geometry appear only when
-the route is computationally complete. The observed sampled route was
+`safety`; `distanceNm` and overall geometry appear only when the route is
+computationally complete. Public preference fields are never emitted. The observed sampled route was
 incomplete and therefore correctly returned gaps without invented geometry or
 distance.
 
@@ -90,31 +88,45 @@ and documentation work must obey these rules:
 1. Render an available normalized field only when the server returns it. Do not
    fabricate flight date/time, aircraft type, flight rules, cruise data,
    alternates, route text, airway values/types, coordinates, a route line, a
-   distance, a rank, or a comparison result.
+   distance or a comparison result.
 2. Represent missing, invalid, ambiguous, and unresolved inputs as explicitly
    unavailable or as a visible gap. Never infer a coordinate by proximity,
-   interpolate across a gap, or substitute synthetic data.
+   airway/topology, name matching, or substitute data into the recorded route.
+   The owner-approved potential-route exception is client-only: it may draw a
+   labelled dotted span between exact anchors when at least one is a recorded
+   component, with no span-distance upper limit. Its midpoint is explicitly
+   synthetic and unnamed; it must not change the DTO, server projection,
+   completeness, source `distanceNm`, comparison, ranking, export, or original
+   visible gap. A separately labelled distance annotation may compute an
+   exact-anchor geometric minimum and, only from a release-gated offline model,
+   a conformal statistical interval. Those annotations remain ephemeral,
+   non-operational, and excluded from every source/route semantic above.
 3. Retain raw CAAS records, identifiers beyond the active request, credentials,
    and airway values/types outside public DTOs, UI, logs, test output, and plan
    evidence. The browser receives only the BFF's normalized opaque-ID contract.
-4. Do not describe the current draft editor as supporting undo, redo, a full
-   directed diff, secure explicit selection of ambiguous coordinates, or ranking
-   a draft among recorded candidates. Those capabilities require a separately
+4. Do not describe Explore a route variation as supporting undo, redo, a full
+   directed diff or secure explicit selection of ambiguous coordinates. Those capabilities require a separately
    designed server protocol and evidence before they may be promised.
+
+### 1.1 Two-release estimated-distance workstream
+
+- **Release 1 — lower bounds:** group ordered adjacent gap legs into one exact-anchor corridor, calculate recorded-geometry and gap-minimum Haversine subtotals using `R = 3440.065 NM`, expose a continuous-route geometric minimum in the left Estimated gap preview, and fail closed for endpoint-only, ambiguous, or unmapped gaps. Keep the source route object byte-stable.
+- **Release 2 — calibrated annotation:** provide a dependency-free offline trainer that masks contiguous complete-route points; derives span, latitude, endpoint, and adjacent-heading context only from coordinates visible after masking; splits whole route groups across train/calibration/test; stores aggregate median log-circuity cells plus one conformal residual per calibration route group; and rejects sparse, invalid, unsupported, privacy-leaking, or under-covered artifacts. Multi-corridor runtime intervals request `1 - (1 - routeConfidence) / corridorCount` per corridor before summing bounds, so the union bound preserves the stated aggregate confidence without assuming independence.
+- **Release gate:** no production statistical value exists until a separately approved historical corpus contains at least the configured independent route-group population and passes held-out coverage. The active/previous in-memory generations are not a historical store and must never be accumulated silently. Until then, the checked-in model state is explicitly unavailable and Release 1 remains functional.
 
 ## 2. Ratified user decisions
 
 The following decisions supersede the unresolved alternatives in version
 1.1-rc2 and must be reflected in the system design and ADRs before `PG-00`:
 
-1. **Best flight-plan presentation.** List all flight-plan records that pass
-   schema sanitization for search. For a selected endpoint pair, calculate
-   competition rank across all computationally complete **recorded** candidates.
-   Display every tied Rank 1 candidate together and let the user choose; show
-   lower ranks and incomplete/unranked diagnostics in secondary groups. A local
-   draft is server-validated separately and may show a distance delta from the
-   selected recorded route only when both computations are complete; it is not
-   ranked into the recorded-candidate population.
+1. **Neutral flight-plan presentation.** After readiness, traverse every
+   generation-bound overview page exactly once and show every safe flight plus
+   every available resolved route component without a 10-route cap. For a
+   selected endpoint pair, place the selected recorded route first and preserve
+   immutable source order for the remainder; canonical signature is only a final
+   deterministic fallback. Complete and incomplete routes use neutral groups,
+   and modeled distance is descriptive only. A local variation is validated
+   separately and may show a delta only when both computations are complete.
 2. **Real data only.** The running application and demonstration use real CAAS
    API data. There is no synthetic runtime/demo mode and no synthetic fallback.
    Automated tests may use minimized, irreversibly sanitized captures from real
@@ -135,7 +147,7 @@ The following decisions supersede the unresolved alternatives in version
    meaning: route-text association was mixed and 236 reported values were absent
    from the separate airway-name list. Do not expose airway values in product
    DTOs, tables, map labels, signatures, diffs, geometry, completeness, or
-   ranking unless a later authoritative contract proves the relation. The user,
+   route comparison unless a later authoritative contract proves the relation. The user,
    as challenge decision authority, accepts this as a safety-driven variance from
    any literal reading that route graphics must depict recorded airway topology;
    fetching and validating Airways still satisfies the API-use obligation.
@@ -144,16 +156,15 @@ The following decisions supersede the unresolved alternatives in version
    bounded `IDENTIFIER (latitude,longitude)` parser. Enable Airports for endpoint
    resolution and NAVAIDs for exact intermediate-point resolution alongside
    Fixes. Preserve ambiguity and explicit gaps; never guess by proximity.
-8. **Competition-rank ties.** Sum full-precision leg distances, then derive a
-   tie-only `rankDistanceNm` rounded to `0.000001 NM`. Candidates with the same
-   `rankDistanceNm` share competition rank. Point count and canonical signature
-   stabilize display order only. Display remains rounded to `0.1 NM`.
-9. **Route diagram.** Use the dependency-free SVG route diagram for the
-   local-first POC. It renders only server-returned resolved segments and visible
-   gaps, uses no external tiles or map-provider API key, and remains usable when
-   no geometry is available. Introducing an external tile provider requires a
-   separately accepted privacy, CSP, attribution, caching, and failure-behavior
-   design; it is not assumed by this plan.
+8. **Neutral route order.** Sum full-precision leg distances and display totals
+   rounded to `0.1 NM` only as descriptive complete-route values. The selected
+   route appears first, remaining routes retain immutable source order, and
+   canonical signature is only a deterministic final fallback. No preference or
+   winner field is emitted.
+9. **Route map.** Use the dependency-free Web Mercator OSM tile layer under
+   the binding CSP/no-referrer/attribution/request-cap controls, with schematic
+   fallback. Render only server-returned resolved segments and visible gaps; map
+   tiles never gate Route Data or supply route geometry.
 10. **Azure topology.** Use the least-complex live-data topology in Section 5:
     one Container Apps managed environment and app, ACR, Key Vault, managed
     identity, single-tenant Entra app registration/auth config, and bounded
@@ -227,7 +238,7 @@ between conflicting documents. Required changes include:
 - update `AC-SD-09`, `AC-SD-11`, `AC-DEL-04` through `AC-DEL-07`, related risks,
   traceability, walkthrough, and readiness language;
 - update airway behavior to hide unproven values;
-- add the tie-only `rankDistanceNm` policy and all-Rank-1 presentation;
+- require selected-first neutral source order and prohibit public preference fields;
 - accept, supersede, or reject `ADR-001` through `ADR-008`; and
 - remove former intent/orchestrator/controller/attestor proposals from the
   challenge path.
@@ -471,7 +482,7 @@ fields do not enter normalized DTOs.
 | Live flight generation freshness | fresh <= 5 minutes; stale warning after 5 minutes; unusable after 30 minutes |
 | Reference generation freshness | fresh <= 24 hours; stale warning after 24 hours; unusable after 7 days |
 | Retained in-memory generations | active plus one previous for at most 30 minutes and within memory limit |
-| Visible routes simultaneously drawn | 10; all Rank 1 options remain listed and the user selects which to draw |
+| Visible routes simultaneously drawn | Every safe active-generation flight and every available resolved component; no silent cap or truncation |
 | Points rendered for one candidate | 256 occurrences plus gap boundaries |
 
 Gate measurements use one declared clock and retained machine-readable output:
@@ -565,7 +576,7 @@ remain labeled as governance controls.
 | `PLAN-R-15` | Full platform inventory deferred. | Test every enabled POC log/category for prohibited fields and cap/retention. | `PG-04`; `PG-PROD` |
 | `PLAN-R-16` | Remains mandatory in minimal form. | Stable `SRC`, `USR`, `AC`, decision, gate, and evidence references. | `PG-00`, `PG-05` |
 | `PLAN-R-17` | POC profile fixed. | Local-first completion, late 48-hour Azure provisioning window, USD 50 governance ceiling/alerts, access expiry, 24-hour teardown target, and seven-day operator-enforced maximum with no false automatic-cutoff claim. DR/on-call is production-only. | `PG-00`, `PG-04`, `PG-05`; `PG-PROD` |
-| `PLAN-R-18` | Remains mandatory. | Use the implemented candidate eligibility projection (`eligible` on the operational-proxy candidate projection: complete route with modeled distances; incomplete/unresolved candidates carry the `exclusion` reason) and non-operational candidate wording. | `PG-00`, `PG-03` |
+| `PLAN-R-18` | Superseded by the neutral public contract. | Public DTOs omit `operationalProxy` and all preference fields; complete routes may carry descriptive distance, while incomplete routes retain explicit gaps and unavailable values. | `PG-00`, `PG-03` |
 
 Removing a mechanism does not remove its underlying least-privilege, rollback,
 redaction, or truthfulness obligation.
@@ -610,7 +621,7 @@ UAT/authorization remains an explicit policy check rather than an inference.
 | `PG-00` | Authorized POC plan | Section 8.2 packet at exact hashes and later explicit implementation authorization | All durable implementation |
 | `PG-01` | Runnable baseline | Locked workspace, real-capture fixture policy, ignore contexts, secretless CI, README skeleton, and versioned evidence schema/policy/semantic-validator negative tests plus one-command verification | Product integration |
 | `PG-02` | Local real-data vertical slice | Real API acquisition, search, duplicate selection, route resolution, map/table, visible gaps, non-root image, sanitized evidence | Remaining capabilities |
-| `PG-03` | Local release candidate complete | The authoritative secretless-CI OCI digest passes complete loopback-only five-family live acquisition, browse-all, distance/ranking/edit/diff, automated a11y, container, security, and measured performance/restart/failure checks; no Azure resource required | Authorized late Azure POC bootstrap/deployment |
+| `PG-03` | Local release candidate complete | The authoritative secretless-CI OCI digest passes complete loopback-only five-family live acquisition, exact-once overview, neutral comparison, variation, automated a11y, container, security, and measured performance/restart/failure checks; no Azure resource required | Authorized late Azure POC bootstrap/deployment |
 | `PG-04` | Deployable Azure POC | Unchanged `PG-03` digest, executable bootstrap DAG, OIDC deployment, single-user auth/identity negatives, live acquisition, monitoring/business smoke, explicit first-deploy abort evidence, and later revision plus app-config rollback drill | POC acceptance |
 | `PG-05` | Demonstration ready | All `SRC`/`USR` acceptance, manual UAT/a11y, README/AI declaration, cost/teardown, timed walkthrough | Challenge completion |
 | `PG-PROD` | Production authorized | Separate approved data/access, edge/egress, SLO/DR/on-call/cost/privacy and release evidence | Production traffic |
@@ -716,10 +727,10 @@ multiplicity 160 versus the 500 ambiguity hard total.
   exactly once, with no duplicate, omission, silent truncation, or cursor reuse
   across a generation change; callsign search and duplicate selection remain
   directly exercised.
-- `AC-POC-RANK-01`: list all Rank 1 candidates sharing the minimum
-  `rankDistanceNm` under the exact label “Rank 1 by shortest modeled distance
-  among complete candidates,” show provenance and modeled distance, and let the
-  user choose; never label a candidate valid, recommended, safe, or cleared.
+- `AC-POC-COMPARE-01`: list same-endpoint recorded routes in selected-first,
+  immutable source order with neutral complete/incomplete groups, descriptive
+  modeled distance only when complete, explicit gaps, and no public preference
+  fields or winner language.
 - `AC-POC-LIVE-01`: local and Azure POC flows acquire and validate real Flight
   Plan, Airways, Fixes, Airports, and NAVAIDs data through the real server
   adapter; cold startup fails if any family is unusable, failed refresh retains
@@ -727,7 +738,7 @@ multiplicity 160 versus the 500 ambiguity hard total.
   runtime/demo fallback exists.
 - `AC-POC-DATA-01`: Airways fetch/schema/count validation is directly evidenced
   while its unproven values and types are absent from every UI/API DTO, log,
-  signature, diff, geometry, completeness, and ranking output; Airports and
+  signature, diff, geometry, completeness, and route-comparison output; Airports and
   NAVAIDs participate through exact ambiguity-preserving resolution. Evidence
   records the challenge-owner Airways graphical-topology variance rather than
   claiming literal airway display or inferring a relation.
@@ -788,7 +799,7 @@ observed schema and edge condition.
 | 0 | Real discovery, design/ADR reconciliation, POC authority | None | `PG-00` |
 | 1 | Repository and quality baseline | `PG-00` | `PG-01` |
 | 2 | Local real-data vertical slice | `PG-01` | `PG-02` |
-| 3 | Authoritative CI OCI release candidate, ranking, editing, comparison, and hardening | `PG-02` | `PG-03` |
+| 3 | Authoritative CI OCI release candidate, overview, neutral comparison, variation, and hardening | `PG-02` | `PG-03` |
 | 4 | Late authorized Azure bootstrap, exact-digest deployment, auth, and rollback | `PG-03` plus explicit cloud-write authorization | `PG-04` |
 | 5 | Demonstration acceptance | `PG-04` | `PG-05` |
 | 6 | Production hardening | Challenge accepted plus separate authority | `PG-PROD` |
@@ -929,19 +940,19 @@ non-root, read-only-root-filesystem image. No synthetic records may appear if
 cold acquisition fails; failed refresh may retain only a still-usable prior
 complete generation.
 
-## 14. Phase 3 - Ranking, editing, comparison, and hardening
+## 14. Phase 3 - Overview, neutral comparison, variation, and hardening
 
-### `PLAN-3.1` Implement candidate ranking and best-group presentation
+### `PLAN-3.1` Implement all-route overview and neutral comparison
 
-Discover same-endpoint recorded candidates, deduplicate exact semantics, compute
-full-precision distance and `rankDistanceNm`, assign competition rank, and list
-all tied Rank 1 candidates together under the exact label “Rank 1 by shortest
-modeled distance among complete candidates.” Show all remaining complete ranks
-and incomplete diagnostics. Provenance, source time, retrieval time, and
-persistent safety copy remain visible. Candidate labels/copy never use “valid”,
-“recommended”, “safe”, “cleared”, or unqualified “best.”
+Traverse every generation-bound overview page exactly once; reject duplicate
+identities, generation changes, and non-progressing pages. Render every safe
+flight and available resolved component without a 10-route cap. Same-endpoint
+recorded routes use selected-first immutable source order with canonical
+signature only as a final fallback. Show neutral complete/incomplete groups,
+descriptive distance, provenance, freshness, and explicit gaps. Public contracts
+and copy contain no preference fields or winner language.
 
-### `PLAN-3.2` Implement local draft editing and comparison
+### `PLAN-3.2` Implement Explore a route variation and comparison
 
 Implement locked endpoints plus add/remove/reorder/reset for exact,
 unambiguous reference points. The server computes draft legs, gaps, geometry,
@@ -949,8 +960,8 @@ and distance only when all points resolve exactly; the UI may show the modeled
 distance delta from the selected recorded route when both values are available.
 Ambiguous references fail closed until a generation-bound explicit-coordinate
 selection protocol exists. Do not claim undo/redo, a full directed route diff,
-or participation of a draft in recorded-candidate ranking without separately
-implementing and testing those server contracts. The visible draft safety label
+or any preference treatment for a local variation without separately
+implementing and testing those server contracts. The visible variation safety label
 remains “Computationally complete; operational constraints not assessed.”
 
 ### `PLAN-3.3` Enforce generation, token, and quantitative policies
@@ -966,7 +977,7 @@ remain, test retry identity across key rotation.
 Required suites:
 
 - unit/golden/property tests for parsers, resolution, Haversine, antimeridian,
-  rank ties, local-draft validation and conditional server-computed delta,
+  stable neutral ordering, local-variation validation and conditional server-computed delta,
   malformed inputs, and bounds;
 - contract tests from sanitized captured-real responses for all five endpoint
   families, including Airways acceptance and downstream output exclusion;
@@ -974,12 +985,12 @@ Required suites:
   mandatory-family cold-start failure, refresh atomicity/retention, generation
   invalidation, and secret/output boundaries;
 - deterministic E2E using captured-real fixtures for complete browsing, search,
-  selection, SVG route diagram/table parity, ties, editing, gaps, keyboard, and
+  selection, uncapped route map/list parity, neutral comparison, variation, gaps, keyboard, and
   no-geometry behavior;
 - a separately authorized local live E2E proving the same flow and five-family
   acquisition against CAAS;
 - accessibility checks for keyboard, focus/announcements, contrast/reflow,
-  route table, and keyboard editing; and
+  route table, and keyboard variation controls; and
 - security checks for key/raw-field absence, limits, output encoding, headers,
   same-origin URL privacy, BFF-only browser egress, telemetry redaction, and
   dependency failures.
@@ -999,8 +1010,8 @@ into the image or browser.
 Against that subject, run `test:container`, `test:live`, `test:e2e`,
 `test:a11y`, `test:performance`, and `test:security` as mapped in Section 18.
 Directly evidence all five endpoint families, exact-once browse-all, complete
-search/selection, exact resolution and gaps, all tied Rank 1 options, editing and
-diff, no-tile map behavior, refresh/staleness, three clean restarts, Section 6
+search/selection, exact resolution and gaps, all-route overview, neutral comparison, variation and
+diff, OSM/schematic map behavior, refresh/staleness, three clean restarts, Section 6
 measurements, telemetry redaction, secret boundaries, and cold/refresh failure.
 The image is non-root with a read-only root filesystem and the intended
 1-vCPU/2-GiB limits. Every check writes the Section 8 manifest against the same
@@ -1091,7 +1102,7 @@ Then enable ingress and immediately sequence fail-closed checks: (1) an
 unauthenticated request must be rejected/redirected; (2) a valid app-audience
 token for the deployment identity, which is absent from
 `allowedPrincipals.identities`, must be denied; and (3) the allowed user runs the
-full exact-once browse-all, Rank 1, map/table, edit/diff, OSM/non-map, live, and
+full exact-once browse-all, neutral comparison, map/table, variation/diff, OSM/non-map, live, and
 external business smoke. Disable ingress at the first failure. Record the first
 known-good revision and complete app-scoped configuration only after all three
 stages pass.
@@ -1132,7 +1143,7 @@ real Azure deployment, live API behavior, manual accessibility, or UAT.
 
 ### `PLAN-5.3` Finalize documentation and walkthrough
 
-README covers architecture/code structure, live APIs, route/distance/ranking
+README covers architecture/code structure, live APIs, route/descriptive-distance/neutral-comparison
 algorithms, limits, OSM policy, security residuals, tooling rationale, exact
 local/build/test/deploy steps, rollback, limitations, production roadmap, and AI
 use. Rehearse this fixed 20-minute walkthrough:
@@ -1140,8 +1151,8 @@ use. Rehearse this fixed 20-minute walkthrough:
 1. problem, safety boundary, architecture, and code structure - 2 minutes;
 2. real API evidence, sanitization, live refresh, and limits - 2 minutes;
 3. callsign search, duplicate selection, and real route map/table - 3 minutes;
-4. gaps, hidden/unproven airway data, distance, Rank 1 ties, and user choice - 3 minutes;
-5. edit copy and directed comparison - 3 minutes;
+4. all-route overview, gaps, hidden/unproven airway data, descriptive distance, and neutral comparison - 3 minutes;
+5. Explore a route variation and directed comparison - 3 minutes;
 6. tests, accessibility/failure states, and build/test/deploy code - 3 minutes;
 7. exact digest, direct Azure POC deployment, auth, and rollback - 2 minutes;
 8. limitations, AI use, lessons learned, requested feedback, and separate
@@ -1195,7 +1206,7 @@ annotated instead of described as passed.
 | `pnpm test:e2e` | Deterministic captured-real browse/search/map/edit flow | `PG-02`; authoritative OCI digest at `PG-03` | Implemented; 16/16 pass |
 | `pnpm test:live` | Authorized five-family CAAS acquisition, Airways exclusion, browse-all and business flow | `PG-02`; authoritative OCI digest at `PG-03`; unchanged deployed digest at `PG-04` | Implemented; authorized runs retained (5/5, record `docs/evidence/live-lane-116a84d608f3.json`) |
 | `pnpm test:performance` | Section 6 startup/API/memory rules with retained measurements | authoritative OCI digest at `PG-03` | Implemented; 8/8 (record `docs/evidence/performance-local-116a84d608f3.json`) |
-| `pnpm test:security` | Sanitization, secrets, limits, no-tile map/privacy, telemetry and artifact boundaries | authoritative OCI digest at `PG-03`; deployed negatives at `PG-04` | Implemented; 8/8 including `SEC-PACKAGE-AUDIT` pass on the retained authorized networked audit (0 advisories, `docs/security/dependency-audit-local.json`; record `docs/evidence/security-local-116a84d608f3.json`) |
+| `pnpm test:security` | Sanitization, secrets, limits, OSM/schematic map privacy, telemetry and artifact boundaries | authoritative OCI digest at `PG-03`; deployed negatives at `PG-04` | Implemented; 8/8 including `SEC-PACKAGE-AUDIT` pass on the retained authorized networked audit (0 advisories, `docs/security/dependency-audit-local.json`; record `docs/evidence/security-local-116a84d608f3.json`) |
 | `pnpm test:container` | Digest identity, non-root/read-only image, health/API/UI and limits | `PG-02`; authoritative OCI digest at `PG-03`; registry/deployed identity at `PG-04` | Implemented; 7/7 (record `docs/evidence/loopback-container-local-116a84d608f3.json`) |
 | `pnpm oci:build` / `pnpm oci:verify` | Digest-pinned image build and assertion verification | `PG-02`; authoritative CI bundle at `PG-03` | Implemented (`scripts/validation/build-oci.mjs`); local candidate digest `sha256:c802604b…`; CI-built bundle retained at `docs/evidence/oci-digest-bundle-e456dd0cd791.json` |
 | `pnpm bicep:check` | POC Bicep build/lint/policy | `PG-04` | No such command; no Bicep exists on this tree (inert Azure artifacts only) |
@@ -1215,7 +1226,7 @@ separately authorized.
 
 | Requirement | Phases | Primary acceptance evidence |
 |---|---|---|
-| `SRC-01`, `SRC-02` | 2-5 | Exact-once browse-all, search/select/map/table; all tied Rank 1 options; complete/incomplete groups |
+| `SRC-01`, `SRC-02` | 2-5 | Exact-once all-route overview, shared search/filter/select/map/table identity, neutral complete/incomplete groups |
 | `SRC-03` | 0, 2-5 | Real five-family discovery/acquisition, direct Airways validation/output-exclusion, exact waypoint-derived route graphics, and recorded user-approved airway-topology variance in local/Azure flows |
 | `SRC-04` | 0-4 | Architecture/import boundaries and provider/consumer tests |
 | `SRC-05` | 1-4 | Linux build, non-root image, container smoke |
@@ -1223,8 +1234,8 @@ separately authorized.
 | `SRC-07` | 1, 5 | README and AI-use review |
 | `SRC-08` | 0, 5 | Timed 20-minute walkthrough and 10-minute question budget |
 | `USR-01` | 2-5 | Distance oracles, API/UI evidence |
-| `USR-02` | 3-5 | Tie-key/ranking properties and all-Rank-1 chooser E2E |
-| `USR-03` | 3-5 | Draft integrity, editing, and keyboard E2E |
+| `USR-02` | 3-5 | Selected-first neutral ordering, no-preference contract guards, >10-route rendering, and synchronized selection E2E |
+| `USR-03` | 3-5 | Local-variation integrity, exact controls, and keyboard E2E |
 | `USR-04` | 3-5 | Ordered/directed diff and comparison E2E |
 | `USR-05` | 2-5 | Reduced-obstruction outcomes, fit/reflow tests, non-map parity |
 
@@ -1241,7 +1252,7 @@ separately authorized.
 | Browser output exceeds normalized BFF fields | Low / High | Enforce DTO allow-lists and same-origin requests; verify no raw upstream, credentials, airway values/types, or invented fields reach the browser. |
 | Large reference data exceeds 2 GiB | Medium / High | Section 6 hard limits, streaming/bounded parsing, release raw buffers, fail closed; resize only with explicit user approval. |
 | One replica restarts and loses generation | Medium / Medium | Readiness waits for real reload; min 1 during demo; explicit unavailable state; no false cached data claim. |
-| Rank 1 is interpreted as operational advice | Medium / High | Adjacent modeled-distance criterion, provenance, persistent safety warning, never use recommended/valid/cleared copy. |
+| Modeled distance is interpreted as operational preference | Medium / High | Neutral source order, descriptive labeling, provenance, persistent safety warning, and prohibited preference fields/copy. |
 | Direct-to-POC first deployment fails | Medium / Medium | Ingress remains disabled; deactivate/remove failed candidate and follow cleanup. Only later deployments may claim revision plus app-config rollback. |
 | USD 50 ceiling or seven-day lifetime is approached | Low / Medium | Forecast checkpoints, alerts, tagged expiry, explicit stop-work at USD 45, and operator-approved teardown; do not claim automatic cutoff/deletion. |
 
@@ -1254,7 +1265,7 @@ After implementation authorization, use focused commits:
 3. sanitized captured-real contracts and adapters;
 4. route resolution/distance and thin BFF;
 5. SVG route-diagram/table real-data vertical slice and local image;
-6. Rank 1 ties, all candidates, draft, and comparison;
+6. uncapped overview, neutral comparison, synchronized selection, and route variation;
 7. generation/limits/security hardening;
 8. final image and supply-chain evidence;
 9. minimal Azure POC Bicep and exact-digest CI/CD;

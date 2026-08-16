@@ -77,7 +77,9 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
 .world-land { fill: #17394a; stroke: #316178; stroke-linejoin: round; stroke-width: 1.4; }
 .world-land.island { fill: #1a4051; }
 .route-path { fill: none; stroke: var(--blue); stroke-linecap: round; stroke-linejoin: round; stroke-width: 3; }
-.route-path-alternate { fill: none; stroke: rgba(148, 183, 211, .55); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.route-path-alternate { fill: none; stroke: rgba(148, 183, 211, .28); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.route-line-selected .route-path { stroke: #fff0ad; stroke-width: 4.5; }
+.route-line-selected .route-shadow { stroke: rgba(242, 186, 107, .48); stroke-width: 18; }
 .route-shadow { fill: none; stroke: rgba(82, 184, 232, .3); stroke-linecap: round; stroke-linejoin: round; stroke-width: 14; }
 .map-marker circle:first-child { fill: #07131f; stroke: currentColor; stroke-width: 3; }
 .marker-ring { fill: none !important; opacity: .4; stroke-width: 1 !important; }
@@ -214,13 +216,19 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
 .map-topbar { align-items: center; display: grid; gap: 12px; grid-template-columns: auto minmax(260px, 430px) minmax(180px, 1fr) auto; margin-bottom: 12px; }
 .product-mark .eyebrow { margin-bottom: 3px; }.product-mark h1 { font-size: 1.05rem; letter-spacing: -.02em; line-height: 1.1; margin: 0; white-space: nowrap; }
 .toolbar-search { min-width: 0; }.toolbar-search .search-block { border: 0; padding: 0; }.toolbar-search .search-block > label { clip: rect(0, 0, 0, 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }.toolbar-search .duplicate-picker { position: absolute; width: min(430px, calc(100vw - 36px)); }.toolbar-search .search-input-row input { padding: 10px 12px; }
-.toolbar-flight { color: var(--muted); display: grid; gap: 2px; min-width: 0; }.toolbar-flight strong { color: #eef7fc; font-size: .84rem; }.toolbar-flight span { font-size: .75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.toolbar-flight small { color: var(--subtle); font-size: .66rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.toolbar-clear { padding: 8px 11px; white-space: nowrap; }
-.map-workspace { min-height: min(780px, calc(100vh - 126px)); }.map-first-panel { background: rgba(12, 28, 43, .94); border: 1px solid var(--line); border-radius: 12px; min-height: inherit; overflow: hidden; position: relative; }.map-first-panel .map-stage { height: min(780px, calc(100vh - 166px)); min-height: 610px; }.map-first-panel .map-fallback-banner { bottom: 58px; left: auto; right: 20px; top: auto; }.map-first-panel .map-endpoints { bottom: 37px; left: auto; right: 20px; }.map-first-panel .map-attribution { bottom: 14px; }
+.toolbar-flight.has-selection { align-items: flex-start; border-left: 3px solid var(--blue); display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-left: 12px; }
+.toolbar-flight .selection-kicker { color: var(--blue); font-size: .6rem; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+.toolbar-flight .selected-route-label { display: block; min-width: 0; }
+.toolbar-flight .selected-route-label .selection-kicker { display: block; }
+.toolbar-flight.has-selection .selected-route-label strong { display: block; margin-top: 2px; }
+.toolbar-flight.has-selection strong { color: #f5fcff; font-size: .98rem; letter-spacing: .01em; }
+.toolbar-flight.has-selection span:not(.selection-kicker), .toolbar-flight.has-selection small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-workspace { min-height: min(780px, calc(100vh - 126px)); }.map-first-panel { background: rgba(12, 28, 43, .94); border: 1px solid var(--line); border-radius: 12px; min-height: inherit; overflow: hidden; position: relative; }.map-first-panel .map-stage { height: min(780px, calc(100vh - 270px)); min-height: 500px; }.map-first-panel .map-fallback-banner { bottom: 58px; left: auto; right: 20px; top: auto; }.map-first-panel .map-endpoints { bottom: 37px; left: auto; right: 20px; }.map-first-panel .map-attribution { bottom: 14px; }
 .map-hud { background: rgba(7, 19, 31, .9); border: 1px solid rgba(148, 183, 211, .28); border-radius: 7px; display: grid; gap: 3px; left: 20px; max-width: min(390px, calc(100% - 120px)); padding: 10px 12px; position: absolute; top: 18px; z-index: 3; }.map-hud .eyebrow { margin: 0; }.map-hud strong { color: #eff8ff; font-size: .84rem; }.map-hud > span:last-child { color: var(--muted); font-size: .69rem; line-height: 1.35; }
 .map-rail { display: flex; flex-direction: column; gap: 7px; position: absolute; right: 18px; top: 18px; z-index: 4; }.map-rail button { background: rgba(7, 19, 31, .92); border: 1px solid rgba(148, 183, 211, .3); border-radius: 6px; color: var(--ink); font-size: .7rem; min-width: 74px; padding: 9px 10px; text-align: left; }.map-rail button:hover, .map-rail button[aria-pressed="true"] { border-color: var(--blue); color: #f0fbff; }.map-rail button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .rail-entry { position: relative; }
 .rail-count { align-items: center; background: var(--blue); border: 2px solid #07131f; border-radius: 99px; color: #062033; display: inline-flex; font-size: .62rem; font-weight: 800; height: 18px; justify-content: center; line-height: 1; min-width: 18px; padding: 0 4px; pointer-events: none; position: absolute; right: -8px; top: -8px; z-index: 1; }
-.map-drawer { background: rgba(9, 24, 37, .97); border: 1px solid rgba(82, 184, 232, .42); border-radius: 9px; bottom: 58px; box-shadow: 16px 18px 42px rgba(0, 0, 0, .33); left: 18px; max-width: calc(100% - 126px); overflow: auto; padding: 16px; position: absolute; top: 90px; width: min(390px, 27vw); z-index: 5; }.drawer-header { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; margin-bottom: 14px; padding-bottom: 11px; }.drawer-header .eyebrow { margin: 0; }.drawer-header .quiet-button { padding: 6px 9px; }
+.map-left-stack { bottom: 58px; display: flex; flex-direction: column; gap: 10px; left: 18px; min-height: 0; position: absolute; top: 92px; width: min(330px, 28vw); z-index: 4; }.map-left-stack.has-route-legs { grid-template-rows: minmax(120px, .8fr) minmax(220px, 1.2fr); display: grid; }.map-left-stack .flight-overview-list { min-height: 0; }.route-leg-panel { background: rgba(7, 19, 31, .96); border: 1px solid rgba(82, 184, 232, .42); border-radius: 8px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding: 10px; }.route-leg-panel-heading { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 10px; justify-content: space-between; padding: 2px 3px 8px; }.route-leg-panel-heading .eyebrow { margin-bottom: 3px; }.route-leg-panel-heading h2 { color: var(--ink); font-size: .82rem; margin: 0; }.route-leg-panel-heading > span { color: var(--muted); font-size: .66rem; white-space: nowrap; }.route-leg-panel .table-scroll { flex: 1; margin-top: 9px; min-height: 0; overflow: auto; }.map-drawer { background: rgba(9, 24, 37, .97); border: 1px solid rgba(82, 184, 232, .42); border-radius: 9px; bottom: 58px; box-shadow: 16px 18px 42px rgba(0, 0, 0, .33); max-width: calc(100% - 510px); overflow: auto; padding: 16px; position: absolute; right: 108px; top: 90px; width: min(390px, 27vw); z-index: 5; }.drawer-header { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; margin-bottom: 14px; padding-bottom: 11px; }.drawer-header .eyebrow { margin: 0; }.drawer-header .quiet-button { padding: 6px 9px; }
 .map-drawer .options-section, .map-drawer .details-section, .map-drawer .draft-section, .map-drawer .empty-options { background: transparent; border: 0; border-radius: 0; padding: 0; }.map-drawer .section-title { margin-bottom: 15px; }.map-drawer .detail-actions .opaque-id { display: none; }.map-drawer .metric-grid { grid-template-columns: repeat(2, 1fr); margin-bottom: 16px; }.map-drawer .metric { min-height: 76px; padding: 12px; }.map-drawer .metric:nth-child(2) { border-right: 0; }.map-drawer .metric:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }.map-drawer .detail-columns { grid-template-columns: 1fr; }.map-drawer .evidence-stack { margin-top: 14px; }.map-drawer .option-grid { grid-template-columns: 1fr; }.map-drawer .route-card-distance { font-size: 1.15rem; margin: 9px 0 3px; }.map-drawer .route-card { padding: 12px; }.map-drawer .draft-section { margin: 0; }.map-drawer .draft-result { grid-template-columns: repeat(2, 1fr); }
 .map-first-panel > .map-legend { background: rgba(7, 19, 31, .94); border-top: 1px solid var(--line); bottom: 0; left: 0; padding: 11px 20px; position: absolute; right: 0; z-index: 3; }
 @media (max-width: 1100px) { .map-topbar { grid-template-columns: auto minmax(220px, 1fr) auto; }.toolbar-flight { display: none; }.map-drawer { width: min(430px, 40vw); }.map-first-panel .map-stage { min-height: 560px; } }
@@ -238,16 +246,9 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
   .metric:nth-child(-n + 2), .draft-result .metric:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
 }
 
-/* Runtime policies: live-generation freshness chip, refresh control, and stale/unusable banner. */
+/* Runtime policies: live-generation refresh control and error presentation. */
 .generation-strip { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin: -4px 0 12px; }
-.generation-strip .status-chip { margin: 0; }
-.freshness-chip { border-radius: 99px; font-size: .68rem; }
-.freshness-fresh { color: var(--mint); border-color: rgba(93, 224, 187, .28); }
-.freshness-stale { color: var(--amber); border-color: rgba(242, 186, 107, .35); }
-.freshness-unusable { color: var(--red); border-color: rgba(241, 127, 134, .4); }
 .refresh-error { color: var(--red); font-size: .72rem; }
-.freshness-banner { background: rgba(242, 186, 107, .08); border: 1px solid rgba(242, 186, 107, .3); color: var(--amber); }
-.freshness-banner-unusable { background: rgba(241, 127, 134, .09); border: 1px solid rgba(241, 127, 134, .3); color: var(--red); }
 .generation-strip .quiet-button { padding: 7px 12px; white-space: nowrap; }
 
 /* Accessibility & UAT pass (2026-08-13): Map Only surface, deterministic
@@ -305,3 +306,130 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
 .browse-limit select { background: #081824; border: 1px solid #294256; border-radius: 6px; color: #eef7fc; padding: 7px 9px; }
 .browse-pager { align-items: center; display: flex; gap: 14px; justify-content: flex-end; margin-top: 12px; }
 .browse-pager > span { color: var(--muted); font-size: .72rem; }
+
+/* All-flight overview: the list and map share one filtered collection and one
+   selected flight identity. The scroll container bounds layout cost without
+   truncating records or route lines. */
+.flight-overview-list { background: rgba(7, 19, 31, .94); border: 1px solid rgba(148, 183, 211, .28); border-radius: 8px; bottom: 58px; display: flex; flex-direction: column; left: 18px; max-height: calc(100% - 150px); overflow: hidden; padding: 10px; position: absolute; top: 92px; width: min(330px, 28vw); z-index: 4; }
+.overview-list-heading { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 2px 3px 8px; }.overview-list-heading .eyebrow { margin-bottom: 3px; }.overview-list-heading strong { color: var(--muted); font-size: .68rem; }
+.overview-flight-buttons { display: flex; flex-direction: column; overflow: auto; scrollbar-color: var(--blue) #081824; }
+.overview-flight-buttons button { align-items: center; background: transparent; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); display: flex; gap: 8px; justify-content: space-between; padding: 9px 7px; text-align: left; width: 100%; }
+.overview-flight-buttons button:hover, .overview-flight-buttons button.selected { background: rgba(82, 184, 232, .13); }
+.overview-flight-buttons button.selected { box-shadow: inset 3px 0 var(--blue); }
+.overview-flight-buttons button:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.overview-flight-buttons button > span:first-child { display: grid; gap: 3px; min-width: 0; }.overview-flight-buttons strong { color: #eef7fc; font-size: .74rem; }.overview-flight-buttons small { color: var(--muted); font-size: .61rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.overview-flight-buttons button > span:last-child { color: var(--subtle); font-size: .61rem; white-space: nowrap; }
+.route-hit { cursor: pointer; fill: none; pointer-events: stroke; stroke: transparent; stroke-width: 16; }
+.map-overlap-chooser { background: rgba(7, 19, 31, .98); border: 1px solid var(--blue); border-radius: 8px; left: 50%; max-height: 50%; overflow: auto; padding: 10px; position: absolute; top: 50%; transform: translate(-50%, -50%); width: min(360px, calc(100% - 32px)); z-index: 8; }.map-overlap-chooser > div { align-items: center; display: flex; justify-content: space-between; margin-bottom: 8px; }.map-overlap-chooser > div strong { font-size: .78rem; }.map-overlap-chooser > button { background: transparent; border: 1px solid var(--line); border-radius: 5px; color: var(--ink); display: grid; gap: 3px; margin-top: 6px; padding: 9px; text-align: left; width: 100%; }.map-overlap-chooser > button span { color: var(--muted); font-size: .65rem; }
+@media (max-width: 760px) { .flight-overview-list { bottom: 44px; left: 8px; max-height: 32%; top: auto; width: calc(100% - 96px); }.map-hud { left: 12px; }.overview-flight-buttons button { padding: 8px 6px; } }
+
+/* Keep the map frame coherent when the viewport is wider than the low-zoom world. */
+@media (min-width: 1101px) {
+  .map-topbar { grid-template-columns: auto minmax(260px, 430px) minmax(180px, 1fr) auto auto; }
+}
+@media (min-width: 761px) and (max-width: 1100px) {
+  .map-topbar { grid-template-columns: auto minmax(220px, 1fr) auto auto; }
+}
+@media (min-width: 761px) {
+  .flight-overview-list { max-height: calc(100% - 180px); top: 122px; }
+  .map-drawer { top: 122px; }
+}
+@media (max-width: 760px) {
+  .map-topbar > .toolbar-clear:first-of-type { grid-column: 2; grid-row: 1; }
+  .map-topbar > .toolbar-clear:last-of-type { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
+}
+
+/* Let the map occupy the available desktop viewport instead of reserving
+   excess vertical space for the page shell. */
+@media (min-width: 761px) {
+  .map-workspace { min-height: calc(100vh - 135px); }
+  .map-first-panel .map-stage { height: min(900px, calc(100vh - 185px)); min-height: 560px; }
+}
+
+/* Selected geometry must remain legible over bright OSM tiles and muted
+   overview routes, including when SVG filter definitions are unavailable. */
+.route-line-selected { pointer-events: none; }
+.route-line-selected .route-shadow { filter: none; opacity: .96; stroke: #07131f; stroke-width: 15; }
+.route-line-selected .route-path { paint-order: stroke; stroke: #fff0a3; stroke-width: 6; }
+.route-line-alternate { opacity: .72; }
+
+.map-stage.has-selected-route .route-line-alternate { opacity: .2; }
+.map-stage.has-selected-route .route-line-selected .route-shadow { stroke-width: 17; }
+.map-stage.has-selected-route .route-line-selected .route-path { stroke: #ffe38a; stroke-width: 7; }
+
+
+/* Option C: full-map focus with compact top actions and bottom sheets. */
+.map-first-shell { background: radial-gradient(circle at 70% -20%, #173951 0, transparent 42%), #07131f; }
+.map-topbar { grid-template-columns: auto minmax(240px, 410px) minmax(170px, 1fr) repeat(3, auto); gap: 10px; }
+.toolbar-map-action { align-items: center; display: inline-flex; gap: 7px; white-space: nowrap; }
+.toolbar-map-action[aria-pressed="true"] { border-color: var(--blue); color: #f0fbff; }
+.toolbar-count { align-items: center; background: var(--blue); border-radius: 99px; color: #062033; display: inline-flex; font-size: .6rem; font-weight: 850; height: 17px; justify-content: center; min-width: 17px; padding: 0 5px; position: static; }
+.toolbar-count.rail-count { border: 0; }
+.map-first-panel { border-radius: 16px; box-shadow: 0 18px 55px rgba(0, 0, 0, .2); }
+.map-first-panel .map-stage { height: min(900px, calc(100vh - 202px)); min-height: 590px; }
+.map-first-panel .map-fallback-banner { bottom: auto; left: auto; right: 24px; top: 76px; }
+.map-first-panel .map-endpoints { bottom: 182px; left: auto; right: 24px; }
+.map-hud { background: rgba(7, 19, 31, .94); border-color: rgba(82, 184, 232, .34); box-shadow: 0 12px 28px rgba(0, 0, 0, .2); left: 24px; max-width: min(390px, calc(100% - 160px)); padding: 12px 14px; top: 24px; }
+.map-rail { bottom: 164px; flex-direction: row; gap: 8px; right: 24px; top: auto; }
+.map-rail button { min-width: auto; padding: 8px 11px; text-align: center; }
+.map-drawer.map-bottom-sheet { bottom: 56px; left: 24px; max-height: 42%; right: 24px; top: auto; width: auto; }
+.map-bottom-sheet .drawer-header { margin-bottom: 12px; }
+.map-first-panel:has(.map-bottom-sheet) .flight-overview-list { display: none; }
+.map-first-panel:has(.map-bottom-sheet) .map-rail { bottom: auto; top: 24px; }
+.flight-overview-list { align-items: center; bottom: 54px; display: grid; grid-template-columns: minmax(170px, .25fr) minmax(0, 1fr); left: 24px; max-height: 132px; right: 24px; top: auto; width: auto; }
+.overview-flight-buttons { flex-direction: row; gap: 8px; min-width: 0; }
+.overview-flight-buttons button { background: #0a1a28; border: 1px solid #274256; border-radius: 8px; min-width: 220px; padding: 10px; }
+.overview-flight-buttons button.selected { box-shadow: inset 3px 0 var(--blue); }
+.map-first-panel > .map-legend { padding-left: 24px; padding-right: 24px; }
+@media (max-width: 1100px) {
+  .map-topbar { grid-template-columns: auto minmax(220px, 1fr) repeat(3, auto); }
+  .map-first-panel .map-stage { min-height: 600px; }
+}
+@media (max-width: 760px) {
+  .map-topbar { grid-template-columns: 1fr auto auto; }
+  .toolbar-search { grid-column: 1 / -1; grid-row: 2; }
+  .toolbar-flight { display: none; }
+  .toolbar-map-action { grid-row: 1; }
+  .toolbar-clear { grid-row: 1; }
+  .map-first-panel .map-stage { height: min(570px, calc(100vh - 360px)); min-height: 440px; }
+  .map-first-panel .map-fallback-banner { bottom: 196px; left: 12px; right: 12px; top: auto; }
+  .map-first-panel .map-endpoints { bottom: 190px; left: 12px; right: 12px; }
+  .map-hud { left: 12px; max-width: calc(100% - 24px); top: 12px; }
+  .map-rail { bottom: 176px; left: 12px; right: 12px; justify-content: flex-end; }
+  .map-first-panel:has(.map-bottom-sheet) .map-rail { bottom: auto; justify-content: flex-end; top: 12px; }
+  .map-drawer.map-bottom-sheet { bottom: 44px; left: 10px; max-height: 54%; right: 10px; }
+  .flight-overview-list { bottom: 44px; display: block; left: 10px; max-height: 152px; padding: 10px; right: 10px; }
+  .overview-flight-buttons { margin-top: 6px; overflow-x: auto; }
+  .overview-flight-buttons button { min-width: 205px; }
+  .map-first-panel > .map-legend { font-size: .6rem; gap: 10px; padding: 9px 12px; }
+}
+
+/* Conservative potential-route layer: client-only modeled geometry is always
+   distinct from recorded geometry and remains legible without color alone. */
+.route-path-potential-known { fill: none; stroke: rgba(217, 230, 242, .74); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; }
+.route-path-potential { fill: none; stroke: var(--amber); stroke-dasharray: 4 7; stroke-linecap: round; stroke-linejoin: round; stroke-width: 3.5; }
+.potential-derived-point circle { fill: #07131f; stroke: var(--amber); stroke-dasharray: 2 2; stroke-width: 2; }
+.legend-line-potential { background: repeating-linear-gradient(90deg, var(--amber) 0 5px, transparent 5px 9px); }
+.potential-route-prompt { align-items: center; border-left: 3px dashed var(--amber); color: var(--muted); display: flex; gap: 12px; justify-content: space-between; padding: 4px 0 4px 10px; }
+.potential-route-prompt .eyebrow { color: var(--amber); margin-bottom: 3px; }.potential-route-prompt strong { color: #eff8ff; display: block; font-size: .72rem; }.potential-route-prompt p { font-size: .64rem; line-height: 1.35; margin: 3px 0 0; }
+.potential-route-options { display: grid; gap: 8px; }
+.potential-route-options button { align-items: center; background: #0a1a28; border: 1px solid rgba(242, 186, 107, .38); border-radius: 7px; color: var(--ink); display: flex; gap: 10px; justify-content: space-between; padding: 11px 12px; text-align: left; width: 100%; }
+.potential-route-options button:hover { background: rgba(242, 186, 107, .1); border-color: var(--amber); }.potential-route-options button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.potential-route-options strong, .potential-route-options small { display: block; }.potential-route-options strong { color: #eff8ff; font-size: .78rem; }.potential-route-options small, .potential-route-options > button > span:last-child { color: var(--muted); font-size: .66rem; }
+@media (max-width: 760px) { .potential-route-prompt { align-items: flex-start; flex-direction: column; gap: 8px; }.potential-route-options button { align-items: flex-start; flex-direction: column; gap: 4px; } }
+@media (forced-colors: active) { .route-path-potential-known { stroke: GrayText; }.route-path-potential { stroke: Highlight; }.potential-derived-point circle { fill: Canvas; stroke: Highlight; }.legend-line-potential { background: repeating-linear-gradient(90deg, CanvasText 0 5px, transparent 5px 9px); } }
+
+/* Persistent left-side route-leg panel. This final scoped layer intentionally
+   overrides the earlier bottom-sheet experiment: route legs never collapse
+   when a transient route drawer opens. */
+.map-first-panel .map-left-stack { bottom: 58px; display: flex; flex-direction: column; gap: 10px; left: 18px; min-height: 0; position: absolute; top: 122px; width: min(330px, 28vw); z-index: 4; }
+.map-first-panel .map-left-stack.has-route-legs { display: grid; grid-template-rows: minmax(120px, .8fr) minmax(220px, 1.2fr); }
+.map-left-stack .flight-overview-list, .map-first-panel:has(.map-bottom-sheet) .map-left-stack .flight-overview-list { bottom: auto; display: flex; left: auto; max-height: none; min-height: 0; position: static; right: auto; top: auto; width: auto; }
+.map-left-stack .overview-flight-buttons { flex-direction: column; }
+.map-first-panel .map-drawer.map-bottom-sheet { bottom: 58px; left: 18px; max-height: none; max-width: calc(100% - 510px); right: auto; top: 122px; width: min(390px, 27vw); }
+@media (max-width: 1100px) and (min-width: 761px) { .map-first-panel .map-drawer.map-bottom-sheet { width: min(390px, 40vw); } }
+@media (max-width: 760px) {
+  .map-first-panel .map-left-stack { bottom: 44px; left: 10px; right: 10px; top: 100px; width: auto; }
+  .map-first-panel .map-left-stack.has-route-legs { grid-template-rows: minmax(110px, .8fr) minmax(170px, 1.2fr); }
+  .map-left-stack .flight-overview-list, .map-first-panel:has(.map-bottom-sheet) .map-left-stack .flight-overview-list { display: flex; }
+  .map-first-panel .map-drawer.map-bottom-sheet { bottom: 44px; left: 10px; max-height: 54%; max-width: none; right: 10px; top: auto; width: auto; }
+}

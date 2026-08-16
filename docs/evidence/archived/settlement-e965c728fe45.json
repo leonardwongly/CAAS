@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "recordKind": "settlement-results",
+  "planKind": "evidence-settlement-v1",
+  "subject": {
+    "type": "commit",
+    "identifiers": {
+      "commit": "e965c728fe450a510ebf9cd5af129f040e26ead9"
+    },
+    "environment": "local-settlement"
+  },
+  "completedAt": "2026-08-16T10:43:35.726Z",
+  "archived": [],
+  "regenerated": [
+    "docs/evidence/loopback-lane-local-e965c728fe45.json"
+  ],
+  "validation": {
+    "mode": "serial-after-regeneration",
+    "gateCount": 1,
+    "laneCount": 30
+  },
+  "azure": "untouched",
+  "production": "prohibited"
+}

@@ -107,8 +107,6 @@ export const RouteCandidateSchema = z.object({
   destination: LocationReferenceSchema,
   legs: z.array(RouteLegSchema).min(1).max(MAX_ROUTE_LEGS),
   distanceNm: finiteNumber.nonnegative(),
-  rankDistanceNm: finiteNumber.nonnegative(),
-  rank: z.number().int().positive().optional(),
 }).strict();
 export type RouteCandidate = z.output<typeof RouteCandidateSchema>;
 
@@ -149,9 +147,6 @@ export type RouteDraft = z.output<typeof RouteDraftSchema>;
  */
 export const PERSISTENT_SAFETY_COPY =
   "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.";
-
-/** The only qualified first-place label; bound to complete recorded candidates with the shortest modeled distance. */
-export const RANK_ONE_LABEL = "Rank 1 by shortest modeled distance among complete candidates.";
 
 /** Safety copy on route drafts that are computationally complete but not operationally assessed. */
 export const DRAFT_SAFETY_COPY = "Computationally complete; operational constraints not assessed.";

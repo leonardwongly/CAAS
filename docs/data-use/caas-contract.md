@@ -44,7 +44,7 @@ Implementation consequences:
 
 1. Always acquire and validate Airways because it is a required family.
 2. Count it in internal generation-health evidence without returning its values/types.
-3. Do not put airway fields in public DTOs, error details, logs, signatures, route diffs, map labels, geometry, completeness, or ranking.
+3. Do not put airway fields in public DTOs, error details, logs, signatures, route diffs, map labels, geometry, completeness, or route comparison.
 4. Do not infer a directed graph from adjacency or name matching.
 5. Record the user-approved graphical-airway variance honestly in evidence.
 
@@ -53,6 +53,8 @@ Implementation consequences:
 Treat OpenAPI as discovery material, not the runtime trust boundary. The observed data may use aliases such as `enroute` where a schema says `enRoute`, string coordinates where a schema suggests numbers, and extra fields. Map accepted aliases deliberately, discard unknown fields, reject malformed values, and keep the normalized contract versioned.
 
 For each reference string, parse a bounded identifier plus latitude/longitude and reject out-of-range coordinates. Index all exact matches, preserving multiplicity. Resolve endpoints with Airports and intermediate identifiers with Fixes/NAVAIDs. If an identifier is absent or ambiguous, return an explicit unresolved/ambiguous state. No proximity inference, airway-name inference, or silent repair is permitted.
+
+CAAS Airports remain authoritative only for exact endpoint code/coordinate resolution in this POC. Display-name enrichment is a separate governed metadata layer documented in [airport-name reference governance](airport-name-reference.md): exact ICAO join only, pinned/checksummed OurAirports bundle, `Name unavailable (ICAO)` fallback, no fuzzy/proximity/generated-code join, and no runtime third-party lookup.
 
 ## What this evidence does not prove
 

@@ -14,8 +14,8 @@ export interface DistanceComparison {
  * `target` is always the second operand: distanceDeltaNm = target - baseline.
  * Either operand missing (incomplete geometry) makes both metrics unavailable
  * with code INCOMPLETE_OPERAND; a zero-distance baseline makes the percentage
- * unavailable with code ZERO_BASELINE. Rounding (rankDistanceNm at 0.000001 NM,
- * displayDistanceNm at 0.1 NM) is a display concern and never applied here.
+ * unavailable with code ZERO_BASELINE. Display rounding is a caller concern and
+ * is never applied here.
  */
 export function compareDistanceOperands(
   baselineDistanceNm: number | undefined,

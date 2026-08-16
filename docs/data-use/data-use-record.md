@@ -118,3 +118,10 @@ DTO. Airway values/types are never exposed — counts only. Raw upstream
 records, credentials, and restricted identifiers beyond the active request
 remain excluded, and the standing 24-hour teardown / 7-day governance-max
 retention decisions are unchanged by this addendum.
+
+
+## 12. Addendum — incomplete-route distance annotation (owner request 2026-08-16)
+
+The owner authorized a client-only, non-operational distance annotation derived from exact normalized route coordinates already delivered under Section 3. Release 1 computes ephemeral geometric lower bounds in the browser and adds no normalized API field, endpoint, log, export, evidence payload, or persisted state. It therefore does not expand the currently exposed source-data field list.
+
+Release 2 code may train only from a separately approved offline historical corpus. This record does **not** authorize the application to accumulate active/previous generations, retain flight histories, or commit raw training routes. Before a production model artifact is generated, the corpus source, grouping key, retention period, permitted derivative use, deletion procedure, and audience must receive a new recorded decision. A permitted browser artifact is aggregate-only: model cells, independent-route counts, conformal residuals, validation metrics, and a corpus digest; it contains no callsign, flight identifier, named fix, raw coordinate, or individual route. Until that decision and the statistical release gates pass, the bundled model remains explicitly unavailable.

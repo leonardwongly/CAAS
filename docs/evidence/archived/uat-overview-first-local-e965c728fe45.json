@@ -1,0 +1,144 @@
+{
+  "recordKind": "lane-results",
+  "lane": "revised-overview-first-live-uat",
+  "subject": {
+    "type": "commit",
+    "identifiers": {
+      "commit": "e965c728fe450a510ebf9cd5af129f040e26ead9",
+      "workingTreeState": "uncommitted; source artifacts below bind the observed UI"
+    },
+    "environment": "local-loopback-real-caas-browser"
+  },
+  "startedAt": "2026-08-16T10:41:37Z",
+  "endedAt": "2026-08-16T10:42:51Z",
+  "mode": "separate-revised-live-uat",
+  "credentialHandling": "The authorized local credential was consumed by the server-side adapter only; it was not exposed to the browser, recorded, or printed.",
+  "procedure": "Built the current web bundle, started the Fastify API on loopback with the authorized local environment, exercised the overview-first map/list selection, neutral route drawer, route data, local variation surface, map-only restoration, clear-session reset, safety copy, and browser accessibility checks. No Azure or production endpoint was used.",
+  "checks": [
+    {
+      "checkId": "UAT-OVERVIEW-ALL-FLIGHTS",
+      "name": "overview-first all-flight rendering",
+      "procedure": "Load the ready local live app without entering a callsign and inspect the map/list overview.",
+      "startedAt": "2026-08-16T10:41:37Z",
+      "endedAt": "2026-08-16T10:42:05Z",
+      "result": "pass",
+      "measurement": { "summary": "92 recorded routes shown in the overview and no callsign gate", "value": 92, "units": "routes", "sampleCount": 1 },
+      "artifacts": [
+        { "path": "docs/testing/uat-walkthrough.md", "sha256": "28837d71d31efa60e232e9f7ad74de0fe9c6e6549f4a0811e7abf784196ed4f9" },
+        { "path": "apps/web/src/App.tsx", "sha256": "60042338ba5239c828348a47b2151a789749a76ea7e8a87a815139a51e8feec0" }
+      ],
+      "failureFallback": "Keep the revised UAT record separate and do not claim overview acceptance."
+    },
+    {
+      "checkId": "UAT-SHARED-SELECTION",
+      "name": "synchronized map and list selection",
+      "procedure": "Select one displayed live route from the full list and verify the selected HUD, map emphasis, and detail controls track the same flight.",
+      "startedAt": "2026-08-16T10:42:05Z",
+      "endedAt": "2026-08-16T10:42:18Z",
+      "result": "pass",
+      "measurement": { "summary": "list selection synchronized the selected route, HUD, map, and drawers", "value": true, "units": "boolean", "sampleCount": 1 },
+      "artifacts": [
+        { "path": "docs/testing/uat-walkthrough.md", "sha256": "28837d71d31efa60e232e9f7ad74de0fe9c6e6549f4a0811e7abf784196ed4f9" },
+        { "path": "apps/web/src/App.tsx", "sha256": "60042338ba5239c828348a47b2151a789749a76ea7e8a87a815139a51e8feec0" },
+        { "path": "apps/web/src/api.ts", "sha256": "36864694c9e159ab5a037e32819c7de7d9fb8f41ed5b6b4423b95d81410a163c" }
+      ],
+      "failureFallback": "Retain the result as a failed revised UAT and do not upgrade older records."
+    },
+    {
+      "checkId": "UAT-NEUTRAL-COMPARISON",
+      "name": "neutral route comparison surface",
+      "procedure": "Open the recorded route-options drawer and inspect its headings, ordering language, and absence of preference fields or winner terminology.",
+      "startedAt": "2026-08-16T10:42:18Z",
+      "endedAt": "2026-08-16T10:42:27Z",
+      "result": "pass",
+      "measurement": { "summary": "route options were presented as recorded complete/incomplete facts without a winner claim", "value": true, "units": "boolean", "sampleCount": 1 },
+      "artifacts": [
+        { "path": "docs/testing/uat-walkthrough.md", "sha256": "28837d71d31efa60e232e9f7ad74de0fe9c6e6549f4a0811e7abf784196ed4f9" },
+        { "path": "apps/web/src/App.tsx", "sha256": "60042338ba5239c828348a47b2151a789749a76ea7e8a87a815139a51e8feec0" },
+        { "path": "apps/web/src/labels.ts", "sha256": "38f788075edf724461f16bbb06549ea5cea98462148bb42a2c83e3ce2faee74c" }
+      ],
+      "failureFallback": "Do not relabel or reuse retained rank-era UAT artifacts."
+    },
+    {
+      "checkId": "UAT-ROUTE-DATA",
+      "name": "route data and explicit resolution state",
+      "procedure": "Open Route Data for the selected live route and inspect ordered legs, exact endpoint names/codes, modeled distance labeling, and visible gap state.",
+      "startedAt": "2026-08-16T10:42:27Z",
+      "endedAt": "2026-08-16T10:42:35Z",
+      "result": "pass",
+      "measurement": { "summary": "route data drawer rendered ordered resolved legs, full airport names with codes, and descriptive modeled distance", "value": true, "units": "boolean", "sampleCount": 1 },
+      "artifacts": [
+        { "path": "docs/testing/uat-walkthrough.md", "sha256": "28837d71d31efa60e232e9f7ad74de0fe9c6e6549f4a0811e7abf784196ed4f9" },
+        { "path": "apps/web/src/App.tsx", "sha256": "60042338ba5239c828348a47b2151a789749a76ea7e8a87a815139a51e8feec0" },
+        { "path": "apps/web/src/api.ts", "sha256": "36864694c9e159ab5a037e32819c7de7d9fb8f41ed5b6b4423b95d81410a163c" }
+      ],
+      "failureFallback": "Keep route data acceptance unresolved; never infer missing geometry or operational suitability."
+    },
+    {
+      "checkId": "UAT-VARIATION-SURFACE",
+      "name": "local variation boundary",
+      "procedure": "Open the optional variation drawer and inspect its explicit local computational-draft and unsaved boundary.",
+      "startedAt": "2026-08-16T10:42:35Z",
+      "endedAt": "2026-08-16T10:42:40Z",
+      "result": "pass",
+      "measurement": { "summary": "variation surface was bounded, optional, local, and separate from recorded-route comparison", "value": true, "units": "boolean", "sampleCount": 1 },
+      "artifacts": [
+        { "path": "docs/testing/uat-walkthrough.md", "sha256": "28837d71d31efa60e232e9f7ad74de0fe9c6e6549f4a0811e7abf784196ed4f9" },
+        { "path": "apps/web/src/App.tsx", "sha256": "60042338ba5239c828348a47b2151a789749a76ea7e8a87a815139a51e8feec0" },
+        { "path": "apps/web/src/styles.css", "sha256": "6dfd874a74eb4abe8178f927e9d76447840075022c410b1facaa921b40ea1a4c" }
+      ],
+      "failureFallback": "Treat variation as optional and local; do not make it a required journey stage."
+    },
+    {
+      "checkId": "UAT-MAP-RESTORE-CLEAR",
+      "name": "map-only restore and clear-session behavior",
+      "procedure": "Enter Map only, restore the controls, then clear the session and verify the populated overview remains available.",
+      "startedAt": "2026-08-16T10:42:40Z",
+      "endedAt": "2026-08-16T10:42:47Z",
+      "result": "pass",
+      "measurement": { "summary": "map-only restoration returned controls and clear-session restored the populated overview", "value": true, "units": "boolean", "sampleCount": 1 },
+      "artifacts": [
+        { "path": "docs/testing/uat-walkthrough.md", "sha256": "28837d71d31efa60e232e9f7ad74de0fe9c6e6549f4a0811e7abf784196ed4f9" },
+        { "path": "apps/web/src/App.tsx", "sha256": "60042338ba5239c828348a47b2151a789749a76ea7e8a87a815139a51e8feec0" }
+      ],
+      "failureFallback": "Keep the live UAT result separate and report the failed interaction explicitly."
+    },
+    {
+      "checkId": "UAT-SAFETY-COPY",
+      "name": "persistent safety wording",
+      "procedure": "Inspect the persistent safety notice and the overview/map copy for operational or winner claims.",
+      "startedAt": "2026-08-16T10:41:37Z",
+      "endedAt": "2026-08-16T10:42:51Z",
+      "result": "pass",
+      "measurement": { "summary": "exact demonstration-only safety sentence present; no winner or operational recommendation observed", "value": true, "units": "boolean", "sampleCount": 1 },
+      "artifacts": [
+        { "path": "docs/testing/uat-walkthrough.md", "sha256": "28837d71d31efa60e232e9f7ad74de0fe9c6e6549f4a0811e7abf784196ed4f9" },
+        { "path": "apps/web/src/App.tsx", "sha256": "60042338ba5239c828348a47b2151a789749a76ea7e8a87a815139a51e8feec0" },
+        { "path": "apps/web/src/styles.css", "sha256": "6dfd874a74eb4abe8178f927e9d76447840075022c410b1facaa921b40ea1a4c" }
+      ],
+      "failureFallback": "Block any release claim until the exact safety boundary is restored."
+    },
+    {
+      "checkId": "UAT-BROWSER-A11Y",
+      "name": "browser accessibility scan",
+      "procedure": "Run the installed browser axe scan against the live overview after the revised flow.",
+      "startedAt": "2026-08-16T10:42:47Z",
+      "endedAt": "2026-08-16T10:42:51Z",
+      "result": "pass",
+      "measurement": { "summary": "axe violations", "value": 0, "units": "violations", "sampleCount": 1 },
+      "artifacts": [
+        { "path": "docs/testing/uat-walkthrough.md", "sha256": "28837d71d31efa60e232e9f7ad74de0fe9c6e6549f4a0811e7abf784196ed4f9" },
+        { "path": "apps/web/src/App.tsx", "sha256": "60042338ba5239c828348a47b2151a789749a76ea7e8a87a815139a51e8feec0" },
+        { "path": "apps/web/src/styles.css", "sha256": "6dfd874a74eb4abe8178f927e9d76447840075022c410b1facaa921b40ea1a4c" }
+      ],
+      "failureFallback": "Keep the revised UAT pending human accessibility review; zero axe violations does not prove assistive-technology acceptance."
+    }
+  ],
+  "summary": { "checks": 8, "passed": 8, "blocked": 0, "failed": 0 },
+  "artifacts": [
+    { "path": "docs/testing/uat-walkthrough.md", "sha256": "28837d71d31efa60e232e9f7ad74de0fe9c6e6549f4a0811e7abf784196ed4f9" },
+    { "path": "apps/web/src/App.tsx", "sha256": "60042338ba5239c828348a47b2151a789749a76ea7e8a87a815139a51e8feec0" },
+    { "path": "apps/web/src/api.ts", "sha256": "36864694c9e159ab5a037e32819c7de7d9fb8f41ed5b6b4423b95d81410a163c" },
+    { "path": "apps/web/src/styles.css", "sha256": "6dfd874a74eb4abe8178f927e9d76447840075022c410b1facaa921b40ea1a4c" }
+  ]
+}

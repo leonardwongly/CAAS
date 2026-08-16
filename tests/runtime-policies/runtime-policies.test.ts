@@ -4,7 +4,6 @@ import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { createApiServer } from "../../apps/api/src/index.ts";
-import { RANK_ONE_LABEL } from "../../packages/contracts/src/index.ts";
 // The §6.2 freshness-window constants themselves are pinned by
 // packages/upstream-caas/test/freshness.test.ts (the package owns its
 // constants); this suite pins the server-side deadline and the runtime
@@ -87,7 +86,7 @@ test("nothing persists across server restart: old cursors, routes, and drafts fa
   assert.equal((staleDraft.json() as { error: { code: string } }).error.code, "DRAFT_EXPIRED");
 });
 
-test("every tied rank-1 candidate carries the exact qualified label, provenance, and modeled distance", async (t) => {
+test("route options preserve selected-first neutral order, provenance, and descriptive distance", async (t) => {
   const server = await createApiServer({ adapter: sanitizedAdapter() });
   t.after(() => server.app.close());
 
@@ -96,17 +95,18 @@ test("every tied rank-1 candidate carries the exact qualified label, provenance,
   const flightId = String((search.json() as { data: Array<{ id: unknown }> }).data[0]?.id);
   const options = await server.app.inject({ method: "POST", url: "/api/v1/routes/options", payload: { flightId } });
   assert.equal(options.statusCode, 200);
-  const body = options.json() as { data: Array<{ rank: number; distanceNm?: number; rankDistanceNm?: number; provenance?: string }>; rankLabel?: string };
+  const body = options.json() as { data: Array<{ flightId: string; complete: boolean; distanceNm?: number; provenance?: string }> };
 
-  assert.equal(body.rankLabel, RANK_ONE_LABEL, "the response must carry the exact qualified rank-1 label");
-  const rankOne = body.data.filter((route) => route.rank === 1);
-  assert.ok(rankOne.length >= 1, "at least one complete candidate is ranked first");
-  for (const candidate of rankOne) {
-    assert.equal(typeof candidate.distanceNm, "number", "rank-1 candidates must present modeled distance");
-    assert.equal(typeof candidate.rankDistanceNm, "number", "rank-1 candidates must present full-precision ranked distance");
-    assert.ok(candidate.provenance, "rank-1 candidates must carry provenance");
+  assert.equal(body.data[0]?.flightId, flightId, "the explicitly selected flight must remain first");
+  assert.ok(body.data.length >= 1);
+  for (const candidate of body.data) {
+    if (candidate.complete) assert.equal(typeof candidate.distanceNm, "number", "complete routes carry descriptive modeled distance");
+    assert.ok(candidate.provenance, "every route carries provenance");
   }
   const serialized = JSON.stringify(body);
+  for (const field of ["rank", "rankDistanceNm", "rankLabel", "operationalProxy"]) {
+    assert.equal(serialized.includes(`"${field}"`), false, `${field} must not be emitted`);
+  }
   const forbidden = serialized.match(FORBIDDEN_QUALIFIERS);
   assert.equal(forbidden, null, `the route-options response qualifies a candidate: ${forbidden?.[0]}`);
 });

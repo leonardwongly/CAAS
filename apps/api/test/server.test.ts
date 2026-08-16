@@ -78,7 +78,9 @@ test("searches real flight plans by callsign and serves selected-flight routes",
   assert.equal(routes.every((route) => route.callsign === "DUPLICATE1"), true);
   const route = routes.find((candidate) => candidate.flightId === firstId)!;
   assert.equal(route.complete, true);
-  assert.equal(route.rank, 1);
+  assert.equal("rank" in route, false);
+  assert.equal("rankDistanceNm" in route, false);
+  assert.equal("operationalProxy" in route, false);
   assert.equal((route.legs as unknown[]).length, 1);
   assert.deepEqual(route.gaps, []);
   assert.equal(JSON.stringify(routes).includes("raw-a"), false);
@@ -88,7 +90,69 @@ test("searches real flight plans by callsign and serves selected-flight routes",
   assert.equal((detail.json() as { data: { geometry?: unknown } }).data.geometry !== undefined, true);
 });
 
-test("returns same-endpoint alternatives, preserves tied ranks, and leaves incomplete candidates unranked", async (t) => {
+test("pages every flight route exactly once in the generation-bound overview", async (t) => {
+  const server = await createApiServer({ adapter: fixtureAdapter(), refreshSecret: "test-refresh", refreshMinIntervalMs: 0 });
+  t.after(() => server.app.close());
+  const first = await server.app.inject({ method: "POST", url: "/api/v1/routes/overview", payload: { limit: 2 } });
+  assert.equal(first.statusCode, 200);
+  const firstBody = first.json() as { data: Array<Record<string, unknown>>; nextCursor: string; total: number; loaded: number };
+  assert.equal(firstBody.data.length, 2);
+  assert.equal(firstBody.loaded, 2);
+  assert.equal(firstBody.total, 4);
+  assert.ok(firstBody.nextCursor);
+  const second = await server.app.inject({ method: "POST", url: "/api/v1/routes/overview", payload: { limit: 2, cursor: firstBody.nextCursor } });
+  assert.equal(second.statusCode, 200);
+  const secondBody = second.json() as { data: Array<Record<string, unknown>>; nextCursor?: string; total: number; loaded: number };
+  assert.equal(secondBody.data.length, 2);
+  assert.equal(secondBody.nextCursor, undefined);
+  assert.equal(secondBody.loaded, 4);
+  const routes = [...firstBody.data, ...secondBody.data];
+  assert.equal(new Set(routes.map((route) => route.flightId)).size, 4);
+  assert.equal(routes.every((route) => !("rank" in route) && !("rankDistanceNm" in route) && !("operationalProxy" in route)), true);
+  assert.equal(routes[0]?.origin, "John F. Kennedy International Airport (KJFK)");
+  assert.equal(routes[0]?.destination, "Los Angeles International Airport (KLAX)");
+  assert.equal(Array.isArray(routes[1]?.segments), true);
+  assert.equal((routes[1]?.gaps as unknown[]).length, 1);
+
+  const refreshed = await server.app.inject({ method: "POST", url: "/api/v1/refresh", headers: { "x-refresh-token": "test-refresh" } });
+  assert.equal(refreshed.statusCode, 200);
+  const expired = await server.app.inject({ method: "POST", url: "/api/v1/routes/overview", payload: { limit: 2, cursor: firstBody.nextCursor } });
+  assert.equal(expired.statusCode, 409);
+  assert.equal((expired.json() as { error: { code: string } }).error.code, "CURSOR_EXPIRED");
+});
+
+test("overview preserves resolved interior segments between unresolved endpoints", async (t) => {
+  const records: FlightPlanRecord[] = [{
+    id: "raw-unresolved-endpoints",
+    callsign: "INTERIOR1",
+    departure: "KXXX",
+    destination: "KYYY",
+    routeElements: [
+      { sequence: 0, coordinate: coordinate(10, 30) },
+      { sequence: 1, coordinate: coordinate(20, 40) },
+    ],
+  }];
+  const server = await createApiServer({ adapter: fixtureAdapter(records), refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+
+  const response = await server.app.inject({ method: "POST", url: "/api/v1/routes/overview", payload: {} });
+  assert.equal(response.statusCode, 200);
+  const route = (response.json() as { data: Array<Record<string, unknown>> }).data[0]!;
+  assert.equal(route.complete, false);
+  assert.equal(route.origin, "Name unavailable (KXXX)");
+  assert.equal(route.destination, "Name unavailable (KYYY)");
+  assert.equal(route.pointCount, 2);
+  assert.equal("distanceNm" in route, false);
+  assert.equal("geometry" in route, false);
+  assert.deepEqual(route.gaps, [
+    { status: "gap", sequence: 0, reason: "not-found" },
+    { status: "gap", sequence: 3, reason: "not-found" },
+  ]);
+  assert.deepEqual(route.segments, [{ type: "LineString", coordinates: [[30, 10], [40, 20]] }]);
+  assert.deepEqual((route.legs as Array<{ kind: string }>).map((leg) => leg.kind), ["gap", "segment", "gap"]);
+});
+
+test("returns same-endpoint alternatives in neutral selected-first source order", async (t) => {
   const records: FlightPlanRecord[] = [
     { id: "raw-tie-selected", callsign: "TIESELECTED", departure: "KJFK", destination: "KLAX", routeElements: [{ sequence: 0, coordinate: coordinate(0, 3) }] },
     { id: "raw-tie-alternative", callsign: "TIEALTERNATIVE", departure: "KJFK", destination: "KLAX", routeElements: [{ sequence: 0, coordinate: coordinate(0, 7) }] },
@@ -109,27 +173,13 @@ test("returns same-endpoint alternatives, preserves tied ranks, and leaves incom
   const routes = (options.json() as { data: Array<Record<string, unknown>> }).data;
   assert.equal(routes.length, 3);
   assert.equal(routes.some((route) => route.flightId === selectedId), true);
+  assert.equal(routes[0]?.callsign, "TIESELECTED");
+  assert.equal(routes[1]?.callsign, "TIEALTERNATIVE");
+  assert.equal(routes[2]?.callsign, "TIEINCOMPLETE");
   assert.equal(routes[0]?.complete, true);
   assert.equal(routes[1]?.complete, true);
   assert.equal(routes[2]?.complete, false);
-  assert.equal(routes[0]?.rank, 1);
-  assert.equal(routes[1]?.rank, 1);
-  assert.equal(routes[0]?.rankDistanceNm, routes[1]?.rankDistanceNm);
-  assert.deepEqual(routes[0]?.operationalProxy, {
-    mode: "operational-proxy",
-    eligible: true,
-    criterion: "minimum-modeled-distance-nm",
-    summary: "Shortest complete normalized observed route among same-endpoint candidates returned by this fresh generation.",
-    rank: 1,
-  });
-  assert.deepEqual(routes[2]?.operationalProxy, {
-    mode: "operational-proxy",
-    eligible: false,
-    criterion: "minimum-modeled-distance-nm",
-    summary: "Shortest complete normalized observed route among same-endpoint candidates returned by this fresh generation.",
-    exclusion: "Route geometry is incomplete or unresolved.",
-  });
-  assert.equal(routes[2]?.rank, undefined);
+  assert.equal(routes.every((route) => !("rank" in route) && !("rankDistanceNm" in route) && !("operationalProxy" in route)), true);
   assert.equal(routes[2]?.distanceNm, undefined);
   assert.equal(JSON.stringify(routes).includes("raw-tie"), false);
   assert.equal(JSON.stringify(routes).includes("UNKNOWN-TIE-FIX"), false);
@@ -280,10 +330,10 @@ test("hardens route drafts to resolved airports and withholds incomplete distanc
   const compared = await server.app.inject({ method: "POST", url: "/api/v1/drafts/compare", payload: { draftId } });
   assert.equal(compared.statusCode, 200);
   const complete = compared.json() as { route: Record<string, unknown> };
-  assert.equal(complete.route.origin, "KJFK");
-  assert.equal(complete.route.destination, "KLAX");
+  assert.equal(complete.route.origin, "John F. Kennedy International Airport (KJFK)");
+  assert.equal(complete.route.destination, "Los Angeles International Airport (KLAX)");
   assert.equal(complete.route.complete, undefined);
-  assert.equal(complete.route.rank, undefined);
+  assert.equal("rank" in complete.route, false);
   assert.equal(typeof complete.route.distanceNm, "number");
   assert.equal((complete.route.legs as Array<Record<string, unknown>>).every((leg) => typeof leg.distanceNm === "number"), true);
 
@@ -303,8 +353,8 @@ test("hardens route drafts to resolved airports and withholds incomplete distanc
   const incomplete = incompleteResponse.json() as { route: Record<string, unknown>; comparison: { status: string } };
   assert.equal(incomplete.comparison.status, "gap");
   assert.equal(incomplete.route.distanceNm, undefined);
-  assert.equal(incomplete.route.rankDistanceNm, undefined);
-  assert.equal(incomplete.route.rank, undefined);
+  assert.equal("rankDistanceNm" in incomplete.route, false);
+  assert.equal("rank" in incomplete.route, false);
   assert.equal(incomplete.route.geometry, undefined);
   assert.equal((incomplete.route.legs as Array<Record<string, unknown>>).every((leg) => leg.distanceNm === undefined), true);
 });
