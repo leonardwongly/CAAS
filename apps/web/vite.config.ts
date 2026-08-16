@@ -7,8 +7,12 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://localhost:8080",
+        // The development proxy is local-only. Make its upstream request
+        // same-origin with the API so the API's state-changing request guard
+        // remains effective without rejecting proxied browser requests.
+        target: "http://127.0.0.1:8080",
         changeOrigin: true,
+        headers: { origin: "http://127.0.0.1:8080" },
       },
     },
   },

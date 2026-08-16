@@ -1,7 +1,9 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../../apps/web/src/App.tsx";
+import { deriveConservativePotentialRoute } from "../../apps/web/src/potentialRoute.ts";
+import type { RouteOption } from "../../apps/web/src/api.ts";
 import { installApiStub, type StubOptions } from "../fixtures/web-app.ts";
 
 /**
@@ -24,41 +26,78 @@ async function selectFixtureFlight(user: ReturnType<typeof userEvent.setup>) {
   const listbox = await screen.findByRole("listbox", { name: "Choose an exact flight-plan match" });
   expect(listbox).toBeTruthy();
   await user.keyboard("{ArrowDown}{Enter}");
-  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("route options returned"));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("same-endpoint recorded routes returned"));
 }
 
 describe("interaction review", () => {
-  it("searches, disambiguates, opens the data drawer, and reads the leg table", async () => {
+  it("keeps the expanded left-side leg table visible while route details open", async () => {
     installApiStub();
     const user = userEvent.setup();
     render(<App />);
     await selectFixtureFlight(user);
 
-    await user.click(screen.getByRole("button", { name: "Data" }));
-    const drawer = await screen.findByRole("region", { name: "Flight and route data" });
-    const table = drawer.querySelector("table") as HTMLTableElement;
+    const panel = await screen.findByRole("region", { name: "Route legs" });
+    const table = panel.querySelector("table") as HTMLTableElement;
     expect(table.querySelectorAll("tr").length).toBe(3); // header + 2 legs
     const cells = Array.from(table.querySelectorAll("td, th")).map((cell) => cell.textContent?.trim());
     expect(cells).toContain("KOR1");
     expect(cells).toContain("240.5 NM");
     expect(cells).toContain("MIDPT");
+
+    await user.click(screen.getByRole("button", { name: "Data" }));
+    expect(await screen.findByRole("region", { name: "Flight and route data" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Route legs" })).toBeTruthy();
   });
 
-  it("selecting the unranked route updates the HUD and surfaces the gap", async () => {
+  it("shows only complete route options", async () => {
     installApiStub();
     const user = userEvent.setup();
     render(<App />);
     await selectFixtureFlight(user);
 
     await user.click(screen.getByRole("button", { name: "Routes" }));
-    await user.click(screen.getByRole("button", { name: /Recorded with unresolved gap/ }));
-    await waitFor(() => expect(screen.getByText("Recorded with unresolved gap", { selector: ".map-hud strong" })).toBeTruthy());
-    expect(screen.getByRole("status").textContent).toContain("Selected Recorded with unresolved gap.");
+    expect(screen.getByRole("heading", { name: "Complete recorded route options" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Recorded via MIDPT/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Recorded via alternate routing/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Recorded with unresolved gap/ })).toBeNull();
+    expect(screen.queryByText("Recorded routes with visible gaps")).toBeNull();
+  });
 
-    await user.click(screen.getByRole("button", { name: "Data" }));
-    const data = await screen.findByRole("region", { name: "Flight and route data" });
-    expect(within(data).getByText("Unresolved gap")).toBeTruthy();
-    expect(within(data).getByText("MIDPT could not be resolved to a single reference")).toBeTruthy();
+  it("renders a dotted potential span without changing recorded route facts", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Show visual estimate" }));
+    const drawer = await screen.findByRole("region", { name: "Estimated gap preview" });
+    await user.click(within(drawer).getByRole("button", { name: /Recorded with unresolved gap/ }));
+
+    await waitFor(() => expect(container.querySelectorAll(".route-path-potential")).toHaveLength(1));
+    expect(container.querySelectorAll(".potential-derived-point")).toHaveLength(1);
+    expect(screen.getByRole("img", { name: /estimated gap preview/ })).toBeTruthy();
+    expect(within(drawer).getByText("Named fixes inferred")).toBeTruthy();
+    expect(within(drawer).getAllByText("Excluded")).toHaveLength(2);
+  });
+
+  it("renders a visual estimate across a distant exact-anchor gap", () => {
+    const route: RouteOption = {
+      id: "incomplete-route",
+      flightId: "flight-incomplete",
+      callsign: "BOUNDTEST",
+      status: "incomplete",
+      complete: false,
+      pointCount: 4,
+      legs: [],
+      gaps: [{ sequence: 2, status: "gap", reason: "Unresolved reference" }],
+      segments: [
+        [{ lat: 0, lon: 0 }, { lat: 0, lon: 1 }],
+        [{ lat: 0, lon: 5 }, { lat: 0, lon: 6 }],
+      ],
+    };
+
+    const potential = deriveConservativePotentialRoute(route);
+    expect(potential?.inferredSegments).toHaveLength(1);
+    expect(potential?.derivedPoints).toHaveLength(1);
   });
 
   it("draws every returned route on the map with alternates dimmed and moves the highlight on selection", async () => {
@@ -67,12 +106,11 @@ describe("interaction review", () => {
     const { container } = render(<App />);
     await selectFixtureFlight(user);
 
-    // The auto-selected Rank 1 route is highlighted and the other candidate
-    // with geometry is drawn dimmed; the gap-only candidate has no geometry
-    // and must not be drawn. The rail badge counts all returned options.
+    // Both complete candidates are drawn; the incomplete candidate is not
+    // visible or selectable because only complete routes are presented.
     expect(container.querySelectorAll(".route-path")).toHaveLength(1);
     expect(container.querySelectorAll(".route-path-alternate")).toHaveLength(1);
-    expect(container.querySelector(".rail-count")?.textContent).toBe("3");
+    expect(container.querySelector(".rail-count")?.textContent).toBe("2");
     expect(screen.getByRole("img", { name: /1 alternate recorded route shown dimmed/ })).toBeTruthy();
 
     // Choosing a different candidate moves the highlight without changing
@@ -100,7 +138,7 @@ describe("interaction review", () => {
     expect(within(drawer).getByText(/\+4\.2%/)).toBeTruthy();
   });
 
-  it("comparing the incomplete candidate reports an unavailable delta", async () => {
+  it("does not offer incomplete routes for comparison", async () => {
     installApiStub();
     const user = userEvent.setup();
     render(<App />);
@@ -108,9 +146,8 @@ describe("interaction review", () => {
 
     await user.click(screen.getByRole("button", { name: "Compare" }));
     const drawer = await screen.findByRole("region", { name: "Route comparison" });
-    await user.click(within(drawer).getByRole("button", { name: /with Recorded with unresolved gap/ }));
-    expect(within(drawer).getByText("Unavailable")).toBeTruthy();
-    expect(within(drawer).getByText("Both routes must be complete for a modeled-distance difference.")).toBeTruthy();
+    expect(within(drawer).getByRole("button", { name: /with Recorded via alternate routing/ })).toBeTruthy();
+    expect(within(drawer).queryByRole("button", { name: /with Recorded with unresolved gap/ })).toBeNull();
   });
 
   it("edits a copy and sees the validated comparison metrics", async () => {
@@ -119,12 +156,12 @@ describe("interaction review", () => {
     render(<App />);
     await selectFixtureFlight(user);
 
-    await user.click(screen.getByRole("button", { name: "Edit copy" }));
-    const editor = await screen.findByRole("region", { name: "Local route editor" });
+    await user.click(screen.getByRole("button", { name: "Explore variation" }));
+    const editor = await screen.findByRole("region", { name: "Explore a route variation" });
     await waitFor(() => expect(within(editor).getByText("Draft status")).toBeTruthy());
-    expect(screen.getByText("512.4 NM")).toBeTruthy();
-    expect(screen.getByText("+0.0 NM")).toBeTruthy();
-    expect(screen.getByText("Draft validation completed.")).toBeTruthy();
+    expect(within(editor).getByText("512.4 NM")).toBeTruthy();
+    expect(within(editor).getByText("+0.0 NM")).toBeTruthy();
+    expect(within(editor).getByText("Draft validation completed.")).toBeTruthy();
 
     const input = screen.getByRole("combobox", { name: "Add an exact reference point" });
     await user.type(input, "MIDPT");
@@ -176,24 +213,26 @@ describe("interaction review", () => {
 
     await user.click(screen.getByRole("button", { name: "Clear session" }));
     expect((screen.getByRole("combobox", { name: "Flight number or code" }) as HTMLInputElement).value).toBe("");
-    expect(screen.getByText("Recorded routes appear after selection")).toBeTruthy();
+    expect(screen.getByText("3 of 3 source route records shown")).toBeTruthy();
+    const fullList = screen.getByRole("region", { name: "Full flight list" });
+    expect(fullList.querySelectorAll(".overview-flight-buttons button")).toHaveLength(3);
+    expect(within(fullList).getByText("Visible gap")).toBeTruthy();
     expect(screen.getByRole("status").textContent).toBe("Session reset.");
     expect((screen.getByRole("button", { name: "Compare" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("the freshness strip reports the live generation and refresh resets the session", async () => {
+  it("keeps refresh available without showing live-data stale status", async () => {
     installApiStub();
     const user = userEvent.setup();
     render(<App />);
     await selectFixtureFlight(user);
 
-    // The merged generation strip announces the live tier through a chip and
-    // offers a refresh action (jsdom has no window.confirm; accept the prompt).
-    const chip = await screen.findByText((content) => content.startsWith("Live data fresh · retrieved"));
-    expect(chip).toBeTruthy();
+    const controls = await screen.findByRole("region", { name: "Source data controls" });
+    expect(within(controls).getByRole("button", { name: "Refresh source data" })).toBeTruthy();
+    expect(screen.queryByText("Source data stale")).toBeNull();
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    await user.click(screen.getByRole("button", { name: "Refresh live data" }));
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Live data refreshed."));
+    await user.click(within(controls).getByRole("button", { name: "Refresh source data" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Source data refreshed at"));
 
     expect((screen.getByRole("combobox", { name: "Flight number or code" }) as HTMLInputElement).value).toBe("");
     expect((screen.getByRole("button", { name: "Routes" }) as HTMLButtonElement).disabled).toBe(true);
@@ -207,13 +246,91 @@ describe("interaction review", () => {
     await user.click(screen.getByRole("button", { name: "Map only" }));
     await waitFor(() => expect(screen.queryByRole("banner")).toBeNull());
     expect(screen.queryByRole("navigation", { name: "Route workspace controls" })).toBeNull();
-    expect(screen.queryByText("Search for a recorded flight plan to begin.")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Full flight list" })).toBeNull();
     const restore = await screen.findByRole("button", { name: "Restore controls" });
     await waitFor(() => expect(document.activeElement).toBe(restore));
 
     await user.click(restore);
     await waitFor(() => expect(document.activeElement?.textContent).toBe("Map only"));
     expect(screen.getByRole("banner")).toBeTruthy();
+  });
+
+  it("renders more than ten overview routes in both the full list and map", async () => {
+    installApiStub({ overviewCount: 12 });
+    const { container } = render(<App />);
+
+    await screen.findByText("12 of 12 source route records shown");
+    const fullList = screen.getByRole("region", { name: "Full flight list" });
+    expect(within(fullList).getAllByRole("button")).toHaveLength(12);
+    expect(container.querySelectorAll(".route-hit")).toHaveLength(12);
+  });
+
+  it("keeps full-list selection synchronized with the map HUD", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const fullList = await screen.findByRole("region", { name: "Full flight list" });
+    const alternate = within(fullList).getByRole("button", { name: /534.1 NM/ });
+    await user.click(alternate);
+
+    await screen.findByText("Recorded via alternate routing", { selector: ".map-hud strong" });
+    expect(alternate.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("keeps map selection synchronized with the full list and HUD", async () => {
+    installApiStub();
+    const { container } = render(<App />);
+    await screen.findByText("3 of 3 source route records shown");
+
+    const hits = container.querySelectorAll(".route-hit");
+    fireEvent.click(hits[1]!);
+
+    await screen.findByText("Recorded via alternate routing", { selector: ".map-hud strong" });
+    const fullList = screen.getByRole("region", { name: "Full flight list" });
+    expect(within(fullList).getByRole("button", { name: /534.1 NM/ }).getAttribute("aria-current")).toBe("true");
+  });
+
+  it("keeps the full overview visible after direct list selection", async () => {
+    installApiStub({ overviewCount: 12 });
+    const user = userEvent.setup();
+    render(<App />);
+    const fullList = await screen.findByRole("region", { name: "Full flight list" });
+    expect(within(fullList).getAllByRole("button")).toHaveLength(12);
+
+    await user.click(within(fullList).getByRole("button", { name: /BULK02/ }));
+
+    await screen.findByText("Recorded bulk route 2", { selector: ".map-hud strong" });
+    expect(within(screen.getByRole("region", { name: "Full flight list" })).getAllByRole("button")).toHaveLength(12);
+  });
+
+  it("applies the callsign filter to both the full list and map", async () => {
+    installApiStub({ overviewCount: 12 });
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await screen.findByText("12 of 12 source route records shown");
+
+    await user.type(screen.getByRole("combobox", { name: "Flight number or code" }), "BULK11");
+    await screen.findByText("1 of 12 source route records shown");
+    const fullList = screen.getByRole("region", { name: "Full flight list" });
+    expect(within(fullList).getAllByRole("button")).toHaveLength(1);
+    expect(within(fullList).getByText("BULK11")).toBeTruthy();
+    expect(container.querySelectorAll(".route-hit")).toHaveLength(1);
+  });
+
+  it("offers an explicit chooser for exactly overlapping route paths", async () => {
+    installApiStub({ overlappingOverview: true });
+    const { container } = render(<App />);
+    await screen.findByText("2 of 2 source route records shown");
+
+    fireEvent.click(container.querySelector(".route-hit")!);
+    const chooser = await screen.findByRole("dialog", { name: "Choose an overlapping recorded flight" });
+    expect(within(chooser).getByText("2 routes overlap here")).toBeTruthy();
+    fireEvent.click(within(chooser).getByRole("button", { name: /OVERLAP2/ }));
+
+    await screen.findByText("Overlapping route 2", { selector: ".map-hud strong" });
+    const fullList = screen.getByRole("region", { name: "Full flight list" });
+    expect(within(fullList).getByRole("button", { name: /OVERLAP2/ }).getAttribute("aria-current")).toBe("true");
   });
 
   it("the close button in each drawer returns focus to its rail trigger", async () => {
@@ -226,7 +343,7 @@ describe("interaction review", () => {
     const cases = [
       { trigger: "Routes", drawer: "Route chooser", close: "Close" },
       { trigger: "Data", drawer: "Flight and route data", close: "Close" },
-      { trigger: "Edit copy", drawer: "Local route editor", close: "Close draft" },
+      { trigger: "Explore variation", drawer: "Explore a route variation", close: "Close draft" },
       { trigger: "Compare", drawer: "Route comparison", close: "Close" },
     ] as const;
     for (const { trigger, drawer, close } of cases) {

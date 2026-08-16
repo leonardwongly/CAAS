@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../../apps/web/src/App.tsx";
 import { installApiStub } from "../fixtures/web-app.ts";
+import { coordinateFromScreen, fitViewToCoordinates, pixelFromView, tileRange, tileUrl, viewFromZoomAtPoint } from "../../apps/web/src/TileMap.tsx";
 
 /**
  * OSM tile base layer contract (owner-authorized 2026-08-15, design legacy
@@ -22,12 +23,51 @@ async function selectFixtureFlight(user: ReturnType<typeof userEvent.setup>) {
   await user.keyboard("{Enter}");
   await screen.findByRole("listbox", { name: "Choose an exact flight-plan match" });
   await user.keyboard("{ArrowDown}{Enter}");
-  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("route options returned"));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("same-endpoint recorded routes returned for neutral comparison"));
 }
 
 const tileImages = () => [...document.querySelectorAll<HTMLImageElement>('img[src^="https://tile.openstreetmap.org/"]')];
 
 describe("map tiles", () => {
+  it("fits a selected route and endpoint pins into the viewport", () => {
+    const size = { width: 1000, height: 600 };
+    const view = fitViewToCoordinates([
+      { lat: 4.2, lon: 73.5 }, // Velana / Maldives
+      { lat: 1.35, lon: 103.99 }, // Singapore
+    ], size);
+    expect(view).toBeTruthy();
+    const departure = pixelFromView({ lat: 4.2, lon: 73.5 }, view!, size);
+    const arrival = pixelFromView({ lat: 1.35, lon: 103.99 }, view!, size);
+    expect(departure.x).toBeGreaterThanOrEqual(96);
+    expect(departure.x).toBeLessThanOrEqual(size.width - 96);
+    expect(departure.y).toBeGreaterThanOrEqual(96);
+    expect(departure.y).toBeLessThanOrEqual(size.height - 96);
+    expect(arrival.x).toBeGreaterThanOrEqual(96);
+    expect(arrival.x).toBeLessThanOrEqual(size.width - 96);
+    expect(arrival.y).toBeGreaterThanOrEqual(96);
+    expect(arrival.y).toBeLessThanOrEqual(size.height - 96);
+    expect(view!.zoom).toBeGreaterThan(2);
+  });
+
+  it("keeps the cursor geographic anchor stable while zooming", () => {
+    const size = { width: 1000, height: 600 };
+    const view = { lat: 20, lon: 0, zoom: 2 };
+    const cursor = { x: 760, y: 210 };
+    const anchor = coordinateFromScreen(cursor, view, size);
+    const zoomed = viewFromZoomAtPoint(cursor, view, 3, size);
+    const projected = pixelFromView(anchor, zoomed, size);
+    expect(zoomed.zoom).toBe(3);
+    expect(projected.x).toBeCloseTo(cursor.x, 5);
+    expect(projected.y).toBeCloseTo(cursor.y, 5);
+  });
+
+  it("repeats world columns to fill a frame wider than one low-zoom world", () => {
+    const tiles = tileRange({ lat: 20, lon: 0, zoom: 2 }, { width: 1244, height: 500 });
+    expect(tiles.some((tile) => tile.x < 0)).toBe(true);
+    expect(tiles.some((tile) => tile.x >= 4)).toBe(true);
+    expect(tileUrl({ x: 4, y: 1, z: 2 })).toBe("https://tile.openstreetmap.org/2/0/1.png");
+  });
+
   it("loads z/x/y-only tile URLs with no-referrer and keeps the route overlay", async () => {
     installApiStub();
     const user = userEvent.setup();
@@ -43,6 +83,7 @@ describe("map tiles", () => {
       expect(tile.alt).toBe("");
     }
     expect(screen.getByText("© OpenStreetMap contributors")).toBeTruthy();
+    expect(container.querySelector("iframe")).toBeNull();
 
     await selectFixtureFlight(user);
     // The route overlay still draws on top of the tiles: one highlighted

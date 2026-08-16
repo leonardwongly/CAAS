@@ -6,7 +6,9 @@ import { vi } from "vitest";
  * These mirror the real client contract in apps/web/src/api.ts against the
  * BFF: callsign search is POST /api/v1/callsigns/search with a JSON {query}
  * body (never a query string); route options is POST /api/v1/routes/options
- * returning an envelope { data, rankLabel, generation }; point lookup is
+ * returning `{ data, generation }`; the overview endpoint returns paged route
+ * data with `loaded`, `total`, and an optional generation-bound cursor; point
+ * lookup is
  * GET /api/v1/points/:reference returning { matches } with generation-bound
  * locationId tokens; draft validation is a single POST /api/v1/routes/compare
  * carrying { baselineId, targetDraft: { origin, destination, via,
@@ -18,15 +20,10 @@ import { vi } from "vitest";
 export const SAFETY_NOTICE =
   "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.";
 
-/** Matches apps/web/src/labels.ts exactly (RANK_CRITERION). */
-export const RANK_CRITERION =
-  "Routes are ranked by shortest modeled distance among complete candidates with the same departure and arrival. Ties share a rank; the ranking does not assess operational safety.";
-
-/** Matches apps/web/src/labels.ts exactly (RANK_ONE_LABEL); the rank-1 group heading. */
-export const RANK_ONE_LABEL = "Rank 1 by shortest modeled distance among complete candidates.";
-
-export const COMPLETE_RANKED_GROUP_TITLE = "Complete routes — ranked by modeled distance";
-export const INCOMPLETE_GROUP_TITLE = "Incomplete routes — not ranked";
+export const ROUTE_COMPARISON_EXPLANATION =
+  "Recorded routes are shown in stable source order for neutral comparison. Modeled distance is descriptive only and does not identify a preferred route.";
+export const COMPLETE_GROUP_TITLE = "Complete recorded routes";
+export const INCOMPLETE_GROUP_TITLE = "Recorded routes with visible gaps";
 
 export const DRAFT_SAFETY_LABEL =
   "Computationally complete; operational constraints not assessed. Endpoints are locked and every change is checked against exact reference data.";
@@ -59,6 +56,10 @@ export type StubOptions = {
   deferSearch?: boolean | undefined;
   /** Fail bulk browse requests with 409 CURSOR_EXPIRED. */
   failCursor?: boolean | undefined;
+  /** Replace the default overview with this many distinct renderable flights. */
+  overviewCount?: number | undefined;
+  /** Return two flights with exactly overlapping rendered paths. */
+  overlappingOverview?: boolean | undefined;
 };
 
 export type CapturedCall = { method: string; url: string; body?: string | undefined };
@@ -85,21 +86,12 @@ const routeOptions = [
     ],
     geometry: { type: "LineString", coordinates: [[-73, 40], [-90, 35], [-118, 33]] },
     distanceNm: 512.4,
-    rankDistanceNm: 512.4,
-    rank: 1,
-    operationalProxy: {
-      mode: "operational-proxy",
-      eligible: true,
-      criterion: "distance only",
-      summary: "complete",
-      rank: 1,
-    },
     provenance: "CAAS normalized live generation",
     gaps: [],
   },
   {
     id: "route-3",
-    flightId: "flight-1",
+    flightId: "flight-3",
     callsign: "FIXTURE1",
     status: "complete",
     complete: true,
@@ -113,42 +105,56 @@ const routeOptions = [
     ],
     geometry: { type: "LineString", coordinates: [[-73, 40], [-86, 39], [-118, 33]] },
     distanceNm: 534.1,
-    rankDistanceNm: 534.1,
-    rank: 2,
-    operationalProxy: {
-      mode: "operational-proxy",
-      eligible: true,
-      criterion: "distance only",
-      summary: "complete",
-      rank: 2,
-    },
     provenance: "CAAS normalized live generation",
     gaps: [],
   },
   {
     id: "route-2",
-    flightId: "flight-1",
+    flightId: "flight-4",
     callsign: "FIXTURE1",
     status: "incomplete",
     complete: false,
     label: "Recorded with unresolved gap",
     origin: "KOR1",
     destination: "KDS1",
-    pointCount: 2,
+    pointCount: 4,
     legs: [
-      { id: "leg-1", sequence: 1, kind: "direct", from: "KOR1", to: "KDS1", distanceNm: 512.4, status: "resolved" },
+      { id: "leg-1", sequence: 1, kind: "direct", from: "KOR1", to: "WEST01", status: "resolved" },
       { id: "leg-2", sequence: 2, kind: "gap", reason: "MIDPT could not be resolved to a single reference", status: "gap" },
+      { id: "leg-3", sequence: 3, kind: "direct", from: "EAST01", to: "KDS1", status: "resolved" },
     ],
-    operationalProxy: {
-      mode: "operational-proxy",
-      eligible: false,
-      criterion: "distance only",
-      summary: "incomplete",
-      exclusion: "This route has unresolved waypoints and cannot be ranked.",
-    },
+    segments: [
+      [{ lat: 40, lon: -73 }, { lat: 39, lon: -80 }],
+      [{ lat: 38.8, lon: -80.5 }, { lat: 33, lon: -118 }],
+    ],
     gaps: [{ sequence: 2, status: "gap", reason: "MIDPT could not be resolved to a single reference" }],
   },
 ];
+
+function overviewRoutesFor(options: StubOptions) {
+  if (options.overlappingOverview) {
+    return routeOptions.slice(0, 2).map((route, index) => ({
+      ...route,
+      id: `overlap-route-${index + 1}`,
+      flightId: `overlap-flight-${index + 1}`,
+      callsign: `OVERLAP${index + 1}`,
+      label: `Overlapping route ${index + 1}`,
+      geometry: routeOptions[0]!.geometry,
+    }));
+  }
+  if (options.overviewCount !== undefined) {
+    return Array.from({ length: options.overviewCount }, (_, index) => ({
+      ...routeOptions[0]!,
+      id: `bulk-route-${index + 1}`,
+      flightId: `bulk-flight-${index + 1}`,
+      callsign: `BULK${String(index + 1).padStart(2, "0")}`,
+      label: `Recorded bulk route ${index + 1}`,
+      geometry: { type: "LineString", coordinates: [[-73, 40], [-90 + index / 10, 35], [-118, 33]] },
+      distanceNm: 500 + index,
+    }));
+  }
+  return routeOptions;
+}
 
 /**
  * Generation envelope matching apps/web/src/api.ts normalizeGeneration. The
@@ -174,6 +180,16 @@ const generation = {
   overall: "fresh",
 };
 
+function generationFor(options: StubOptions) {
+  if (!options.malformedTimestamps) return generation;
+  return {
+    ...generation,
+    retrievedAt: "not-a-date",
+    live: { ...generation.live, retrievedAt: "not-a-date", freshUntil: "not-a-date", staleUntil: "not-a-date" },
+    reference: { ...generation.reference, retrievedAt: "not-a-date", freshUntil: "not-a-date", staleUntil: "not-a-date" },
+  };
+}
+
 /** The merged client posts one two-operand comparison and reads target + comparison. */
 const draftCompareTarget = {
   id: "draft-1",
@@ -185,7 +201,6 @@ const draftCompareTarget = {
   ],
   gaps: [],
   distanceNm: 512.4,
-  rankDistanceNm: 512.4,
   geometry: { type: "LineString", coordinates: [[-73, 40], [-90, 35], [-118, 33]] },
   provenance: "CAAS normalized live generation",
   freshness: "2026-08-14T00:00:00.000Z",
@@ -232,6 +247,7 @@ function bodyOf(init?: RequestInit): Record<string, unknown> {
  */
 export function installApiStub(options: StubOptions = {}): { calls: CapturedCall[]; fetchMock: ReturnType<typeof vi.fn>; releaseDraft: () => void; releaseSearch: () => void } {
   const calls: CapturedCall[] = [];
+  const overviewRoutes = overviewRoutesFor(options);
   const draftResolvers: Array<() => void> = [];
   const searchResolvers: Array<() => void> = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<StubResponse> => {
@@ -239,6 +255,10 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     const method = (init?.method ?? "GET").toUpperCase();
     calls.push({ method, url, ...(typeof init?.body === "string" ? { body: init.body } : {}) });
 
+    // The app loads every overview page before declaring the map/list ready.
+    if (method === "POST" && url === "/api/v1/routes/overview") {
+      return jsonResponse({ data: overviewRoutes, generation: generationFor(options), loaded: overviewRoutes.length, total: overviewRoutes.length });
+    }
     // Callsign search: POST with the query in the body only; the query never
     // appears in the request URL (plan §2.4).
     if (method === "POST" && url === "/api/v1/callsigns/search") {
@@ -248,12 +268,10 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
       if (options.deferSearch) return new Promise<StubResponse>((resolve) => { searchResolvers.push(() => resolve(respond())); });
       return respond();
     }
-    // Route options: POST { flightId }, envelope { data, rankLabel, generation }.
+    // Route options: POST { flightId }, neutral envelope { data, generation }.
     if (method === "POST" && url === "/api/v1/routes/options") {
       if (options.failRoutes) return jsonResponse({ error: { message: "Route options unavailable (stub).", code: "ROUTES_FAIL" } }, 500);
-      return jsonResponse(options.noGeneration
-        ? { data: routeOptions, rankLabel: RANK_ONE_LABEL }
-        : { data: routeOptions, rankLabel: RANK_ONE_LABEL, generation });
+      return jsonResponse(options.noGeneration ? { data: routeOptions } : { data: routeOptions, generation });
     }
     // Point lookup: POST { reference } -> { matches } with locationId tokens
     // (the user term travels in the body only; plan §2.4).

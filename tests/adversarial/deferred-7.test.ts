@@ -4,7 +4,6 @@ import { LocationSchema } from "../../packages/contracts/src/index.ts";
 import {
   createRouteCandidate,
   haversineDistanceNm,
-  rankDistanceNm,
   sumDistanceNm,
 } from "../../packages/route-engine/src/index.ts";
 
@@ -84,5 +83,5 @@ test("createRouteCandidate with every leg distance present returns the exact leg
   const candidate = createRouteCandidate("candidate-complete", ORIGIN, DESTINATION, legs);
   const total = sumDistanceNm(legs.map((l) => l.distanceNm!));
   assert.equal(candidate.distanceNm, total, "a fully measured leg set must total the exact leg-sum");
-  assert.equal(candidate.rankDistanceNm, rankDistanceNm(total), "rankDistanceNm must be the rounded leg-sum total");
+  assert.deepEqual(Object.keys(candidate).sort(), ["destination", "distanceNm", "id", "legs", "origin"], "the public candidate must not carry rank or tie-key fields");
 });

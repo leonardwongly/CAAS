@@ -34,8 +34,7 @@ test("exposes stable DTOs with provenance, safety, visible gaps, and no raw upst
   assert.equal(route.safety, "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.");
   assert.deepEqual(route.gaps, []);
   assert.equal(typeof route.distanceNm, "number");
-  assert.equal(typeof route.rankDistanceNm, "number");
-  assert.equal(route.rank, 1);
+  for (const field of ["rank", "rankDistanceNm", "rankLabel", "operationalProxy"]) assert.equal(field in route, false);
   const serialized = JSON.stringify(options.json());
   for (const forbidden of ["fixture-flight-1", "hidden-airway-value", "offline-fixture-key", "raw"]) assert.equal(serialized.includes(forbidden), false, forbidden);
 

@@ -29,15 +29,6 @@ export type RouteGap = {
   code?: string | undefined;
 };
 
-export type OperationalProxy = {
-  mode: "operational-proxy";
-  eligible: boolean;
-  criterion: string;
-  summary: string;
-  rank?: number | undefined;
-  exclusion?: string | undefined;
-};
-
 export type RouteOption = {
   id: OpaqueId;
   flightId: OpaqueId;
@@ -51,9 +42,6 @@ export type RouteOption = {
   legs: RouteLeg[];
   segments?: Coordinate[][] | undefined;
   distanceNm?: number | undefined;
-  rankDistanceNm?: number | undefined;
-  rank?: number | undefined;
-  operationalProxy?: OperationalProxy | undefined;
   geometry?: Coordinate[] | undefined;
   provenance?: string | undefined;
   freshness?: string | undefined;
@@ -210,21 +198,6 @@ function normalizeLeg(value: unknown, index: number): RouteLeg | undefined {
   };
 }
 
-function normalizeOperationalProxy(value: unknown): OperationalProxy | undefined {
-  if (!isRecord(value) || value.mode !== "operational-proxy" || typeof value.eligible !== "boolean") return undefined;
-  const criterion = stringValue(value, "criterion");
-  const summary = stringValue(value, "summary");
-  if (!criterion || !summary) return undefined;
-  return {
-    mode: "operational-proxy",
-    eligible: value.eligible,
-    criterion,
-    summary,
-    ...(finiteNumber(value, "rank") !== undefined ? { rank: finiteNumber(value, "rank") } : {}),
-    ...(stringValue(value, "exclusion") ? { exclusion: stringValue(value, "exclusion") } : {}),
-  };
-}
-
 function normalizeRoute(value: unknown, index: number): RouteOption | undefined {
   if (!isRecord(value)) return undefined;
   const id = stringValue(value, "id", "flightId", "routeId", "opaqueId");
@@ -245,7 +218,6 @@ function normalizeRoute(value: unknown, index: number): RouteOption | undefined 
   ].sort((left, right) => left.sequence - right.sequence).reduce<RouteGap[]>((unique, gap) => unique.some((item) => item.sequence === gap.sequence && item.reason === gap.reason) ? unique : [...unique, gap], [])];
   const geometry = normalizeGeometry(value.geometry);
   const segments = normalizeSegments(value.segments);
-  const operationalProxy = normalizeOperationalProxy(value.operationalProxy);
   return {
     id,
     flightId: stringValue(value, "flightId", "id") ?? id,
@@ -260,9 +232,6 @@ function normalizeRoute(value: unknown, index: number): RouteOption | undefined 
     ...(segments ? { segments } : {}),
     ...(geometry ? { geometry } : {}),
     ...(finiteNumber(value, "distanceNm", "distance", "totalDistanceNm") !== undefined ? { distanceNm: finiteNumber(value, "distanceNm", "distance", "totalDistanceNm") } : {}),
-    ...(finiteNumber(value, "rankDistanceNm") !== undefined ? { rankDistanceNm: finiteNumber(value, "rankDistanceNm") } : {}),
-    ...(finiteNumber(value, "rank") !== undefined ? { rank: finiteNumber(value, "rank") } : {}),
-    ...(operationalProxy ? { operationalProxy } : {}),
     ...(stringValue(value, "provenance", "source", "sourceLabel") ? { provenance: stringValue(value, "provenance", "source", "sourceLabel") } : {}),
     ...(stringValue(value, "freshness", "updatedAt", "asOf") ? { freshness: stringValue(value, "freshness", "updatedAt", "asOf") } : {}),
     ...(stringValue(value, "safety", "safetyNote") ? { safety: stringValue(value, "safety", "safetyNote") } : {}),
@@ -355,7 +324,6 @@ function normalizeGeneration(value: unknown): GenerationSummary | undefined {
 
 export type RouteOptionsResult = {
   options: RouteOption[];
-  rankLabel?: string | undefined;
   generation?: GenerationSummary | undefined;
 };
 
@@ -371,7 +339,6 @@ export async function fetchRouteOptions(flightId: OpaqueId, signal?: AbortSignal
       const route = normalizeRoute(item, index);
       return route ? [route] : [];
     }),
-    ...(isRecord(payload) && stringValue(payload, "rankLabel") ? { rankLabel: stringValue(payload, "rankLabel") } : {}),
     ...(generation ? { generation } : {}),
   };
 }
@@ -383,6 +350,45 @@ export type Readiness = {
   retryable?: boolean | undefined;
 };
 
+
+export type RouteOverviewResult = {
+  routes: RouteOption[];
+  generation: GenerationSummary;
+};
+
+export async function fetchRouteOverview(signal?: AbortSignal): Promise<RouteOverviewResult> {
+  const routes: RouteOption[] = [];
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  let generation: GenerationSummary | undefined;
+  for (;;) {
+    const payload = await request("/api/v1/routes/overview", {
+      method: "POST",
+      ...(signal ? { signal } : {}),
+      body: JSON.stringify({ limit: 25, ...(cursor ? { cursor } : {}) }),
+    });
+    if (!isRecord(payload)) throw new Error("The route overview response was not usable.");
+    const pageGeneration = normalizeGeneration(payload.generation);
+    if (!pageGeneration) throw new Error("The route overview did not include a generation.");
+    if (generation && generation.id !== pageGeneration.id) throw new ApiError(409, "The data generation changed while loading the overview. Retry the overview.", "GENERATION_CHANGED");
+    generation = pageGeneration;
+    const page = unwrap(payload).flatMap((item, index) => {
+      const route = normalizeRoute(item, routes.length + index);
+      return route ? [route] : [];
+    });
+    for (const route of page) {
+      if (seen.has(route.flightId)) throw new Error("The route overview returned a duplicate flight identity.");
+      seen.add(route.flightId);
+      routes.push(route);
+    }
+    const nextCursor = stringValue(payload, "nextCursor");
+    if (!nextCursor) break;
+    if (page.length === 0) throw new Error("The route overview cursor did not make progress.");
+    cursor = nextCursor;
+  }
+  if (!generation) throw new Error("The route overview was empty and had no generation.");
+  return { routes, generation };
+}
 export async function fetchReadiness(signal?: AbortSignal): Promise<Readiness> {
   const payload = await request("/api/v1/readiness", signal ? { signal } : {});
   if (!isRecord(payload)) return { status: "unavailable" };
@@ -428,7 +434,6 @@ export type DraftRoute = {
   legs: RouteLeg[];
   gaps: RouteGap[];
   distanceNm?: number | undefined;
-  rankDistanceNm?: number | undefined;
   geometry?: Coordinate[] | undefined;
   provenance?: string | undefined;
   freshness?: string | undefined;
@@ -540,7 +545,6 @@ export async function validateDraft(origin: string, destination: string, via: st
       legs,
       gaps,
       ...(finiteNumber(route, "distanceNm") !== undefined ? { distanceNm: finiteNumber(route, "distanceNm") } : {}),
-      ...(finiteNumber(route, "rankDistanceNm") !== undefined ? { rankDistanceNm: finiteNumber(route, "rankDistanceNm") } : {}),
       ...(normalizeGeometry(route.geometry) ? { geometry: normalizeGeometry(route.geometry) } : {}),
       ...(stringValue(route, "provenance") ? { provenance: stringValue(route, "provenance") } : {}),
       ...(stringValue(route, "freshness") ? { freshness: stringValue(route, "freshness") } : {}),

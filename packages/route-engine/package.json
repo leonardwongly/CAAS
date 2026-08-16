@@ -5,9 +5,11 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./compare": "./src/compare.ts"
+    "./compare": "./src/compare.ts",
+    "./gap-distance": "./src/gap-distance.ts"
   },
   "scripts": {
+    "train:gap-distance": "node --experimental-strip-types ../../scripts/estimation/train-gap-distance-model.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --test --experimental-strip-types test/*.test.ts"
   },

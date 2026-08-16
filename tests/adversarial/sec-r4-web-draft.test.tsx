@@ -27,9 +27,9 @@ async function openEditor(user: ReturnType<typeof userEvent.setup>) {
   await user.keyboard("{Enter}");
   await screen.findByRole("listbox", { name: "Choose an exact flight-plan match" });
   await user.keyboard("{ArrowDown}{Enter}");
-  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("route options returned"));
-  await user.click(screen.getByRole("button", { name: "Edit copy" }));
-  await screen.findByRole("region", { name: "Local route editor" });
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("same-endpoint recorded routes returned for neutral comparison"));
+  await user.click(screen.getByRole("button", { name: "Explore variation" }));
+  await screen.findByRole("region", { name: "Explore a route variation" });
 }
 
 async function commitReference(user: ReturnType<typeof userEvent.setup>, reference: string) {
@@ -138,7 +138,7 @@ describe("draft editor optimistic state (sec-r4)", () => {
     await user.keyboard("{Enter}");
     await screen.findByRole("listbox", { name: "Choose an exact flight-plan match" });
     await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("route options returned"));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("same-endpoint recorded routes returned for neutral comparison"));
 
     releaseDraft();
     expect(screen.queryByText(/Local draft validated/)).toBeNull();

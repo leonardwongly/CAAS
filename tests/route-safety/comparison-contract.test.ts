@@ -61,8 +61,8 @@ function compare(server: ApiServer, payload: Record<string, unknown>) {
 }
 
 interface CompareBody {
-  baseline: { id: string; origin: string; destination: string; distanceNm: number; rankDistanceNm: number; legs: Array<{ distanceNm?: number }>; complete: boolean };
-  target: { id: string; origin: string; destination: string; distanceNm?: number; rankDistanceNm?: number; legs: Array<{ distanceNm?: number }>; complete?: boolean; gaps: Array<{ reason: string }> };
+  baseline: { id: string; origin: string; destination: string; distanceNm?: number; legs: Array<{ distanceNm?: number }>; complete: boolean };
+  target: { id: string; origin: string; destination: string; distanceNm?: number; legs: Array<{ distanceNm?: number }>; complete?: boolean; gaps: Array<{ reason: string }> };
   comparison: {
     status: string;
     message: string;
@@ -76,10 +76,6 @@ interface CompareBody {
   generation: { id: string };
 }
 
-function isSixDecimal(value: number): boolean {
-  return Math.abs(value * 1e6 - Math.round(value * 1e6)) < 1e-3;
-}
-
 test("complete baseline vs complete target reports the directed difference at full precision", async (t) => {
   const server = await serverFor(t, sanitizedAdapter());
   const baselineId = await findFlightId(server, "FIXTURE1");
@@ -87,16 +83,15 @@ test("complete baseline vs complete target reports the directed difference at fu
   assert.equal(response.statusCode, 200);
   const body = response.json() as CompareBody;
   assert.equal(body.comparison.status, "complete");
-  const expectedDelta = body.target.distanceNm! - body.baseline.distanceNm;
+  const expectedDelta = body.target.distanceNm! - body.baseline.distanceNm!;
   assert.equal(body.comparison.distanceDeltaNm, expectedDelta, "delta must equal target - baseline at full precision");
-  assert.equal(body.comparison.percentageDistanceDelta, (100 * expectedDelta) / body.baseline.distanceNm);
+  assert.equal(body.comparison.percentageDistanceDelta, (100 * expectedDelta) / body.baseline.distanceNm!);
   assert.equal(body.comparison.unavailable, undefined);
   assert.equal(body.comparison.addedWaypointCount, 0);
   assert.equal(body.comparison.removedWaypointCount, 0);
   assert.deepEqual(body.comparison.waypointDifferences, []);
-  // rankDistanceNm is carried at 0.000001 NM precision on both operands.
-  assert.ok(isSixDecimal(body.baseline.rankDistanceNm), "baseline rankDistanceNm must be 1e-6 precise");
-  assert.ok(isSixDecimal(body.target.rankDistanceNm!), "target rankDistanceNm must be 1e-6 precise");
+  assert.equal("rankDistanceNm" in body.baseline, false);
+  assert.equal("rankDistanceNm" in body.target, false);
   // The draft target DTO keeps the recorded-route shape: complete stays absent.
   assert.equal(body.target.complete, undefined);
   assert.ok(body.target.legs.every((leg) => typeof leg.distanceNm === "number"));
@@ -132,9 +127,9 @@ test("an incomplete target makes both metrics unavailable with INCOMPLETE_OPERAN
   assert.deepEqual(body.comparison.unavailable, ["INCOMPLETE_OPERAND"]);
   assert.equal(body.comparison.distanceDeltaNm, undefined);
   assert.equal(body.comparison.percentageDistanceDelta, undefined);
-  // The incomplete target carries no distance, no rank, and distance-stripped legs.
+  // The incomplete target carries no distance and distance-stripped legs.
   assert.equal(body.target.distanceNm, undefined);
-  assert.equal(body.target.rankDistanceNm, undefined);
+  assert.equal("rankDistanceNm" in body.target, false);
   assert.ok(body.target.legs.every((leg) => leg.distanceNm === undefined));
   assert.ok(body.target.gaps.some((gap) => gap.reason === "not-found"));
 });
@@ -148,7 +143,7 @@ test("an incomplete baseline operand also makes the comparison unavailable", asy
   assert.equal(body.comparison.status, "incomplete");
   assert.deepEqual(body.comparison.unavailable, ["INCOMPLETE_OPERAND"]);
   assert.equal(body.baseline.distanceNm, undefined);
-  assert.equal(body.baseline.rankDistanceNm, undefined);
+  assert.equal("rankDistanceNm" in body.baseline, false);
 });
 
 test("comparing routes with different airport endpoints is rejected", async (t) => {

@@ -88,16 +88,16 @@ test("same-airport flight with an explicit empty route keeps both endpoints and 
   const server = await serverFor(t, sameAirportAdapter());
   const route = await detailFor(server, "SAME00");
 
-  assert.equal(route.origin, "KOR1");
-  assert.equal(route.destination, "KOR1");
+  assert.equal(route.origin, "Name unavailable (KOR1)");
+  assert.equal(route.destination, "Name unavailable (KOR1)");
   // The destination endpoint must never be dropped by endpoint-adjacent dedup: a projection
   // with zero route elements still contains origin and destination as its two waypoints.
   assert.equal(route.pointCount, 2, "the destination endpoint must remain in the projection");
   assert.equal(route.complete, true, "a fully resolved same-endpoint route is complete");
   assert.equal(route.distanceNm, 0, "origin-to-destination at the same coordinate is zero distance");
   assert.equal(route.legs.length, 1, "exactly one leg spans origin to destination");
-  assert.equal(route.legs[0]!.from, "KOR1");
-  assert.equal(route.legs[0]!.to, "KOR1");
+  assert.equal(route.legs[0]!.from, "Name unavailable (KOR1)");
+  assert.equal(route.legs[0]!.to, "Name unavailable (KOR1)");
   assert.equal(route.legs[0]!.distanceNm, 0);
   assert.ok(route.segments && route.segments.length === 1, "the complete geometry spans both endpoints");
 });

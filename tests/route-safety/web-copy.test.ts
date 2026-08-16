@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { DRAFT_SAFETY_COPY, PERSISTENT_SAFETY_COPY, RANK_ONE_LABEL } from "../../packages/contracts/src/index.ts";
+import { DRAFT_SAFETY_COPY } from "../../packages/contracts/src/index.ts";
+import { SAFETY_NOTICE } from "../../apps/web/src/labels.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const appSource = readFileSync(resolve(ROOT, "apps/web/src/App.tsx"), "utf8");
@@ -20,24 +21,21 @@ const FORBIDDEN_QUALIFIERS = /\b(valid|recommended|safe|cleared|best)\b/i;
  */
 const FORBIDDEN_QUALIFIERS_IN_APP = /\b(valid|recommended|safe|best)\b/i;
 const CANDIDATE_COPY_CONSTANTS = [
-  "RANK_ONE_LABEL",
-  "RANK_CRITERION",
-  "RANK_ONE_GROUP_DESCRIPTION",
-  "COMPLETE_RANKED_GROUP_TITLE",
-  "COMPLETE_RANKED_GROUP_DESCRIPTION",
+  "ROUTE_COMPARISON_EXPLANATION",
+  "COMPLETE_GROUP_TITLE",
+  "COMPLETE_GROUP_DESCRIPTION",
   "INCOMPLETE_GROUP_TITLE",
   "INCOMPLETE_GROUP_DESCRIPTION",
-  "OPERATIONAL_PROXY_EXPLANATION",
   "SAFETY_NOTICE",
   "DRAFT_SAFETY_COPY",
 ] as const;
 
-test("the web client carries the exact qualified labels and safety copies verbatim", () => {
-  assert.ok(labelsSource.includes(`"${RANK_ONE_LABEL}"`), "labels.ts must define the exact qualified rank-1 label");
-  assert.ok(labelsSource.includes(PERSISTENT_SAFETY_COPY), "the persistent safety copy must appear verbatim in labels.ts");
+test("the web client carries the exact neutral labels and safety copies verbatim", () => {
+  assert.ok(labelsSource.includes("Recorded routes are shown in stable source order for neutral comparison."), "labels.ts must define neutral source ordering");
+  assert.ok(labelsSource.includes(SAFETY_NOTICE), "the strengthened safety notice must appear verbatim in labels.ts");
   assert.ok(labelsSource.includes(DRAFT_SAFETY_COPY), "the draft safety copy must appear verbatim in labels.ts");
-  // App.tsx renders the constants from labels.ts; the exact strings are pinned there.
-  assert.ok(appSource.includes("RANK_ONE_LABEL"), "App.tsx must render the qualified rank-1 label");
+  assert.ok(appSource.includes("ROUTE_COMPARISON_EXPLANATION"), "App.tsx must render the neutral comparison explanation");
+  assert.ok(appSource.includes("COMPLETE_GROUP_TITLE"), "App.tsx must render neutral complete grouping");
   assert.ok(appSource.includes("SAFETY_NOTICE"), "App.tsx must render the persistent safety copy");
   assert.ok(appSource.includes("DRAFT_SAFETY_COPY"), "App.tsx must render the draft safety copy constant");
 });
@@ -82,7 +80,7 @@ test("validateDraft posts references and selection tokens, never coordinates, in
   t.after(() => { globalThis.fetch = originalFetch; });
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     captured.push({ url: typeof input === "string" ? input : String((input as { url?: string })?.url ?? input), method: init?.method, body: typeof init?.body === "string" ? init.body : undefined });
-    return { ok: true, status: 200, json: async () => ({ target: { id: "r1", flightId: "f1", callsign: "SQ321", status: "complete", legs: [], gaps: [], distanceNm: 1, rankDistanceNm: 1 }, comparison: { status: "complete", message: "" }, generation: { id: "g1" } }) } as unknown as Response;
+    return { ok: true, status: 200, json: async () => ({ target: { id: "r1", flightId: "f1", callsign: "SQ321", status: "complete", legs: [], gaps: [], distanceNm: 1 }, comparison: { status: "complete", message: "" }, generation: { id: "g1" } }) } as unknown as Response;
   }) as typeof fetch;
   await validateDraft("WSSS", "WMKK", ["VMR"], [{ sequence: 0, locationId: "loc.sig" }], "flight-token");
   const call = captured[0];

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import App from "../../apps/web/src/App.tsx";
@@ -27,7 +27,7 @@ async function selectFixtureFlight(user: ReturnType<typeof userEvent.setup>) {
   const listbox = await screen.findByRole("listbox", { name: "Choose an exact flight-plan match" });
   expect(listbox).toBeTruthy();
   await user.keyboard("{ArrowDown}{Enter}");
-  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("route options returned"));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("same-endpoint recorded routes returned"));
 }
 
 describe("keyboard-only review", () => {
@@ -48,9 +48,10 @@ describe("keyboard-only review", () => {
     render(<App />);
     await selectFixtureFlight(user);
 
-    expect(screen.getByText("FIXTURE1")).toBeTruthy();
-    expect(screen.getByText("KOR1 → KDS1")).toBeTruthy();
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("3 route options returned"));
+    const selectedFlight = screen.getByRole("group", { name: "Selected flight" });
+    expect(within(selectedFlight).getByText("FIXTURE1")).toBeTruthy();
+    expect(within(selectedFlight).getByText("KOR1 → KDS1")).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("2 complete same-endpoint recorded routes returned"));
   });
 
   it("closing the route chooser with its Close button returns focus to Routes", async () => {
@@ -124,7 +125,7 @@ describe("keyboard-only review", () => {
     await user.type(input, "FIXTURE1");
     await user.keyboard("{Enter}");
     await user.keyboard("{ArrowDown}{Enter}");
-    await waitFor(() => expect(screen.getByText("KOR1 → KDS1")).toBeTruthy());
+    await waitFor(() => expect(within(screen.getByRole("group", { name: "Selected flight" })).getByText("KOR1 → KDS1")).toBeTruthy());
 
     const rail = screen.getByRole("navigation", { name: "Route workspace controls" });
     await tabUntil(user, (element) => element.textContent === "Routes");
@@ -136,7 +137,7 @@ describe("keyboard-only review", () => {
     await tabUntil(user, (element) => element.textContent === "Retry route options" && screen.getByRole("region", { name: "Route chooser" }).contains(element));
     await user.keyboard("{Enter}");
     await waitFor(() => expect(document.activeElement?.id).toBe("options-heading"));
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("3 route options returned"));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("2 complete same-endpoint recorded routes returned"));
   });
 
   it("retrying a failed draft validation returns focus to the draft heading", async () => {
@@ -147,9 +148,9 @@ describe("keyboard-only review", () => {
     await selectFixtureFlight(user);
 
     const rail = screen.getByRole("navigation", { name: "Route workspace controls" });
-    await tabUntil(user, (element) => element.textContent === "Edit copy");
+    await tabUntil(user, (element) => element.textContent === "Explore variation");
     await user.keyboard("{Enter}");
-    const editor = await screen.findByRole("region", { name: "Local route editor" });
+    const editor = await screen.findByRole("region", { name: "Explore a route variation" });
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Draft validation unavailable (stub).");
 
@@ -167,9 +168,9 @@ describe("keyboard-only review", () => {
     await selectFixtureFlight(user);
 
     const rail = screen.getByRole("navigation", { name: "Route workspace controls" });
-    await tabUntil(user, (element) => element.textContent === "Edit copy");
+    await tabUntil(user, (element) => element.textContent === "Explore variation");
     await user.keyboard("{Enter}");
-    await screen.findByRole("region", { name: "Local route editor" });
+    await screen.findByRole("region", { name: "Explore a route variation" });
 
     const input = screen.getByRole("combobox", { name: "Add an exact reference point" });
     await user.type(input, "MIDPT");
@@ -182,6 +183,19 @@ describe("keyboard-only review", () => {
     await user.keyboard("{Enter}");
     await waitFor(() => expect(screen.queryByRole("button", { name: "Remove MIDPT" })).toBeNull());
     expect(screen.getByText("No intermediate points. This draft uses a direct modeled endpoint-to-endpoint segment.")).toBeTruthy();
+  });
+  it("selects an overview flight from the full list with Enter", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const fullList = await screen.findByRole("region", { name: "Full flight list" });
+    const alternate = within(fullList).getByRole("button", { name: /534.1 NM/ });
+    alternate.focus();
+    await user.keyboard("{Enter}");
+
+    await screen.findByText("Recorded via alternate routing", { selector: ".map-hud strong" });
+    expect(alternate.getAttribute("aria-current")).toBe("true");
   });
 });
 

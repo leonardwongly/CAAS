@@ -2,7 +2,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import App from "../../apps/web/src/App.tsx";
-import { COMPLETE_RANKED_GROUP_TITLE, DRAFT_SAFETY_LABEL, INCOMPLETE_GROUP_TITLE, installApiStub, RANK_CRITERION, RANK_ONE_LABEL, SAFETY_NOTICE } from "../fixtures/web-app.ts";
+import { SAFETY_NOTICE } from "../../apps/web/src/labels.ts";
+import { COMPLETE_GROUP_TITLE, DRAFT_SAFETY_LABEL, installApiStub, ROUTE_COMPARISON_EXPLANATION } from "../fixtures/web-app.ts";
 
 /**
  * Deterministic ARIA structure assertions (issue #17 automated portion):
@@ -17,7 +18,7 @@ async function selectFixtureFlight(user: ReturnType<typeof userEvent.setup>) {
   const listbox = await screen.findByRole("listbox", { name: "Choose an exact flight-plan match" });
   expect(listbox).toBeTruthy();
   await user.keyboard("{ArrowDown}{Enter}");
-  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("route options returned"));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("same-endpoint recorded routes returned"));
 }
 
 describe("ARIA structure", () => {
@@ -98,49 +99,46 @@ describe("ARIA structure", () => {
     expect(dataTrigger.getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("region", { name: "Flight and route data" })).toBeTruthy();
 
-    await user.click(within(screen.getByRole("region", { name: "Flight and route data" })).getByRole("button", { name: "Edit copy" }));
-    expect(screen.getByRole("region", { name: "Local route editor" })).toBeTruthy();
-    expect(within(rail).getByRole("button", { name: "Edit copy" }).getAttribute("aria-pressed")).toBe("true");
+    await user.click(within(screen.getByRole("region", { name: "Flight and route data" })).getByRole("button", { name: "Explore variation" }));
+    expect(screen.getByRole("region", { name: "Explore a route variation" })).toBeTruthy();
+    expect(within(rail).getByRole("button", { name: "Explore variation" }).getAttribute("aria-pressed")).toBe("true");
 
     await user.click(within(rail).getByRole("button", { name: "Compare" }));
     expect(screen.getByRole("region", { name: "Route comparison" })).toBeTruthy();
     expect(within(rail).getByRole("button", { name: "Compare" }).getAttribute("aria-pressed")).toBe("true");
-    expect(within(rail).getByRole("button", { name: "Edit copy" }).getAttribute("aria-pressed")).toBe("false");
+    expect(within(rail).getByRole("button", { name: "Explore variation" }).getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("keeps route chooser groups, aria-current, and rank semantics", async () => {
+  it("keeps neutral route groups and a single aria-current selection", async () => {
     installApiStub();
     const user = userEvent.setup();
     render(<App />);
     await selectFixtureFlight(user);
     await user.click(screen.getByRole("button", { name: "Routes" }));
 
-    // The merged chooser presents three groups: the service-issued rank-1
-    // label (or its fallback), complete-but-not-first candidates, and
-    // incomplete routes.
-    expect(screen.getByRole("heading", { name: RANK_ONE_LABEL })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: COMPLETE_RANKED_GROUP_TITLE })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: INCOMPLETE_GROUP_TITLE })).toBeTruthy();
+    // The chooser exposes only complete routes; incomplete records are not
+    // keyboard- or screen-reader-selectable in this view.
+    expect(screen.getByRole("heading", { name: COMPLETE_GROUP_TITLE })).toBeTruthy();
     const selected = screen.getByRole("button", { name: /Recorded via MIDPT/ });
     expect(selected.getAttribute("aria-current")).toBe("true");
-    // The auto-selected sole Rank 1 candidate carries aria-current; every
-    // other candidate (ranked and unranked) must not.
+    // The explicitly selected source flight carries aria-current; every other
+    // complete candidate must not, regardless of modeled distance.
     expect(screen.getByRole("button", { name: /Recorded via alternate routing/ }).getAttribute("aria-current")).toBeNull();
-    expect(screen.getByRole("button", { name: /Recorded with unresolved gap/ }).getAttribute("aria-current")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Recorded with unresolved gap/ })).toBeNull();
   });
 
-  it("keeps the route-leg table semantic and scrollable with a name (design §15.6)", async () => {
+  it("keeps the left-side route-leg table expanded, semantic, and scrollable (design §15.6)", async () => {
     installApiStub();
     const user = userEvent.setup();
     render(<App />);
     await selectFixtureFlight(user);
-    await user.click(screen.getByRole("button", { name: "Data" }));
 
-    const heading = screen.getByRole("heading", { name: "Route data" });
-    const table = screen.getByRole("table");
+    const panel = screen.getByRole("region", { name: "Route legs" });
+    const heading = within(panel).getByRole("heading", { name: "Route legs" });
+    const table = within(panel).getByRole("table");
     expect(table.getAttribute("aria-labelledby")).toBe("route-legs-heading");
-    expect(heading.getAttribute("id")).toBe("details-heading");
-    const columns = screen.getAllByRole("columnheader");
+    expect(heading.getAttribute("id")).toBe("route-legs-heading");
+    const columns = within(panel).getAllByRole("columnheader");
     expect(columns.map((cell) => cell.textContent)).toEqual(["Sequence", "From", "To", "Distance", "Status"]);
     expect(screen.getAllByRole("rowheader").length).toBeGreaterThanOrEqual(2);
     const region = screen.getByLabelText("Scrollable route-leg table");
@@ -152,7 +150,7 @@ describe("ARIA structure", () => {
     const user = userEvent.setup();
     render(<App />);
     await selectFixtureFlight(user);
-    await user.click(screen.getByRole("button", { name: "Edit copy" }));
+    await user.click(screen.getByRole("button", { name: "Explore variation" }));
 
     const input = screen.getByRole("combobox", { name: "Add an exact reference point" });
     expect(input.getAttribute("aria-autocomplete")).toBe("list");
@@ -180,15 +178,13 @@ describe("ARIA structure", () => {
     render(<App />);
 
     expect(screen.getByText(SAFETY_NOTICE)).toBeTruthy();
-    expect(screen.getByText(/Search for a recorded flight plan to begin/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("3 of 3 source route records shown")).toBeTruthy());
 
     await selectFixtureFlight(user);
     await user.click(screen.getByRole("button", { name: "Routes" }));
-    // The criterion paragraph appends the standard dispatch caveat; the
-    // binding string itself must be present verbatim as its prefix.
-    expect(screen.getByText((content) => content.startsWith(RANK_CRITERION))).toBeTruthy();
+    expect(screen.getByText(ROUTE_COMPARISON_EXPLANATION)).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Edit copy" }));
+    await user.click(screen.getByRole("button", { name: "Explore variation" }));
     expect(screen.getByText(DRAFT_SAFETY_LABEL)).toBeTruthy();
   });
 
