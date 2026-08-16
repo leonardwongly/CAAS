@@ -1,79 +1,54 @@
 # Keyboard-only map-first E2E review (issue #16)
 
-Status: **Automated portion proved (2026-08-14); a recorded keyboard-first
-live-data pass exists (2026-08-15, `artifacts/uat-execution-record-*.md`,
-16/16 rows in Chromium and WebKit); assistive-technology verification remains
-pending manual execution.**
+Status: **Current automated portion passes: 11/11 keyboard tests.** Historical 2026-08-15 browser/UAT records remain older-subject evidence and are not relabeled as proof of the revised overview-first journey. Human assistive-technology narration remains separate.
 
-Scope (from issue #16): search, duplicate selection, drawers, route data,
-comparison, editing, error recovery, retries, and Map Only — executed with the
-keyboard only. The deterministic, machine-executed portion is covered by
-`tests/e2e/keyboard.test.tsx` (vitest + jsdom + user-event, real tab/arrow
-flows through the app's own focus logic). The screen-reader announcement
-portion cannot be executed without assistive technology in this environment
-and is specified below with exact expected announcements.
+## 1. Deterministic keyboard scenarios
 
-## 1. Deterministic keyboard tests (proved)
+Suite: `tests/e2e/keyboard.test.tsx`.
 
-Suite: `tests/e2e/keyboard.test.tsx` — 8 tests, all passed
-(`pnpm run test:e2e` → `Test Files 2 passed, Tests 15 passed`).
-
-| Scenario | Key sequence exercised | Assertion (proved) |
+| Scenario | Keyboard action | Assertion |
 |---|---|---|
-| Skip link is the first tab stop | `Tab` | focus moves to "Skip to flight search" and its target `#flight-search` exists |
-| Duplicate disambiguation | type `FIXTURE1`, `Enter`, `ArrowDown`, `Enter` | a `listbox` "Choose an exact flight-plan match" with 2 `option`s opens; selection announces "2 route options returned" in the live region |
-| Close button focus return | `Tab` to "Routes", `Enter`, `Tab` to "Close", `Enter` | focus returns to the "Routes" trigger (design §15.2 deterministic focus return) |
-| Route card selection focus | `Tab` to a route card, `Enter` | focus returns to the route chooser heading after selection; HUD updates |
-| Map Only enter/exit | `Tab` to "Map only", `Enter`; then "Restore controls", `Enter` | chrome hidden (`banner`/`navigation` gone), focus lands on "Restore controls" immediately; on restore, focus returns to "Map only" |
-| Route options retry | trigger options error (`failRoutes` stub), `Tab` to "Retry route options", `Enter` | error alert "Could not load route options." shown; after retry the ranked list loads and focus lands on the "Route options" heading |
-| Draft validation retry | trigger draft error (`failDraft` stub), `Tab` to "Retry draft validation", `Enter` | focus lands on the "Local computational draft" heading; validation succeeds |
-| Draft point add/remove | in "Add an exact reference point" combobox type `MIDPT`, `Enter`, `ArrowDown`, `Enter`, then `Tab` to "Remove MIDPT", `Enter` | option added to the draft via-list; removed again via keyboard |
+| Skip link | `Tab`, `Enter` | First stop is `Skip to flight search`; focus reaches the callsign filter |
+| Initial overview | Navigate without searching | Populated full flight list is reachable after overview readiness |
+| Full-list selection | Focus a route row, `Enter` | Row gains `aria-current="true"`; HUD and selected `flightId` update |
+| Callsign duplicate choice | Type fixture callsign, `Enter`, arrows, `Enter` | Exact match listbox is explicit; selected flight loads same-endpoint neutral options |
+| Route option selection | Open Routes, tab to a route, `Enter` | Selected route and HUD synchronize; focus returns predictably |
+| Drawer close | Open each drawer, activate its close button | Focus returns to Routes, Data, Explore variation, or Compare trigger |
+| Explore variation | Open region; add/remove an exact reference | Combobox/listbox and remove button work with keyboard only |
+| Retry | Trigger route/variation failure and activate Retry | State is preserved where valid and focus lands on the affected heading |
+| Map Only | Activate `Map only`, then `Restore controls` | Chrome hides/restores and focus moves deterministically |
+| Clear/reset | Activate reset control | Focused selection/filter/variation clears while populated overview remains |
+| API data page | Open API data, then return | Focus moves to page heading and back to the rail trigger |
 
-## 2. Live-region announcement strings (proved via `role="status"`)
+## 2. Current status strings
 
-The same strings a screen reader will announce were asserted exactly:
+The role-status assertions cover:
 
-- Search result count: `"N route options returned"` after exact-match selection.
-- Route selection: `"Selected <label>."`
-- Draft validation: `"Draft validation completed."`
-- Session reset: `"Session cleared."`
-- Search failure (role="alert"): the exact stubbed error message
-  `"Search service unavailable (stub)."`
-- Route options failure (role="alert"): `"Could not load route options."`
+- `<N> recorded flight route(s) loaded in the overview.`
+- `Selected flight <callsign>, departing <origin> for <destination>. Loading same-endpoint recorded routes.`
+- `<N> same-endpoint recorded route(s) returned for neutral comparison with <callsign>.`
+- `Selected flight <callsign> from the neutral route comparison.`
+- `Route variation validated against exact reference data.` or the explicit unresolved-gap alternative.
+- `Session reset.`
+- refresh success/failure plus final overview readiness.
 
-Both status regions are `role="status" aria-live="polite"` (App top level and
-DraftEditor).
+Alerts remain action-specific. No status announces a rank, winner, or preferred route.
 
-## 3. Pending manual: screen-reader announcement pass
+## 3. Pending human announcement pass
 
-Requires VoiceOver (macOS) or NVDA (Windows). Procedure:
+Against an exact named subject, replay the core journey with VoiceOver or NVDA and record verbatim output:
 
-1. Open the app at the built preview URL with the screen reader running.
-2. With the keyboard only, replay scenario 1–9 from §1.
-3. Record the announcement after each action in the table below.
-
-Pass criteria (all must hold; this is the "SR announced as specified" gate):
-
-| Action | Expected announcement (exact) | Result |
+| Action | Expected meaning | Result |
 |---|---|---|
-| Tab once | "Skip to flight search, link" | ☐ pass / ☐ fail + note |
-| Type `FIXTURE1`, Enter | "Choose an exact flight-plan match, list box, 2 options" | ☐ pass / ☐ fail + note |
-| ArrowDown, Enter | "2 route options returned" (polite) | ☐ pass / ☐ fail + note |
-| Enter on "Routes" | "Route chooser, region" / rail button state "Routes, pressed" | ☐ pass / ☐ fail + note |
-| Enter on "Data" | "Flight and route data, region" | ☐ pass / ☐ fail + note |
-| Enter on "Edit copy" | "Local route editor, region" | ☐ pass / ☐ fail + note |
-| Close draft, Enter | "Edit copy, button" (focus return) | ☐ pass / ☐ fail + note |
-| "Map only", Enter | "Restore controls, button" announced; page title "Map-first route comparison" | ☐ pass / ☐ fail + note |
+| Load | Overview readiness count announced once | ☐ |
+| Enter on full-list route | Selected identity and neutral route-load status | ☐ |
+| Filter callsign | Map/list subset and shown/total count remain understandable | ☐ |
+| Enter on Routes | `Route chooser, region`; neutral complete/incomplete grouping | ☐ |
+| Enter on Data | `Flight and route data, region`; table headers announced | ☐ |
+| Enter on Explore variation | `Explore a route variation, region`; local/unsaved safety meaning | ☐ |
+| Exact-overlap route | `Choose an overlapping recorded flight, dialog` and each choice | ☐ |
+| Enter Map only / restore | `Restore controls` then focus return to `Map only` | ☐ |
 
-Retain: screenshot/notes of any failure; file in `docs/testing/artifacts/`.
+## 4. Evidence boundary
 
-## 4. Evidence
-
-- Deterministic results: `tests/e2e/keyboard.test.tsx` (8/8 passed),
-  `tests/e2e/interaction.test.tsx` (7/7 passed); command and output in
-  `docs/testing/accessibility-evidence.md` §2.
-- Real-browser states (same interaction paths, pointer-driven) proved with
-  axe: 0 violations across flight-selected, route-chooser, route-data,
-  draft-editor, draft-reference-listbox, map-only — screenshots retained
-  (`artifacts/route-chooser.png`, `artifacts/route-data.png`,
-  `artifacts/draft-editor-point.png`, `artifacts/map-only.png`).
+Automated focus and DOM semantics do not prove a real screen reader. Retain a new result for the revised journey and do not edit historical records. Azure and production behavior remain outside this local keyboard claim.

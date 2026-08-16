@@ -60,8 +60,9 @@ function flightRecord(id, callsign, departure, destination, routeElements = unde
   return record;
 }
 
-// Six flights: a tie group on KJFK->KLAX, a reverse route with an unresolved gap,
-// a flight without a filed route, and an exact-signature duplicate group.
+// Six flights: a same-endpoint comparison group, a reverse route with an
+// unresolved gap, a flight without a filed route, and an exact-signature
+// duplicate group.
 export function fixtureFlightBodies() {
   return [
     flightRecord("fixture-1", "FIXTURE1", "KJFK", "KLAX", ["MIDPT"]),

@@ -2,11 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildRouteQueryFromDraft,
-  competitionRank,
+  displayDistanceNm,
   fromGeoJsonPosition,
   haversineDistanceNm,
-  rankDistanceNm,
-  rankRouteCandidates,
   resolveExactReference,
   resolveRouteQuery,
   toGeoJsonLineString,
@@ -26,7 +24,7 @@ test("Haversine uses nautical-mile earth radius and preserves full precision", (
   const distance = haversineDistanceNm(jfk.coordinate, lhr.coordinate);
   assert.ok(distance > 2_990 && distance < 3_000);
   assert.equal(haversineDistanceNm(jfk.coordinate, jfk.coordinate), 0);
-  assert.equal(rankDistanceNm(distance), Math.round((distance + Number.EPSILON) * 1_000_000) / 1_000_000);
+  assert.equal(displayDistanceNm(distance), Math.round((distance + Number.EPSILON) * 10) / 10);
 });
 
 test("exact resolution distinguishes missing and ambiguous references", () => {
@@ -44,13 +42,6 @@ test("route query keeps endpoint gaps explicit", () => {
   assert.equal(result.status, "gap");
   assert.equal(result.origin.status, "resolved");
   assert.equal(result.destination.status, "gap");
-});
-
-test("competition ranking keeps ties and skips ranks", () => {
-  assert.deepEqual(competitionRank([10, 10, 12, 14]), [1, 1, 3, 4]);
-  assert.deepEqual(competitionRank([12, 10, 10, 14]), [3, 1, 1, 4]);
-  const ranked = rankRouteCandidates([{ distanceNm: 10 }, { distanceNm: 10.0000004 }, { distanceNm: 12 }]);
-  assert.deepEqual(ranked.map((item) => item.rank), [1, 1, 3]);
 });
 
 test("GeoJSON is longitude-latitude while Leaflet is latitude-longitude", () => {

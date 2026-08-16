@@ -7,6 +7,16 @@
       "reasoning": {
         "effort": "high"
       }
+    },
+    "gpt-5.6-sol": {
+      "reasoning": {
+        "effort": "high"
+      }
+    },
+    "gpt-5.6-luna": {
+      "reasoning": {
+        "effort": "high"
+      }
     }
   }
 }

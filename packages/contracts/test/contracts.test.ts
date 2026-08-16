@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CoordinateSchema, DRAFT_SAFETY_COPY, LocationSchema, MAX_ROUTE_LEGS, MAX_ROUTE_POINTS, PERSISTENT_SAFETY_COPY, RANK_ONE_LABEL, RouteCandidateSchema, RouteDraftSchema, RouteDraftSelectionSchema, RoutePathSchema, RouteQuerySchema, parseCoordinate, parseReference, safeParseCoordinate } from "../src/index.ts";
+import { CoordinateSchema, DRAFT_SAFETY_COPY, LocationSchema, MAX_ROUTE_LEGS, MAX_ROUTE_POINTS, PERSISTENT_SAFETY_COPY, RouteCandidateSchema, RouteDraftSchema, RouteDraftSelectionSchema, RoutePathSchema, RouteQuerySchema, parseCoordinate, parseReference, safeParseCoordinate } from "../src/index.ts";
 
 test("coordinate parsing normalizes object and GeoJSON positions and rejects out-of-bounds values", () => {
   assert.deepEqual(parseCoordinate({ latitude: "51.4700", longitude: "-0.4543" }), { lat: 51.47, lon: -0.4543 });
@@ -37,9 +37,9 @@ test("all route schemas share the 256-point endpoint-inclusive bound", () => {
     destination: reference,
     legs: Array.from({ length: 255 }, () => leg),
     distanceNm: 1,
-    rankDistanceNm: 1,
   };
   assert.equal(RouteCandidateSchema.safeParse(candidate).success, true);
+  assert.equal(RouteCandidateSchema.safeParse({ ...candidate, rank: 1 }).success, false);
   assert.equal(RouteCandidateSchema.safeParse({ ...candidate, legs: [...candidate.legs, leg] }).success, false);
   assert.equal(RouteQuerySchema.safeParse({ origin: reference, destination: reference, maxLegs: 255 }).success, true);
   assert.equal(RouteQuerySchema.safeParse({ origin: reference, destination: reference, maxLegs: 256 }).success, false);
@@ -65,9 +65,8 @@ test("explicit draft selections are generation-bound tokens bounded to waypoint 
   assert.equal(RouteDraftSchema.safeParse({ origin: "A", destination: "B", via: ["V"], selections: [...maxSelections, { sequence: MAX_ROUTE_LEGS - 1, locationId: "t" }] }).success, false);
 });
 
-test("safety and rank labels are exact and immutable contract constants", () => {
+test("safety labels are exact and immutable contract constants", () => {
   assert.equal(PERSISTENT_SAFETY_COPY, "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.");
-  assert.equal(RANK_ONE_LABEL, "Rank 1 by shortest modeled distance among complete candidates.");
   assert.equal(DRAFT_SAFETY_COPY, "Computationally complete; operational constraints not assessed.");
   assert.notEqual(PERSISTENT_SAFETY_COPY, DRAFT_SAFETY_COPY);
 });

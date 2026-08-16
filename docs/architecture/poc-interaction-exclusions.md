@@ -8,33 +8,30 @@ the acceptance evidence that keeps it excluded, the gate that would permit
 re-entry, and the binding rules it must respect if ever re-entered. It is a
 design commitment, not evidence. It complements the [POC boundary
 document](poc-boundary.md), ADR-001, and binding design Section 0 (normative
-reconciliation, 2026-08-12); Section 0.4 governs ranking and presentation and
+reconciliation, 2026-08-12); Section 0.4 governs neutral comparison and presentation and
 is referenced throughout.
 
 ## The interaction that is included, to bound the exclusions
 
-The POC supports exactly these interactions with routes and drafts:
+The POC supports exactly these interactions with routes and local variations:
 
-1. **Browse and select** a recorded flight; display its recorded route.
-2. **Draft** a local route (origin, destination, via waypoints) in the editor.
-3. **Resolve** every draft waypoint exactly. Ambiguous references (multiple
-   exact matches for the same identifier) fail closed until the user makes a
-   generation-bound explicit selection from the bounded choices the server
-   issued; the selection binds to the active generation and is rejected if
-   stale, forged, tampered, or mismatched. Missing references remain gaps.
-4. **Compare** one recorded route (baseline) against one local draft (target)
-   when both operands are complete, reporting the directed difference of
-   modeled distance totals at full precision. A draft may be supplied inline
-   or by a server-issued in-memory draft id scoped to the active generation
-   (see Section 6).
-5. **Rank** complete same-endpoint recorded candidates by
-   `rankDistanceNm` at `0.000001 NM`; incomplete candidates stay visible but
-   unranked; all tied Rank 1 candidates are presented together under the only
-   qualified label.
+1. **Browse and select** every safe active-generation flight from the map, full
+   list, or callsign filter; all surfaces share one selected `flightId`.
+2. **Compare recorded routes neutrally** for one endpoint pair. The selected
+   route appears first, remaining routes retain immutable source order, complete
+   and incomplete routes stay visible, and modeled distance is descriptive only.
+3. **Explore a local unsaved variation** (origin, destination, via waypoints) in
+   the optional variation editor.
+4. **Resolve** every variation waypoint exactly. Ambiguous references fail closed
+   until the user makes a generation-bound explicit selection; missing references
+   remain gaps.
+5. **Compare** one recorded route with one local variation when both operands are
+   complete, reporting the directed difference of modeled distance totals.
 
-Everything else that a route editor might offer — undo/redo, draft ranking,
-inferred topology, recorded-vs-recorded diff, a full directed diff, or draft
-persistence across sessions — is deliberately excluded below.
+Preference ranking, undo/redo, inferred topology, arbitrary cross-endpoint
+comparison, a full directed sequence diff, and persistence across sessions are
+excluded below. Public DTOs omit `rank`, `rankDistanceNm`, `rankLabel`, and
+`operationalProxy`.
 
 ## 1. Undo and redo
 
@@ -69,47 +66,35 @@ a separate acceptance criterion. Re-entry must preserve every binding rule:
 history entries never carry coordinates, never resolve by proximity, and
 expire with their generation.
 
-## 2. Draft ranking
+## 2. Preference ranking
 
-**Exclusion.** Locally edited drafts are never ranked into the recorded-
-candidate population, never receive a rank or the qualified Rank 1 label, and
-never compete with recorded candidates.
+**Exclusion.** Neither recorded routes nor local variations receive a public
+rank, winner badge, preference label, or operational-proxy field. Modeled
+distance never controls default order.
 
-**Reason — safety.** Binding Section 0.4 ranks complete same-endpoint
-recorded routes alone, and incomplete candidates remain available but
-unranked. Drafts are unverified user input: a recorded route's provenance and
-generation binding do not apply to it. Ranking a draft next to recorded
-candidates would present the draft as equivalent evidence ("competing" for a
-qualified label) and would require assigning rank semantics to incomplete
-drafts — both forbidden. The draft is separately server-validated and may
-expose a delta only when both comparison operands are complete.
+**Reason — safety.** The available data omits weather, NOTAM, ATC, fuel,
+aircraft suitability, clearance, legality, and regulatory constraints. Turning
+one geometric measure into a declared preference would imply evidence the POC
+does not possess. A local variation is additionally user-authored and ephemeral.
 
-**Acceptance evidence keeping it excluded.** The draft DTOs carry no
-`rank`, `complete`, or `status` fields, while complete drafts do carry
-`rankDistanceNm` (full-precision distance rounded at `0.000001 NM` for
-comparison only), pinned in
-`tests/route-safety/safety-ranking.test.ts` ("draft route payloads never carry
-rank or complete fields"). The two-operand comparison reports
-`comparison.status = "incomplete"` with `INCOMPLETE_OPERAND` when either
-operand is incomplete, and the legacy `drafts/compare` endpoint reports
-`"gap"` for the same unresolved state
-(`tests/route-safety/comparison-contract.test.ts`). Incomplete candidates
-appear after ranked ones with no rank, no `rankDistanceNm`, and no distance
-(`tests/route-safety/safety-ranking.test.ts`), and `rankLabel` is emitted only
-when at least one complete candidate has rank 1.
+**Acceptance evidence keeping it excluded.** Route-safety, runtime-policy, and
+API-contract tests reject `rank`, `rankDistanceNm`, `rankLabel`, and
+`operationalProxy` anywhere in public payloads. Neutral ordering tests require
+the selected recorded route first, remaining immutable source order, and
+canonical signature only as a deterministic final fallback. Incomplete routes
+retain explicit gaps and omit unavailable totals.
 
-**Re-entry gate.** A production-adjacent "rank my draft against recorded
-routes" feature would be a new acceptance criterion with explicit language for
-draft provenance and candidate eligibility; it may not reuse the recorded-
-candidate ranking vocabulary without a binding rule change, and it must keep
-incomplete drafts unranked.
+**Re-entry gate.** Any preference feature requires a new product and safety
+decision, an authoritative operational-input contract, separately named public
+fields and copy, and new acceptance evidence. It may not silently reuse modeled
+distance as operational advice.
 
 ## 3. Inferred topology
 
 **Exclusion.** No topology is ever inferred: no adjacency inference, list-
 membership inference, name-similarity inference, or route-text inference. No
 airway or airway-type value appears in any product-facing DTO, log,
-signature, diff, route table, map label, geometry, completeness, or ranking.
+signature, diff, route table, map label, geometry, completeness, or route comparison.
 Route graphics use only exact resolved waypoint/reference coordinates.
 
 **Reason — safety.** The POC boundary document records that Airways is a
@@ -121,6 +106,10 @@ operational conformance the data cannot support. A continuous line must never
 cross a gap, and an unresolved point is a diagnostic, never a nearest-neighbor
 choice.
 
+The owner-approved conservative potential layer is not topology: it is a client-only, dotted visual estimate between exact anchors with no span-distance upper limit, with a clearly synthetic unnamed midpoint. It does not alter recorded geometry, source DTOs, completeness, source `distanceNm`, comparison, ranking, export, or the original gap; ambiguous and endpoint-only gaps remain unresolved.
+
+A client-only distance annotation may describe an exact-anchor geometric minimum and, after separate historical release gates pass, a conformal statistical interval. It is not a reconstructed route or a complete-route modeled-distance operand. Consecutive missing records sharing one anchor pair are one corridor; no missing fix, airway, or intermediate topology is inferred. Annotation values are prohibited inputs to route ordering, comparison, preference language, public DTOs, server state, logging, and export. An absent or out-of-support model fails closed to the geometric minimum or unavailable state.
+
 **Acceptance evidence keeping it excluded.** The offline suites pin
 ambiguity-preserving exact resolution: ambiguous draft waypoints fail closed
 with gap reason `"ambiguous"` until a generation-bound explicit selection
@@ -128,7 +117,7 @@ binds the exact coordinate, and geometry passes through the chosen coordinate
 with no proximity guess (`tests/route-safety/explicit-selection.test.ts`).
 The API payload regression scan rejects any candidate-qualifying copy
 (`tests/route-safety/safety-ranking.test.ts`), and the web copy scan pins the
-same (`tests/route-safety/web-copy.test.ts`). The discovery manifest
+same (`tests/route-safety/web-copy.test.ts`). The gap-distance suites additionally pin corridor grouping, hidden-point feature isolation, route-group-held-out calibration, source immutability, API absence, lower-bound copy, and fail-closed model behavior (`packages/route-engine/test/gap-distance.test.ts`, `tests/route-safety/estimated-distance.test.ts`, `tests/e2e/gap-distance.test.tsx`, and `tests/a11y/gap-distance.test.tsx`). The discovery manifest
 (`docs/evidence/pg-00-live-api-discovery.json`) and the POC boundary
 document's Airways variance record the unproved occurrence-to-leg relation
 that motivates the exclusion.
@@ -138,30 +127,24 @@ route-occurrence-to-directed-leg relation may permit airway-topology
 presentation, under a new acceptance criterion and a data-use review; the
 prohibition on proximity resolution is not lifted by such a contract.
 
-## 4. Recorded-vs-recorded comparison (adjacent exclusion)
+## 4. Cross-endpoint comparison (adjacent exclusion)
 
-**Exclusion.** No comparison of two recorded routes against each other; the
-comparison operands are exactly one recorded baseline and one local draft
-target.
+**Exclusion.** Recorded-route comparison is limited to routes with the same
+origin and destination. The POC does not compare arbitrary endpoint pairs as if
+their modeled distances answered the same question.
 
-**Reason — scope.** The POC's comparison contract is the flight-plan-vs-draft
-question that appears in the product-facing requirement: how does a proposed
-change to a route compare with what is recorded? Comparing two recorded
-routes adds a symmetric pairing UI and a second provenance dimension with no
-POC acceptance criterion behind it.
+**Reason — safety and scope.** Different endpoints represent different trips;
+a side-by-side distance delta would have no like-for-like interpretation and
+could be mistaken for a recommendation.
 
-**Acceptance evidence keeping it excluded.** The two-operand endpoint
-(`POST /api/v1/routes/compare`) accepts exactly `baselineId` (a recorded
-generation-bound token) plus one `targetDraft`; a second draft identifier is
-rejected with `INVALID_COMPARE` (400), and missing operands are rejected with
-`INVALID_BASELINE` / `INVALID_COMPARE`
-(`tests/route-safety/comparison-contract.test.ts`). No
-recorded-vs-recorded request shape exists in `apps/api/src/server.ts`.
+**Acceptance evidence keeping it excluded.** Same-endpoint candidate assembly is
+server-owned and generation-bound. The route chooser and comparison surfaces
+consume only that set, while exact endpoint identity remains part of every
+recorded route DTO.
 
-**Re-entry gate.** A new acceptance criterion would add recorded-vs-recorded
-pairing with its own request contract; both operands would still be
-generation-bound, and the comparison vocabulary must remain directional
-(`distanceDeltaNm = target - baseline` at full precision).
+**Re-entry gate.** A cross-endpoint analytical feature requires a separately
+specified user question, metrics, copy, and acceptance criterion. It must remain
+non-operational and may not introduce preference ranking.
 
 ## 5. Full directed diff (adjacent exclusion)
 

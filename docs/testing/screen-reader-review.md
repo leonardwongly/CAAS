@@ -1,104 +1,59 @@
 # Screen-reader and browser compatibility review (issue #17)
 
-Status: **Automated ARIA/axe portion proved (2026-08-14); browser
-compatibility recorded (2026-08-15, `artifacts/browser-compatibility-record.md`:
-Chrome 16/16, Chromium 16/16, WebKit 16/16 — the Chrome run refreshed at
-10:22Z). The named screen-reader (VoiceOver) and Firefox rows were waived by
-the owner on 2026-08-15 in favor of the real-Chrome standard.**
+Status: **Automated ARIA/axe portion passes for the current overview-first UI.** Historical browser records from 2026-08-15 remain valid only for the older subject and wording they captured. Revised human VoiceOver/NVDA execution remains pending or separately waived by the owner; automated checks do not prove real announcements.
 
-## 1. Named matrix
+## 1. Current automated evidence
 
-| Combination | Role tested by | Status |
-|---|---|---|
-| VoiceOver + Safari (macOS, latest) | Human reviewer | Pending manual (procedure §4) |
-| NVDA + Chrome (Windows, latest) | Human reviewer | Pending manual (procedure §4) |
+- `tests/a11y/aria-structure.test.tsx`: 8 tests pass.
+- `tests/a11y/axe.test.tsx`: 9 tests pass, zero violations in every audited state. jsdom reports expected incomplete color-contrast checks because canvas pixel analysis is unavailable.
+- Combined accessibility run: 17/17 tests.
+- `tests/e2e/keyboard.test.tsx`: 11/11 tests, including keyboard selection from the full flight list.
+- `tests/e2e/interaction.test.tsx`: 17/17 tests, including >10 routes, map/list/HUD synchronization, shared filtering, and the exact-overlap chooser.
 
-No assistive technology is available in this environment; the deterministic
-parts are proved below so the manual pass reduces to verification, not
-discovery.
+Automated evidence covers semantics and deterministic focus/state. It does not substitute for VoiceOver, NVDA, visual contrast judgment, or comprehension testing.
 
-## 2. Deterministic evidence (proved)
+## 2. Semantic structure pinned by tests
 
-### 2.1 ARIA structure (`tests/a11y/aria-structure.test.tsx`, 8/8 passed)
+- One banner and one main landmark; skip link remains first in tab order.
+- The callsign control is a combobox/filter over the populated overview, with listbox semantics for exact flight-plan matches.
+- The full flight list is always the keyboard-equivalent route-selection path and selected rows use `aria-current="true"`.
+- Drawers are named nonmodal regions: `Route chooser`, `Flight and route data`, `Explore a route variation`, and `Route comparison`.
+- Neutral route groups are `Complete recorded routes` and `Recorded routes with visible gaps` as applicable.
+- The route-leg table remains inside `Scrollable route-leg table` with `Sequence`, `From`, `To`, `Distance`, and `Status` headers.
+- The exact-overlap dialog is named `Choose an overlapping recorded flight`.
+- Map Only keeps an announceable page title and moves focus deterministically to `Restore controls`; restore returns focus to `Map only`.
 
-- Landmarks: one `banner` (header), one `main`; skip link is the first
-  focusable element; Map Only mode keeps exactly the map landmark plus an
-  `h1` (page title stays announceable).
-- Flight search is a combobox with `aria-expanded`, `aria-controls`,
-  `aria-activedescendant` (`flight-match-N`) and closes on Escape —
-  announced as a listbox by both VoiceOver and NVDA.
-- Draft point search is the same combobox/listbox pattern
-  (`draft-match-N`), `aria-autocomplete="list"`.
-- Drawers are `role="region"` with distinct accessible names: "Route
-  chooser", "Flight and route data", "Local route editor" — each
-  nonmodal on desktop (no focus trap, design §15.2).
-- Rail triggers expose `aria-pressed` that stays in sync with the open
-  drawer.
-- Route chooser groups expose `aria-current="true"` only on the selected
-  route card.
-- Route-leg table has column headers `Sequence`, `From`, `To`, `Distance`,
-  `Status`, inside a named scrollable region (`role="group"`,
-  `aria-label="Scrollable route-leg table"`).
-- Map endpoint locations are a named section ("Route endpoint locations")
-  with Departure/Arrival points announced in document order.
-- Binding strings announced verbatim: the rank criterion, the safety
-  notice, and the draft safety label (exact text in §2.3).
+## 3. Exact current strings
 
-### 2.2 axe audits (`tests/a11y/axe.test.tsx` + real browser)
+- Safety: `Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.`
+- Neutral comparison: `Recorded routes are shown in stable source order for neutral comparison. Modeled distance is descriptive only and does not identify a preferred route.`
+- Complete group: `All recorded route components resolved exactly. No route is labeled as preferred or first.`
+- Incomplete group: `Some references could not be resolved exactly. Resolved components remain visible and gaps are never bridged.`
+- Variation safety: `Computationally complete; operational constraints not assessed.`
+- Overview load: `<N> recorded flight route(s) loaded in the overview.`
+- Selected flight options: `<N> same-endpoint recorded route(s) returned for neutral comparison with <callsign>.`
 
-0 violations in all 7 jsdom states and all 10 real-browser states
-(`wcag2a`, `wcag2aa`, `best-practice`); `color-contrast` incomplete only on
-non-text map imagery (see `docs/testing/accessibility-evidence.md` §3–§4).
+## 4. Pending human procedure
 
-### 2.3 Exact announced strings (proved)
+Run once for each owner-required screen-reader/browser pairing against an exact named subject.
 
-- Safety banner: `Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.`
-- Rank criterion: `Routes are ranked by shortest recorded distance among routes with the same departure and arrival. Rank 1 is the shortest route in this retrieved set.` (rendered with suffix ` It does not account for safety, clearance, legality, weather, fuel, or airline dispatch constraints.`)
-- Draft safety label: `Computationally complete; operational constraints not assessed. Endpoints are locked and every change is checked against exact reference data.`
+| # | Keyboard action | Pass criterion | Result |
+|---|---|---|---|
+| 1 | Load and `Tab` | First stop is `Skip to flight search`; overview load status is announced once | ☐ |
+| 2 | Continue to full flight list | Each route button includes callsign, endpoints, completeness/distance information, and selected state | ☐ |
+| 3 | Press Enter on a list route | HUD and `aria-current` update to the same identity; neutral route-load status is announced | ☐ |
+| 4 | Type a callsign substring | Full list and map subset change together; shown/total count remains understandable | ☐ |
+| 5 | Open Routes | `Route chooser, region`; complete/incomplete group names and neutral explanation are announced | ☐ |
+| 6 | Move through route options | No rank/winner announcement; distance is described only when available; gap state is explicit | ☐ |
+| 7 | Open Data | `Flight and route data, region`; table headers and gap rows are announced | ☐ |
+| 8 | Open Explore variation | `Explore a route variation, region`; local/unsaved and safety state are announced | ☐ |
+| 9 | Add/remove an exact point | Result and remove button include the exact reference identifier | ☐ |
+| 10 | Trigger exact-overlap chooser | Dialog name, overlap count, and each flight choice are announced | ☐ |
+| 11 | Enter Map only | `Restore controls` receives focus and the map-first page title remains announceable | ☐ |
+| 12 | Restore controls | Focus returns to `Map only`; populated overview remains available | ☐ |
 
-## 3. Interaction guarantees (proved, jsdom keyboard lane)
+For a failure, retain pairing, exact subject, step number, observed announcement verbatim, expected wording, impact, and a safe screenshot/recording reference.
 
-- Focus return after every drawer close and after Map Only restore
-  (design §15.2) — `tests/e2e/keyboard.test.tsx`.
-- No focus trap in desktop drawers; Map Only moves focus deterministically
-  to "Restore controls".
+## 5. Evidence boundary
 
-## 4. Pending manual procedure (per named combination)
-
-For each row of the §1 matrix, a reviewer executes once and retains notes
-(+ screenshot if failure) in `docs/testing/artifacts/`.
-
-### 4.1 Setup
-
-1. Fresh profile; only the target SR enabled; no browser extensions.
-2. Open the built app at the preview URL with the screen reader active
-   from first paint.
-
-### 4.2 Steps and pass criteria (record ☐ pass / ☐ fail + note per cell)
-
-| # | Action (keyboard only) | Pass criterion |
-|---|---|---|
-| 1 | `Tab` from load | First stop is "Skip to flight search" |
-| 2 | `Enter` on skip link | Focus moves to the flight search input |
-| 3 | Type `FIXTURE1`, `Enter` | Listbox announced: "Choose an exact flight-plan match, 2 options" |
-| 4 | `ArrowDown`, `Enter` | Polite status announces "2 route options returned" |
-| 5 | `Enter` on "Routes" | "Route chooser, region" announced; "Routes" trigger announces pressed |
-| 6 | `Tab` through route cards | Each card announces label, distance, "Rank 1" or "Unranked", gap info |
-| 7 | `Enter` on "Data" | Region announced; table announces column headers `Sequence`, `From`, `To`, `Distance`, `Status` |
-| 8 | `Enter` on "Edit copy" | "Local route editor, region"; safety label of the draft announced on focus |
-| 9 | Tab to "Remove MIDPT" / "Remove" | Announcement includes the reference name |
-| 10 | `Enter` on "Close draft" | Focus returns to "Edit copy" |
-| 11 | `Enter` on "Map only" | Chrome (header/nav/search) disappears; "Restore controls" focused; page title "Map-first route comparison" announced |
-| 12 | `Enter` on "Restore controls" | Full chrome returns; focus on "Map only" |
-
-### 4.3 Defect report template
-
-For any fail: combination (VoiceOver+Safari / NVDA+Chrome), step #, observed
-announcement verbatim, expected verbatim, screenshot/recording filename.
-
-## 5. Evidence
-
-- Automated: suites listed in `docs/testing/accessibility-evidence.md` §2;
-  command outputs retained in that document.
-- Manual: this document's §4 tables once executed (issue tracked separately;
-  see `docs/testing/uat-walkthrough.md`).
+Do not rewrite historical execution records to use current copy. A revised human pass requires a new subject-bound record. Azure and production accessibility remain unevidenced unless separately executed and authorized.

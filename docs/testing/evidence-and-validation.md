@@ -20,7 +20,7 @@ PG-00 is human-reviewed against the exact design/plan hashes using `evaluationMo
 
 ### Unit and property behavior
 
-Cover coordinate parsing/range checks, exact reference resolution, ambiguity, explicit gaps, Haversine legs/totals, antimeridian display, canonical signatures, tie-key rounding, all-Rank-1 presentation, bounded local-draft integrity and server-computed delta when both computations are complete, and hard bounds. Include negative cases for malformed records, duplicate references, unknown fields, missing endpoints, generation mismatch, and forbidden airway output.
+Cover coordinate parsing/range checks, exact reference resolution, ambiguity, explicit gaps, Haversine legs/totals, antimeridian display, canonical signatures, selected-first immutable source ordering, absence of public preference fields, bounded local-variation integrity and server-computed delta when both computations are complete, and hard bounds. Include negative cases for malformed records, duplicate references, unknown fields, missing endpoints, generation mismatch, and forbidden airway output.
 
 ### Contract behavior
 
@@ -28,7 +28,11 @@ Use minimized, irreversibly sanitized captured-real responses. They must contain
 
 ### Integration and E2E behavior
 
-Verify server-only CAAS access, startup failure for any unusable mandatory family, atomic refresh, prior-generation freshness limits, cursor exact-once traversal from first to terminal cursor, callsign search, duplicate selection, route/table/SVG parity, visible gaps, all tied Rank 1 recorded candidates, the bounded local draft controls, keyboard/focus states, and URL privacy. The browser must make no external map-provider request. No synthetic fixture may appear as a runtime or demo fallback.
+Verify server-only CAAS access, startup failure for any unusable mandatory family, atomic refresh, prior-generation freshness limits, client/server cursor exact-once traversal, rejection of duplicate identities/generation drift/non-progressing pages, >10-route map/list rendering, shared map/list/filter/HUD selection, exact-overlap choice, callsign filtering, visible gaps without bridging, neutral complete/incomplete groups, absence of public preference fields, bounded local-variation controls, keyboard/focus states, and URL privacy. OSM requests must obey the binding tile-only/no-referrer/CSP/attribution/cap contract and route data must survive tile failure. No synthetic fixture may appear as a runtime or demo fallback.
+
+### Airport-name bundle behavior
+
+Verify manifest schema, pinned source commit and license, source and normalized SHA-256 values, 10,444-record count, unique sorted exact ICAO entries, deterministic regeneration, exact lookup, explicit missing-name fallback, and absence of fuzzy/proximity/generated-code/runtime lookup. Bundle and manifest updates and rollbacks are atomic. The reference is community-maintained and not an official ICAO publication.
 
 ### Security and operational behavior
 
@@ -54,6 +58,8 @@ pnpm run test:container
 pnpm run test:performance
 pnpm run test:live
 pnpm run validate:evidence
+pnpm run evidence:archive             # dry run; moves nothing
+pnpm run evidence:archive -- --apply  # archive reviewed stale records only
 pnpm run oci:build
 pnpm run oci:verify
 pnpm run build
@@ -89,9 +95,9 @@ into `docs/evidence/` with real SHA-256 artifact hashes:
 
 - `loopback-lane.mjs` — the loopback five-family lane: the real server and real
   adapter over loopback HTTP against a deterministic sanitized mock upstream.
-  Twenty checks cover startup/readiness, five-family acquisition, single-retry
+  Twenty-three checks cover startup/readiness, five-family acquisition, single-retry
   on 429, bounded egress, browse exact-once cursor traversal, callsign search
-  (positive/negative), tied-rank presentation, exact-signature dedup, explicit
+  (positive/negative), selected-first neutral source order, descriptive distance, preference-field exclusion, exact-signature dedup, explicit
   gap preservation, duplicate-identifier ambiguity, draft compare, refresh
   authorization/atomicity/retention, airway exclusion, security headers,
   fail-closed startup, and restart reacquisition. Fixture values mirror
@@ -169,6 +175,42 @@ The future implementation command matrix is:
 
 PG-04 is the first place where the unchanged digest, private auth, Azure deployment, first-deploy abort path, later revision plus app-config rollback, and current-data reacquisition can be evidenced. PG-05 adds manual accessibility/UAT and demonstration readiness. None of these results currently exist.
 
+## Historical and generated evidence
+
+Retained evidence is immutable audit history. A record containing superseded Rank-era checks proves only the named older subject and contract. Do not edit it to imply proof of neutral comparison, the all-route overview, synchronized selection, or airport-name governance. New claims require current tests or a new subject-bound record with current artifact hashes, such as `loopback-lane-local-e965c728fe45.json`.
+
 ## Failure reporting
 
 Record failed or blocked gates, not just successful checks. A failed mandatory check blocks the gate and points to a concrete fallback: no synthetic substitution, no partial generation, ingress disabled on Azure, or teardown/repair under authorization. A command exit status cannot override missing measurements, missing artifact hashes, policy mismatch, expired exceptions, or manual authorization/UAT.
+
+### Evidence archive and re-settlement workflow
+
+Historical evidence is immutable audit history. The dedicated `evidence:settle`
+workflow is intentionally two-phase:
+
+1. Run `pnpm run evidence:settle` (or `--write-plan <path>`) to produce a
+   read-only plan. The plan lists only top-level lane/measurement records whose
+   referenced artifacts are missing or hash-mismatched, including each root
+   record's byte length and SHA-256. It never edits or moves a record.
+2. Review the plan against the current product/runtime contract. Set
+   `review.status` to `approved` only after confirming that each candidate is a
+   superseded root record and that no retained UAT artifact is being relabeled.
+3. Run `node scripts/validation/settle-evidence.mjs --apply --plan-file
+   <path> --approve`. The command re-scans and rejects a stale plan, copies
+   each selected root record to `docs/evidence/archived/`, verifies the copied
+   bytes and hash before removing the root, regenerates the current
+   subject-bound loopback record, then invokes the semantic validator once,
+   serially, after all writes complete. It writes a settlement audit record in
+   the archive directory.
+
+The archive operation is byte-preserving, never rewrites JSON, and refuses an
+existing archive copy whose bytes differ. Current records are regenerated from
+current code and current artifact hashes; they are not obtained by editing an
+older record. Revised live UAT is a separate subject-bound run under
+`docs/testing/artifacts/` and must not rename, rewrite, or upgrade older UAT
+records. The workflow performs no Azure operation, cloud write, deployment,
+rollback, teardown, or production action.
+
+The older `evidence:archive` command remains available for compatibility and is
+read-only by default; do not use its legacy `--apply` path for new lifecycle
+work. Use `evidence:settle` for any archive or re-settlement operation.

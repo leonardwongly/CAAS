@@ -1,3 +1,4 @@
+import { airportDisplayLabel, airportNameForIcao } from "./airport-names.ts";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -5,7 +6,6 @@ import { extname, join, resolve } from "node:path";
 import {
   LocationSchema,
   PERSISTENT_SAFETY_COPY,
-  RANK_ONE_LABEL,
   RouteDraftSchema,
   type Coordinate,
   type Location,
@@ -15,7 +15,6 @@ import {
 import {
   compareDistanceOperands,
   haversineDistanceNm,
-  rankDistanceNm,
   resolveExactReference,
   toGeoJsonLineString,
   type ResolutionResult,
@@ -67,7 +66,6 @@ const DRAFT_TTL_MS = 15 * 60 * 1000;
 const MAX_SEARCH_LENGTH = 64;
 const MAX_ERROR_MESSAGE = 160;
 const PUBLIC_PROVENANCE = "CAAS normalized live generation";
-const OPERATIONAL_PROXY_SUMMARY = "Shortest complete normalized observed route among same-endpoint candidates returned by this fresh generation.";
 
 type RouteGapReason = "invalid-reference" | "not-found" | "ambiguous" | "missing";
 
@@ -168,17 +166,24 @@ interface PublicWaypoint {
   readonly reason?: RouteGapReason;
 }
 
-interface RouteProjection {
+interface ProjectionEndpointGap {
+  readonly status: "gap";
+  readonly label: string;
+  readonly gap: PublicGap;
+}
+
+type ProjectionEndpoint = Location | ProjectionEndpointGap;
+
+interface RouteProjection<TEndpoint extends ProjectionEndpoint = Location> {
   readonly id: string;
   readonly flight: SafeFlight;
-  readonly origin: Location;
-  readonly destination: Location;
+  readonly origin: TEndpoint;
+  readonly destination: TEndpoint;
   readonly legs: readonly PublicLeg[];
   readonly waypoints: readonly PublicWaypoint[];
   readonly segments: readonly (readonly Coordinate[])[];
   readonly gaps: readonly PublicGap[];
   readonly distanceNm: number | undefined;
-  readonly rankDistanceNm: number | undefined;
   readonly complete: boolean;
   readonly pointCount: number;
   readonly signature: string;
@@ -373,9 +378,10 @@ function familyLocations(results: readonly ReferenceDatasetResult[]): Location[]
   const locations: Location[] = [];
   for (const result of results) {
     result.points.forEach((point, index) => {
+      const airportName = point.dataset === "airports" ? airportNameForIcao(point.identifier) : undefined;
       locations.push(freezeLocation({
         id: `${result.dataset.slice(0, 3)}-${index}`,
-        name: point.identifier,
+        name: airportName ?? (point.dataset === "airports" ? "Name unavailable" : point.identifier),
         code: point.identifier,
         kind: locationKind(point.dataset),
         coordinate: point.coordinate,
@@ -740,9 +746,46 @@ function selectedLocation(snapshot: Snapshot, selection: RouteDraftSelection, re
 }
 
 function displayReference(location: Location): string {
+  if (location.kind === "airport" && location.code) return airportDisplayLabel(location.code, location.name === "Name unavailable" ? undefined : location.name);
   return location.code ?? location.name;
 }
 
+
+function airportLabelForReference(snapshot: Snapshot, value: unknown): string {
+  const raw = typeof value === "string" && value.trim() ? value.trim().toUpperCase() : "UNKNOWN";
+  const result = indexedReferenceResolution(snapshot, raw, "airport");
+  return result.status === "resolved" ? displayReference(result.match) : airportDisplayLabel(raw);
+}
+
+function overviewRouteDto(snapshot: Snapshot, flight: SafeFlight): Record<string, unknown> {
+  const id = flightId(snapshot, flight.index);
+  const originReference = flight.record.departure;
+  const destinationReference = flight.record.destination;
+  const origin = typeof originReference === "string" ? indexedReferenceResolution(snapshot, originReference, "airport") : undefined;
+  const destination = typeof destinationReference === "string" ? indexedReferenceResolution(snapshot, destinationReference, "airport") : undefined;
+  const endpoint = (
+    result: ResolutionResult | undefined,
+    reference: unknown,
+    sequence: number,
+  ): ProjectionEndpoint => result?.status === "resolved"
+    ? result.match
+    : {
+      status: "gap",
+      label: airportLabelForReference(snapshot, reference),
+      gap: {
+        status: "gap",
+        sequence,
+        reason: result?.status === "ambiguous" ? "ambiguous" : reference ? "not-found" : "missing",
+      },
+    };
+  return routeDto(snapshot, routeProjection(
+    snapshot,
+    flight,
+    endpoint(origin, originReference, 0),
+    endpoint(destination, destinationReference, Math.max(1, (flight.record.routeElements?.length ?? 0) + 1)),
+    id,
+  ));
+}
 function flightId(snapshot: Snapshot, flightIndex: number): string {
   return scopedToken(snapshot, "flight", { i: flightIndex });
 }
@@ -755,20 +798,49 @@ function isSameCoordinate(left: Coordinate, right: Coordinate): boolean {
   return left.lat === right.lat && left.lon === right.lon;
 }
 
+type ProjectionOccurrence =
+  | { point: { label: string; coordinate: Coordinate; sequence: number } }
+  | { gap: PublicGap };
+
+function isProjectionEndpointGap(endpoint: ProjectionEndpoint): endpoint is ProjectionEndpointGap {
+  return "gap" in endpoint;
+}
+
 function routeProjection(
   snapshot: Snapshot,
   flight: SafeFlight,
   origin: Location,
   destination: Location,
+  routeId?: string,
+): RouteProjection;
+function routeProjection(
+  snapshot: Snapshot,
+  flight: SafeFlight,
+  origin: ProjectionEndpoint,
+  destination: ProjectionEndpoint,
+  routeId?: string,
+): RouteProjection<ProjectionEndpoint>;
+function routeProjection(
+  snapshot: Snapshot,
+  flight: SafeFlight,
+  origin: ProjectionEndpoint,
+  destination: ProjectionEndpoint,
   routeId = flightId(snapshot, flight.index),
-): RouteProjection {
+): RouteProjection<ProjectionEndpoint> {
   const record = flight.record;
   const routeIdValue = routeId;
   const elements = record.routeElements;
-  const occurrences: Array<{ point: { label: string; coordinate: Coordinate; sequence: number } } | { gap: PublicGap }> = [
-    { point: { label: displayReference(origin), coordinate: origin.coordinate, sequence: -1 } },
-  ];
+  const occurrences: ProjectionOccurrence[] = [];
   const gaps: PublicGap[] = [];
+  const pushEndpoint = (endpoint: ProjectionEndpoint, sequence: number) => {
+    if (isProjectionEndpointGap(endpoint)) {
+      occurrences.push({ gap: endpoint.gap });
+      gaps.push(endpoint.gap);
+    } else {
+      occurrences.push({ point: { label: displayReference(endpoint), coordinate: endpoint.coordinate, sequence } });
+    }
+  };
+  pushEndpoint(origin, -1);
   if (elements === undefined) {
     const gap = { status: "gap" as const, sequence: 0, reason: "missing" as const };
     occurrences.push({ gap });
@@ -795,7 +867,7 @@ function routeProjection(
       }
     }
   }
-  occurrences.push({ point: { label: displayReference(destination), coordinate: destination.coordinate, sequence: Number.MAX_SAFE_INTEGER } });
+  pushEndpoint(destination, Number.MAX_SAFE_INTEGER);
 
   // Remove only route points directly adjacent to the corresponding endpoint.
   // Guard: with zero route elements the only occurrences are the two endpoints
@@ -845,7 +917,7 @@ function routeProjection(
     }
   }
   flush();
-  const complete = elements !== undefined && gaps.length === 0 && segments.length === 1;
+  const complete = !isProjectionEndpointGap(origin) && !isProjectionEndpointGap(destination) && elements !== undefined && gaps.length === 0 && segments.length === 1;
   const distanceNm = complete ? legs.reduce((sum, leg) => sum + (leg.distanceNm ?? 0), 0) : undefined;
   const pointCount = occurrences.filter((occurrence): occurrence is { point: { label: string; coordinate: Coordinate; sequence: number } } => "point" in occurrence).length;
   const signature = occurrences.map((occurrence) => "gap" in occurrence ? `g:${occurrence.gap.sequence}:${occurrence.gap.reason}` : `p:${occurrence.point.sequence}:${coordinateKey(occurrence.point.coordinate)}`).join("|");
@@ -859,29 +931,17 @@ function routeProjection(
     segments: Object.freeze(segments.map((segment) => Object.freeze(segment))),
     gaps: Object.freeze(gaps),
     distanceNm,
-    rankDistanceNm: distanceNm === undefined ? undefined : rankDistanceNm(distanceNm),
     complete,
     pointCount,
     signature,
   });
 }
 
-function operationalProxy(projection: RouteProjection, rank?: number): Record<string, unknown> {
-  // A complete candidate with modeled distances is eligible whether or not a
-  // competition rank was computed for this surface (the route-detail view has
-  // no population to rank against); only genuinely incomplete geometry is
-  // ineligible.
-  const eligible = projection.complete && projection.distanceNm !== undefined && projection.rankDistanceNm !== undefined;
-  return Object.freeze({
-    mode: "operational-proxy",
-    eligible,
-    criterion: "minimum-modeled-distance-nm",
-    summary: OPERATIONAL_PROXY_SUMMARY,
-    ...(eligible ? { ...(rank !== undefined ? { rank } : {}) } : { exclusion: "Route geometry is incomplete or unresolved." }),
-  });
+function projectionEndpointLabel(endpoint: ProjectionEndpoint): string {
+  return isProjectionEndpointGap(endpoint) ? endpoint.label : displayReference(endpoint);
 }
 
-function routeDto(snapshot: Snapshot, projection: RouteProjection, rank?: number, includeOperationalProxy = true): Record<string, unknown> {
+function routeDto(snapshot: Snapshot, projection: RouteProjection<ProjectionEndpoint>): Record<string, unknown> {
   const geometry = projection.complete && projection.segments[0] && projection.segments[0].length >= 2 ? toGeoJsonLineString(projection.segments[0]) : undefined;
   return {
     id: projection.id,
@@ -889,13 +949,12 @@ function routeDto(snapshot: Snapshot, projection: RouteProjection, rank?: number
     callsign: projection.flight.record.callsign,
     status: projection.complete ? "complete" : "incomplete",
     label: `${projection.flight.record.callsign} route`,
-    origin: displayReference(projection.origin),
-    destination: displayReference(projection.destination),
+    origin: projectionEndpointLabel(projection.origin),
+    destination: projectionEndpointLabel(projection.destination),
     pointCount: projection.pointCount,
     complete: projection.complete,
     legs: projection.legs,
-    ...(projection.distanceNm === undefined ? {} : { distanceNm: projection.distanceNm, rankDistanceNm: projection.rankDistanceNm, ...(rank === undefined ? {} : { rank }) }),
-    ...(includeOperationalProxy ? { operationalProxy: operationalProxy(projection, rank) } : {}),
+    ...(projection.distanceNm === undefined ? {} : { distanceNm: projection.distanceNm }),
     ...(geometry ? { geometry } : {}),
     ...(projection.segments.length > 0 ? { segments: projection.segments.map((points) => toGeoJsonLineString(points)) } : {}),
     provenance: PUBLIC_PROVENANCE,
@@ -949,7 +1008,6 @@ interface DraftProjection {
   readonly gaps: readonly PublicGap[];
   readonly complete: boolean;
   readonly distanceNm: number | undefined;
-  readonly rankDistanceNm: number | undefined;
   readonly pointCount: number;
 }
 
@@ -1042,7 +1100,6 @@ function resolveDraftProjection(snapshot: Snapshot, draft: RouteDraft, now: () =
     gaps: Object.freeze(gaps),
     complete,
     distanceNm,
-    rankDistanceNm: distanceNm === undefined ? undefined : rankDistanceNm(distanceNm),
     pointCount,
   });
 }
@@ -1060,7 +1117,7 @@ function draftRouteDto(snapshot: Snapshot, projection: DraftProjection, id: stri
     destination: displayReference(projection.destination),
     legs: routeLegs,
     gaps: projection.gaps,
-    ...(projection.distanceNm === undefined ? {} : { distanceNm: projection.distanceNm, rankDistanceNm: projection.rankDistanceNm }),
+    ...(projection.distanceNm === undefined ? {} : { distanceNm: projection.distanceNm }),
     ...(projection.complete && projection.segments.length === 1 ? { geometry: toGeoJsonLineString(projection.segments[0]!) } : {}),
     provenance: PUBLIC_PROVENANCE,
     freshness: new Date(snapshot.retrievedAtMs).toISOString(),
@@ -1083,7 +1140,7 @@ function compareProjections(
   const addedWaypointCount = waypointDifferences.length - removedWaypointCount;
   const distance = compareDistanceOperands(baseline.distanceNm, target.distanceNm);
   return {
-    baseline: routeDto(snapshot, baseline, undefined, false),
+    baseline: routeDto(snapshot, baseline),
     target: draftRouteDto(snapshot, target, targetId),
     comparison: {
       status: distance.status,
@@ -1394,8 +1451,8 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
         id,
         flightId: id,
         callsign: flight.record.callsign,
-        departure: flight.record.departure,
-        destination: flight.record.destination,
+        departure: airportLabelForReference(snapshot, flight.record.departure),
+        destination: airportLabelForReference(snapshot, flight.record.destination),
         routePointCount: flight.record.routeElements?.length ?? 0,
       };
     });
@@ -1425,8 +1482,8 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
         id,
         flightId: id,
         callsign: flight.record.callsign,
-        origin: flight.record.departure,
-        destination: flight.record.destination,
+        origin: airportLabelForReference(snapshot, flight.record.departure),
+        destination: airportLabelForReference(snapshot, flight.record.destination),
         routePointCount: flight.record.routeElements?.length ?? 0,
       };
     });
@@ -1437,6 +1494,36 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.get("/api/v1/routes/browse", warm(browse));
   app.get("/api/v1/browse", warm(browse));
   app.get("/api/v1/flights", warm(browse));
+
+  // Target overview contract: every safe flight appears exactly once in immutable
+  // generation order, with every resolved route segment and explicit gap data.
+  // The browser follows the generation-bound cursor to completion before
+  // declaring the overview ready; paging is transport bounding, never truncation.
+  const routeOverview = async (request: FastifyRequest, reply: FastifyReply) => {
+    assertEmptyQuery(request);
+    const snapshot = store.requireSnapshot();
+    const body = bodyObject(request, ["limit", "cursor"]);
+    const limit = parseLimit(body.limit ?? 25);
+    const context = "all-flight-routes";
+    const offset = body.cursor === undefined ? 0 : cursorOffset(body.cursor, snapshot, context, limit, "overview-cursor", now);
+    const data = snapshot.flights.slice(offset, offset + limit).map((flight) => overviewRouteDto(snapshot, flight));
+    const generation = generationSummary(snapshot, now());
+    const nextOffset = offset + data.length;
+    const payload = {
+      data,
+      generation,
+      loaded: nextOffset,
+      total: snapshot.flights.length,
+      ...(nextOffset < snapshot.flights.length ? { nextCursor: scopedToken(snapshot, "overview-cursor", { o: nextOffset, q: context, l: limit }) } : {}),
+    };
+    if (Buffer.byteLength(JSON.stringify(payload), "utf8") > MAX_BROWSER_RESPONSE_BYTES) {
+      throw new ApiHttpError(409, "OVERVIEW_PAGE_TOO_LARGE", "The requested overview page exceeds the browser response limit. Retry with a smaller page size.", true);
+    }
+    return reply.send(payload);
+  };
+  app.post("/api/v1/routes/overview", warm(routeOverview));
+  app.post("/api/v1/overview", warm(routeOverview));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/routes/overview", handler: methodNotAllowed("Route overview") });
 
   // Feature 4: bulk data browse endpoints. Queries and cursors travel in POST
   // bodies only (repo rule: never tokens or state in URLs). Cursors are bound
@@ -1484,8 +1571,8 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
         id,
         flightId: id,
         callsign: flight.record.callsign,
-        origin: flight.record.departure,
-        destination: flight.record.destination,
+        origin: airportLabelForReference(snapshot, flight.record.departure),
+        destination: airportLabelForReference(snapshot, flight.record.destination),
         routePointCount: flight.record.routeElements?.length ?? 0,
       };
     });
@@ -1553,60 +1640,28 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
       candidates = deduplicateRouteCandidates(projections, -1);
     }
 
-    const completeByDistance = candidates
-      .filter((candidate) => candidate.projection.complete && candidate.projection.distanceNm !== undefined && candidate.projection.rankDistanceNm !== undefined)
-      .sort((left, right) => {
-        const leftProjection = left.projection;
-        const rightProjection = right.projection;
-        return leftProjection.distanceNm! - rightProjection.distanceNm! ||
-          leftProjection.rankDistanceNm! - rightProjection.rankDistanceNm! ||
-          leftProjection.pointCount - rightProjection.pointCount ||
-          leftProjection.signature.localeCompare(rightProjection.signature) ||
-          leftProjection.id.localeCompare(rightProjection.id);
-      });
-    const ranks = new Map<number, number>();
-    completeByDistance.forEach((candidate, index) => {
-      const rankDistance = candidate.projection.rankDistanceNm!;
-      if (!ranks.has(rankDistance)) ranks.set(rankDistance, index + 1);
-    });
-    const rankOf = (candidate: RouteCandidate): number => candidate.projection.complete && candidate.projection.rankDistanceNm !== undefined
-      ? ranks.get(candidate.projection.rankDistanceNm) ?? Number.POSITIVE_INFINITY
-      : Number.POSITIVE_INFINITY;
-    const ordered = candidates.sort((left, right) => {
-      return rankOf(left) - rankOf(right) ||
-        left.projection.pointCount - right.projection.pointCount ||
-        left.projection.signature.localeCompare(right.projection.signature) ||
-        left.projection.id.localeCompare(right.projection.id);
-    });
-    const hasRankOne = ordered.some((candidate) => rankOf(candidate) === 1);
-    // Plan §6.1: the browser response is hard-limited to 2 MiB. Serialize
-    // DTOs incrementally and count the exact bytes, failing fast with an
-    // actionable error as soon as the accumulated serialization would cross
-    // the limit — instead of building the whole payload (minting ~127k HMAC
-    // tokens) and then 500ing in the onSend guard with no recourse. Exact
-    // accounting can neither over-reject legal responses nor under-count a
-    // response into the dead zone.
+    // Neutral comparison contract: keep the explicitly selected recorded flight
+    // first, then preserve immutable generation/source order. Modeled distance
+    // is descriptive data only and never determines default order or a winner.
+    const ordered = candidates.sort((left, right) =>
+      Number(right.selected) - Number(left.selected) ||
+      left.projection.flight.index - right.projection.flight.index ||
+      left.projection.signature.localeCompare(right.projection.signature));
+    // The browser response is hard-limited to 2 MiB. Serialize incrementally
+    // and count exact UTF-8 bytes; never silently truncate candidate routes.
     const data: unknown[] = [];
-    // Exact accounting includes the reply envelope: the DTO budget is the
-    // 2 MiB policy cap minus the serialized wrapper and array brackets, so
-    // neither a legal response near the cap nor an over-cap response can
-    // slip across the boundary.
-    const envelopeBytes = Buffer.byteLength(JSON.stringify({ ...(hasRankOne ? { rankLabel: RANK_ONE_LABEL } : {}), generation: generationSummary(snapshot, now()) }), "utf8") + '{"data":[]}'.length;
+    const envelopeBytes = Buffer.byteLength(JSON.stringify({ generation: generationSummary(snapshot, now()) }), "utf8") + '{"data":[]}'.length;
     const budget = MAX_BROWSER_RESPONSE_BYTES - envelopeBytes;
     let serializedBytes = 0;
     for (const candidate of ordered) {
-      const dto = routeDto(snapshot, candidate.projection, candidate.projection.complete ? rankOf(candidate) : undefined);
+      const dto = routeDto(snapshot, candidate.projection);
       serializedBytes += Buffer.byteLength(JSON.stringify(dto), "utf8") + 1;
       if (serializedBytes > budget) {
         throw new ApiHttpError(409, "RESPONSE_TOO_LARGE", "These endpoints produce too many candidate routes for one browser response. Select a single route and use its detail view.", true);
       }
       data.push(dto);
     }
-    return reply.send({
-      data,
-      ...(hasRankOne ? { rankLabel: RANK_ONE_LABEL } : {}),
-      generation: generationSummary(snapshot, now()),
-    });
+    return reply.send({ data, generation: generationSummary(snapshot, now()) });
   };
   app.post("/api/v1/routes/options", warm(routeOptions));
   // Non-POST methods on the POST-only option surface answer a bounded 405 —

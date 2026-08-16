@@ -4,16 +4,18 @@
 
 Flight Route Explorer is intended to be a private, single-user, non-operational decision-support demonstration. It visualizes recorded flight routes, resolves reference points exactly where possible, computes modeled great-circle distance, and lets a user compare a recorded route with a local draft. It does not file, dispatch, approve, clear, navigate, or recommend a route.
 
-The binding POC rules are in [Section 0 of the system design](docs/superpowers/specs/2026-08-11-flight-route-explorer-design.md#0-normative-poc-reconciliation---2026-08-12); the former Sections 3-29 are preserved as a non-binding [historical archive](docs/superpowers/historical/2026-08-11-flight-route-explorer-design-legacy-sections-3-29.md). [Documentation index](docs/index.md) remains the repository entry point.
+The [master product document](docs/product/master-product-document.md) is the source of truth for product direction, target experience, personas, terminology, and product priorities. Binding implementation obligations remain in [Section 0 of the system design](docs/superpowers/specs/2026-08-11-flight-route-explorer-design.md#0-normative-poc-reconciliation---2026-08-12); the former Sections 3-29 are preserved as a non-binding [historical archive](docs/superpowers/historical/2026-08-11-flight-route-explorer-design-legacy-sections-3-29.md). [Documentation index](docs/index.md) remains the repository entry point.
 
 ## Read this in order
 
-1. [POC architecture and legacy reconciliation](docs/architecture/poc-boundary.md)
-2. [Real CAAS data contract](docs/data-use/caas-contract.md)
-3. [Local operations and deferred Azure path](docs/operations/local-and-azure.md)
-4. [Safety, secrets, and privacy boundary](docs/security/safety-and-secrets.md)
-5. [Validation and evidence rules](docs/testing/evidence-and-validation.md)
-6. [ADR: authority and superseded mechanisms](docs/adr/0001-poc-authority-and-legacy-reconciliation.md)
+1. [Master product document](docs/product/master-product-document.md)
+2. [POC architecture and legacy reconciliation](docs/architecture/poc-boundary.md)
+3. [Real CAAS data contract](docs/data-use/caas-contract.md)
+4. [Airport-name reference governance](docs/data-use/airport-name-reference.md)
+5. [Local operations and deferred Azure path](docs/operations/local-and-azure.md)
+6. [Safety, secrets, and privacy boundary](docs/security/safety-and-secrets.md)
+7. [Validation and evidence rules](docs/testing/evidence-and-validation.md)
+8. [ADR: authority and superseded mechanisms](docs/adr/0001-poc-authority-and-legacy-reconciliation.md)
 
 ## What is evidenced now
 
@@ -36,7 +38,7 @@ The validation lanes below are real commands with retained records under `docs/e
 | Lane | Record | Result |
 |---|---|---|
 | Authorized live five-family run (tree `116a84d`) | [live-lane-116a84d608f3.json](docs/evidence/live-lane-116a84d608f3.json) | 5/5 checks pass; real acquisition, exact-once browse, refresh auth, secret excluded |
-| Loopback five-family lane (fixture-backed mechanics) | [loopback-lane-local-116a84d608f3.json](docs/evidence/loopback-lane-local-116a84d608f3.json) | 23/23 checks pass (acquisition, browse exact-once, search, rank ties, refresh, fail-closed startup, restart, airway exclusion, draft TTL/rate-limit mechanics) |
+| Current loopback five-family lane (fixture-backed mechanics) | [loopback-lane-local-e965c728fe45.json](docs/evidence/loopback-lane-local-e965c728fe45.json) | 23/23 checks pass, including selected-first neutral source order, descriptive distance, no public preference fields, exact-once browse, refresh, fail-closed startup, restart, and airway exclusion |
 | Loopback container lane (no credential, fail-closed boot) | [loopback-container-local-116a84d608f3.json](docs/evidence/loopback-container-local-116a84d608f3.json) | 7/7 checks pass; digest-pinned base, non-root, no secret env |
 | Security measurement (hermetic) | [security-local-116a84d608f3.json](docs/evidence/security-local-116a84d608f3.json) | 8/8 pass; `SEC-PACKAGE-AUDIT` passed on the retained authorized networked audit (0 advisories, [dependency-audit-local.json](docs/security/dependency-audit-local.json)) |
 | Performance measurement (fixture-backed loopback) | [performance-local-116a84d608f3.json](docs/evidence/performance-local-116a84d608f3.json) | 8/8 pass against the documented policy objectives; live/CI values pending |
@@ -45,7 +47,7 @@ The validation lanes below are real commands with retained records under `docs/e
 | Authoritative CI-built OCI subject (PR #39 merge ref `0962c7fe`) | [oci-digest-bundle-0962c7fedb67.json](docs/evidence/oci-digest-bundle-0962c7fedb67.json) | CI digest `sha256:ae5dc6d1…`; all image assertions pass; CI Trivy scan 0 HIGH/CRITICAL ([report](docs/security/trivy-scan-ci-0962c7fe.json)) |
 | Exact-subject real-data container run | [container-live-lane-afe29166ac21.json](docs/evidence/container-live-lane-afe29166ac21.json) | 5/5 checks pass on the exact CI digest (liveness, five-family acquisition, browse exact-once, secret exclusion); **the `PG-03` gate manifest now records `pass`** |
 
-Offline and browser lanes currently pass on this tree: 214 offline tests (`pnpm run test:offline`), 17 adversarial security tests (`pnpm run test:adversarial`), 15 accessibility tests, 16 E2E tests, and 8 responsive tests. The per-criterion and per-gate status of all this evidence is recorded in the [POC capability and gate-status matrix](docs/status/poc-capability-and-gate-matrix.md).
+Current focused validation includes 17 accessibility tests, 28 synchronized overview/keyboard interaction tests, 4 exact-once client overview traversal tests, 29 API tests (including 4 airport-bundle governance tests), 30 route-safety/runtime/API-contract tests, and 8 responsive tests. The new fixture-backed loopback record passes 23/23. Broader retained records remain subject-bound as described in the [POC capability and gate-status matrix](docs/status/poc-capability-and-gate-matrix.md).
 
 ## Binding implementation contract
 
@@ -54,8 +56,10 @@ Offline and browser lanes currently pass on this tree: 214 offline tests (`pnpm 
 - Every response is validated and sanitized into an immutable complete in-memory generation. Startup fails explicitly if any mandatory family is unusable. Refresh builds separately and swaps atomically only after complete validation.
 - Keep at most the active and immediately previous generation for the defined freshness window; nothing persists across restart. Generation-bound cursors, point references, candidate IDs, and draft tokens fail closed after invalidation.
 - Use exact reference resolution. Preserve duplicate matches and unresolved positions as explicit ambiguity/gaps; never infer by proximity.
-- Use full-precision Haversine totals with `R = 3440.065 NM`. For competition equality only, round the total to `0.000001 NM` as `rankDistanceNm`; display distance to `0.1 NM`. Show every tied first-place candidate under exactly: **“Rank 1 by shortest modeled distance among complete candidates.”**
-- Airways must be fetched, parsed, counted, and validated, but its unproven values/types must not appear in API/UI output, logs, signatures, diffs, geometry, completeness, or ranking. The POC draws selected routes from exact resolved waypoint/reference coordinates, not inferred airway topology.
+- Use full-precision Haversine totals with `R = 3440.065 NM`; display distance to `0.1 NM`. Modeled distance is descriptive only. Public DTOs never emit `rank`, `rankDistanceNm`, `rankLabel`, or `operationalProxy`; the default route order is selected-first, then immutable source order, with canonical signature only as a deterministic final fallback.
+- Airways must be fetched, parsed, counted, and validated, but its unproven values/types must not appear in API/UI output, logs, signatures, diffs, geometry, completeness, or route comparison. The POC draws routes from exact resolved waypoint/reference coordinates, not inferred airway topology.
+- The ready UI traverses every generation-bound overview cursor exactly once and shows every safe flight plus every available resolved route component, with no 10-route cap. Map, full list, callsign filter, HUD, and details share one selected `flightId`; overlapping identical paths use an explicit chooser and the list remains the keyboard-equivalent path.
+- Airport endpoints use `Full Airport Name (ICAO)` with `Name unavailable (ICAO)` fallback. Names come only from the bundled OurAirports exact-ICAO reference pinned at commit `be07e33e6cc10087f57064f2bb3fccfcd39f5801` (10,444 records, Public Domain/Unlicense, community-maintained and not an official ICAO publication); there is no fuzzy, proximity, generated-code, or runtime third-party lookup.
 - The implementation renders OpenStreetMap raster tiles under a dependency-free Web Mercator tile layer (owner-authorized 2026-08-15, design §0.5). Tile URLs carry `{z}/{x}/{y}` only with `no-referrer` requests, the OSM attribution is shown, the CSP allows only `https://tile.openstreetmap.org` for images, and zoom is bounded 1-19 with at most 64 tiles per frame. If tiles fail or are toggled off, the schematic base map renders and route data remains usable without tile availability.
 - The persistent safety copy is: **“Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.”** Do not call a candidate valid, recommended, safe, cleared, or unqualified “best.”
 
@@ -69,7 +73,7 @@ The intended separation is:
 apps/api/                 Fastify BFF and live five-family adapter
 apps/web/                 React/Vite map-first UI
 packages/contracts/       Runtime/public DTOs and schemas
-packages/route-engine/    Exact resolution, distance, ranking, local-draft validation, delta logic
+packages/route-engine/    Exact resolution, descriptive distance, local-variation validation, delta logic
 packages/upstream-caas/  Allow-listed upstream clients and sanitizers
 tests/                    Unit, contract, integration, E2E, a11y, security, live lanes
 docs/                     Binding decisions, data-use, operations, security, evidence
@@ -120,6 +124,8 @@ AI-assisted tools were used for requirements analysis, design exploration, imple
 ## Known limitations and evidence boundary
 
 The discovery record confirms successful responses only. It did not deliberately induce throttling or upstream failures, observed no pagination metadata or Flight response rate-limit/retry headers, and makes no quota, retry, or failure-behavior claim. An executed Challenge Data Use Record is present ([docs/data-use/data-use-record.md](docs/data-use/data-use-record.md), filled by the owner decision of 2026-08-15) with the [authorization gate](docs/data-use/data-use-authorization-gate.md) status `AUTHORIZED` ([status artifact](docs/data-use/data-use-authorization-gate-status.yaml)); beyond the record's decisions, HTTP `200` and possession of a key do not authorize reviewer redistribution of live CAAS-derived data.
+
+Historical/generated evidence is immutable audit history. Records that contain the superseded Rank-era checks prove only their named older subject and contract; they do not prove the current neutral comparison, all-route overview, or airport-name bundle. Current claims require current tests or a new subject-bound record such as `loopback-lane-local-e965c728fe45.json`.
 
 `PG-03` has passed on the exact CI-built subject: the container live lane
 (`scripts/validation/container-live-lane.mjs`) ran the CI image

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "name": "OurAirports airports.csv",
+    "url": "https://raw.githubusercontent.com/davidmegginson/ourairports-data/be07e33e6cc10087f57064f2bb3fccfcd39f5801/airports.csv",
+    "repository": "https://github.com/davidmegginson/ourairports-data",
+    "commit": "be07e33e6cc10087f57064f2bb3fccfcd39f5801",
+    "retrievedAt": "2026-08-16T10:02:08Z",
+    "license": "Public Domain / Unlicense",
+    "licenseUrl": "https://github.com/davidmegginson/ourairports-data/blob/main/LICENSE",
+    "authority": "community-maintained reference; not an official ICAO publication",
+    "disclaimer": "No guarantee of accuracy or fitness for use."
+  },
+  "selection": "Exact uppercase four-letter values from the icao_code column only; no ident, gps_code, local_code, fuzzy, proximity, or runtime lookup joins.",
+  "generator": "generate-airport-names.mjs",
+  "sourceSha256": "f23f8924e70a585ceebc03ec4e49beb3aa7743588caf5490c045f1fe53320a71",
+  "recordsSha256": "6bfc0f4d050a0e058e2dda87b2837f0ea9a18d84a7c1a164ccff80619bc98608",
+  "recordCount": 10444
+}

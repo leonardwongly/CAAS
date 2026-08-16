@@ -4,6 +4,13 @@ This directory is the documentation entry point for the Flight Route Explorer.
 Documents describe the implemented local POC, design constraints, and retained
 evidence; they do not prove Azure deployment or production operational controls.
 
+## Master product direction
+
+- [Master product document](product/master-product-document.md) — **source of truth for product direction**, target experience, personas, terminology, requirements, priorities, and intended-versus-evidenced status
+- [Detailed customer journey and personas](product/customer-journey-and-personas.md) — supporting journey analysis and service-blueprint detail incorporated into the master
+
+Technical contracts, acceptance criteria, gate definitions, and evidence rules remain independently authoritative in the design, implementation plan, ADR, and testing documents below until explicitly reconciled with an approved product decision.
+
 ## Architecture and plans
 
 - [System design](superpowers/specs/2026-08-11-flight-route-explorer-design.md)
@@ -31,6 +38,7 @@ evidence; they do not prove Azure deployment or production operational controls.
 ## Data use and authorization
 
 - [Real CAAS data contract](data-use/caas-contract.md)
+- [Airport-name reference governance](data-use/airport-name-reference.md) — pinned source/license/checksums, deterministic update, exact join, fallback, and rollback
 - [CAAS data-use authorization gate](data-use/data-use-authorization-gate.md) (`AUTHORIZED` 2026-08-15)
 - [CAAS Data Use Record](data-use/data-use-record.md) (filled 2026-08-15 by owner decision)
 - [Release data-use gate](data-use/release-data-use-gate.md) (checkpoint shared by Azure and live-demo release paths; record + `AUTHORIZED` status retained)
@@ -56,20 +64,21 @@ evidence; they do not prove Azure deployment or production operational controls.
 
 - [Secret-free PG-00 live API discovery manifest](evidence/pg-00-live-api-discovery.json)
 - [Authorized live five-family lane run (`116a84d608f3`, 5 checks)](evidence/live-lane-116a84d608f3.json)
-- [Loopback five-family lane, current tree (`116a84d608f3`, 23 checks)](evidence/loopback-lane-local-116a84d608f3.json)
+- [Current neutral-contract loopback lane (`e965c728fe45`, 23/23)](evidence/loopback-lane-local-e965c728fe45.json)
+- [Older Rank-era loopback lane (`116a84d608f3`, historical subject)](evidence/loopback-lane-local-116a84d608f3.json)
 - [Loopback container lane, current tree (`116a84d608f3`, 7 checks)](evidence/loopback-container-local-116a84d608f3.json)
 - [Security measurement lane, current tree (`116a84d608f3`, 8/8; package audit passed, 0 advisories)](evidence/security-local-116a84d608f3.json)
 - [Performance measurement lane, current tree (`116a84d608f3`)](evidence/performance-local-116a84d608f3.json)
 - [Workspace lint lane, current tree (`116a84d608f3`)](evidence/lint-local-116a84d608f3.json)
 - [Local OCI subject manifest (`PG-03` candidate, unverified)](evidence/oci-subject-local.json)
 - [Authoritative CI-built OCI subject bundle (PR #38 merge ref `e456dd0c`, CI digest `sha256:8d978f18…`)](evidence/oci-digest-bundle-e456dd0cd791.json)
-- [CI Trivy scan report for the authoritative subject (0 HIGH/CRITICAL)](../security/trivy-scan-ci-e456dd0c.json)
+- [CI Trivy scan report for the authoritative subject (0 HIGH/CRITICAL)](security/trivy-scan-ci-e456dd0c.json)
 - [Older lane records (archived)](evidence/archived/)
 - [Gate evidence manifest schema](../deploy/evidence-manifest.schema.json)
 
 ## Status
 
-The system design and implementation plan remain the governing design and delivery references; the local POC implementation now exists beneath them.
+The system design and implementation plan remain the governing design and delivery references. Neutral comparison, the exact-once uncapped overview, shared selection, tolerant gap projection, and airport-name enrichment are implemented and focused-tested locally; historical evidence remains subject-bound.
 Bounded real-API discovery and authenticated read-only Azure capability checks
 were confirmed on 2026-08-12. The accepted path is local-first: secretless Linux
 CI builds the authoritative OCI subject once, and that exact digest must pass the
