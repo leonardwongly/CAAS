@@ -6,7 +6,7 @@ The repository has a pinned `pnpm` workspace, a runnable Fastify service, React/
 
 ## Safe local setup
 
-Use Linux for the authoritative build path. The root metadata pins Node `>=22.14.0` and `pnpm@11.5.2`.
+Use Linux for the authoritative build path. The root metadata pins Node `>=22.22.2` and `pnpm@11.5.2`.
 
 ```bash
 corepack prepare pnpm@11.5.2 --activate

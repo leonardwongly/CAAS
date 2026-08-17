@@ -161,6 +161,7 @@ The future implementation command matrix is:
 | `pnpm test:contract` | Sanitized real-response contracts | PG-02 |
 | `pnpm test:integration` | Loopback five-family lane (implemented) | PG-02/PG-03 |
 | `pnpm test:e2e` | Deterministic browser interaction lane (implemented; vitest + jsdom) | PG-02/PG-03 |
+| `pnpm test:browser` | Built SPA against fixture-only same-origin API routes in Chromium and WebKit, including critical-path interaction and axe audit (implemented) | PG-02/PG-03 |
 | `pnpm test:a11y` | Automated accessibility (axe + ARIA structure; implemented) | PG-02/PG-03/PG-05 |
 | `pnpm test:live` | Authorized five-family CAAS flow; pending mode implemented | PG-02/PG-03/PG-04 |
 | `pnpm test:performance` | Fixture-backed measurements implemented; live pending | PG-03 |
