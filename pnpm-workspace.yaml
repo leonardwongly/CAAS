@@ -37,3 +37,6 @@ blockExoticSubdeps: true
 
 allowBuilds:
   esbuild: true
+  # Wrangler's lockfile-pinned local runtime selector verifies and exposes the
+  # matching optional platform binary. No other new package scripts are allowed.
+  workerd: true

@@ -33,6 +33,7 @@ Technical contracts, acceptance criteria, gate definitions, and evidence rules r
 - [Azure POC deployment procedure](operations/azure-deployment-procedure.md)
 - [Azure abort and rollback drills](operations/azure-abort-and-rollback-drills.md)
 - [Azure post-demo cost, access, and teardown verification](operations/azure-post-demo-verification.md)
+- [Cloudflare staging migration plan](operations/cloudflare-staging-migration-plan.md) — staging-only Worker, Container, DNS, rollback, and parity plan; Azure remains unchanged
 - [Product-owner UAT and timed POC walkthrough](operations/uat-and-timed-walkthrough.md)
 
 ## Data use and authorization

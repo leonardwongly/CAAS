@@ -90,7 +90,7 @@ The accepted POC interpretation adds these constraints:
 - exact reference resolution with ambiguity and gaps preserved;
 - a server-only CAAS client and sanitized browser contract;
 - local-first delivery and an unchanged, secretless continuous-integration image;
-- Azure only as a later, explicitly authorized private POC release path;
+- Azure as a later, explicitly authorized private POC release path, supplemented by a separate Cloudflare staging-only lane;
 - no production intent.
 
 This interpretation uses all five supplied families while refusing to invent relationships that discovery did not prove. Real data was selected over a synthetic demonstration to meet the challenge honestly; a server-only sanitized contract was selected over browser-to-CAAS access to protect the key and minimize exposed fields; local-first delivery was selected over cloud-first development to keep cost, privilege, and teardown risk outside the normal feedback loop.

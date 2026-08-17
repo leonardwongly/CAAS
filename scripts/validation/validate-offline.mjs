@@ -7,6 +7,8 @@ import { parse as parseYaml } from "yaml";
 export const root = resolve(import.meta.dirname, "../..");
 const allowedOperators = new Set(["equals", "less-than-or-equal", "greater-than-or-equal", "all-less-than-or-equal", "set-equals", "hash-equals", "manual-approval"]);
 const forbiddenWorkflow = /(^|[^A-Za-z0-9_])(az\s+(?:login|deployment|provider)|what-if|azure\/(?:login|cli)|workflow_dispatch|secrets\.)/i;
+const forbiddenCloudflareDeployment = /(^|[^A-Za-z0-9_])(az\s+(?:login|deployment|provider)|what-if|azure\/(?:login|cli))/i;
+const cloudflareWorkflowSecrets = new Set(["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]);
 const prohibitedResource = /Microsoft\.Storage\/storageAccounts|Microsoft\.App\/jobs|Microsoft\.ServiceBus\/namespaces|Microsoft\.Network\/privateEndpoints|Microsoft\.Network\/azureFirewalls|Microsoft\.Network\/applicationGateways|Microsoft\.Web\/sites/i;
 const allowedResourceTypes = new Set([
   "Microsoft.Resources/resourceGroups",
@@ -142,7 +144,14 @@ export async function validateRepository() {
   const workflows = await filesUnder(".github/workflows", new Set([".yml", ".yaml"]));
   for (const file of workflows) {
     if (file.endsWith("poc-pr-static.yml")) continue;
-    if (forbiddenWorkflow.test(await readFile(file, "utf8"))) errors.push(`forbidden workflow operation in ${relative(root, file)}`);
+    const text = await readFile(file, "utf8");
+    if (file.endsWith("cloudflare-deploy.yml")) {
+      if (forbiddenCloudflareDeployment.test(text)) errors.push(`forbidden Azure operation in ${relative(root, file)}`);
+      const undeclaredSecret = [...text.matchAll(/secrets\.([A-Za-z0-9_]+)/g)].find((match) => !cloudflareWorkflowSecrets.has(match[1] ?? ""));
+      if (undeclaredSecret) errors.push(`undeclared workflow secret in ${relative(root, file)}`);
+      continue;
+    }
+    if (forbiddenWorkflow.test(text)) errors.push(`forbidden workflow operation in ${relative(root, file)}`);
   }
   const bicepFiles = await filesUnder("infra/bicep", new Set([".bicep"]));
   const declared = new Set();

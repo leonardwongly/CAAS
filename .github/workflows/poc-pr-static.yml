@@ -34,8 +34,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if grep -Rni --exclude='poc-pr-static.yml' -E '(^|[^[:alnum:]_])(az login|az deployment|az provider|what-if|azure/login|azure/cli|workflow_dispatch|secrets\.)' .github/workflows; then
+          if grep -Rni --exclude='poc-pr-static.yml' --exclude='cloudflare-deploy.yml' -E '(^|[^[:alnum:]_])(az login|az deployment|az provider|what-if|azure/login|azure/cli|workflow_dispatch|secrets\.)' .github/workflows; then
             echo 'cloud login, cloud writes, dispatch, or workflow secrets are not allowed in PR validation' >&2
+            exit 1
+          fi
+          cloudflare_workflow='.github/workflows/cloudflare-deploy.yml'
+          test -f "$cloudflare_workflow"
+          if grep -nE '(^|[^[:alnum:]_])(az login|az deployment|az provider|what-if|azure/login|azure/cli)' "$cloudflare_workflow"; then
+            echo 'the Cloudflare deployment workflow must not contain Azure operations' >&2
+            exit 1
+          fi
+          unexpected_secrets="$(grep -nE 'secrets\.' "$cloudflare_workflow" | grep -vE 'secrets\.(CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID)' || true)"
+          if [ -n "$unexpected_secrets" ]; then
+            printf '%s\n' "$unexpected_secrets"
+            echo 'the Cloudflare deployment workflow may use only its two declared Cloudflare secrets' >&2
             exit 1
           fi
 
