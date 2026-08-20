@@ -294,3 +294,5 @@ export function createRouteCandidate(
     distanceNm,
   });
 }
+
+export * from "./synthesis.ts";
