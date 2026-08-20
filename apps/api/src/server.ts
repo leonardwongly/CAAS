@@ -1,10 +1,8 @@
-import { airportDisplayLabel, airportNameForIcao } from "./airport-names.ts";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import {
-  LocationSchema,
   PERSISTENT_SAFETY_COPY,
   RouteDraftSchema,
   type Coordinate,
@@ -21,23 +19,41 @@ import {
 } from "@flight-route-explorer/route-engine";
 import {
   createCaasAdapter,
-  LIVE_FRESH_MS,
-  LIVE_UNUSABLE_MS,
-  REFERENCE_FRESH_MS,
-  REFERENCE_UNUSABLE_MS,
   liveFreshnessState,
   referenceFreshnessState,
   worseGenerationState,
-  type AirwayEvidence,
   type CaasAdapter,
   type CaasTransport,
-  type DatasetEvidence,
-  type DisplayAllResult,
-  type FlightPlanRecord,
-  type GenerationState,
-  type ReferenceDatasetResult,
-  type ReferencePoint,
 } from "@flight-route-explorer/upstream-caas";
+import {
+  PUBLIC_PROVENANCE,
+  acquireSnapshot,
+  generationSummary,
+  locationTokens,
+  publicName,
+  randomToken,
+  readScoped,
+  scopedToken,
+  token,
+  type GenerationSummary,
+  type PublicEvidence,
+  type ScopedToken,
+  type Snapshot,
+} from "./snapshot.ts";
+import {
+  airportLabelForReference,
+  displayReference,
+  indexedReferenceResolution,
+  overviewRouteDto,
+  routeDto,
+  routeProjection,
+  type PublicGap,
+  type PublicLeg,
+  type PublicWaypoint,
+  type RouteProjection,
+} from "./projection.ts";
+
+export type { GenerationSummary } from "./snapshot.ts";
 
 const DEFAULT_PORT = 8080;
 const DEFAULT_HOST = "0.0.0.0";
@@ -65,9 +81,6 @@ const MAX_DRAFT_ENTRIES = 512;
 const DRAFT_TTL_MS = 15 * 60 * 1000;
 const MAX_SEARCH_LENGTH = 64;
 const MAX_ERROR_MESSAGE = 160;
-const PUBLIC_PROVENANCE = "CAAS normalized live generation";
-
-type RouteGapReason = "invalid-reference" | "not-found" | "ambiguous" | "missing";
 
 export interface ApiServerOptions {
   readonly adapter?: CaasAdapter;
@@ -91,104 +104,6 @@ export interface StartServerOptions extends ApiServerOptions {
   readonly host?: string;
 }
 
-/**
- * Plan §6.2 tiered freshness surfaced on every generation payload. The live tier
- * covers the flight-plan family (fresh <= 5 minutes, unusable after 30 minutes);
- * the reference tier covers airways/fixes/airports/navaids (fresh <= 24 hours,
- * unusable after 7 days). `overall` is the more severe tier state.
- */
-export interface GenerationTier {
-  readonly state: GenerationState;
-  readonly retrievedAt: string;
-  readonly freshUntil: string;
-  readonly staleUntil: string;
-}
-
-export interface GenerationSummary {
-  readonly id: string;
-  readonly retrievedAt: string;
-  readonly live: GenerationTier;
-  readonly reference: GenerationTier;
-  readonly overall: GenerationState;
-}
-
-interface SafeFlight {
-  readonly record: FlightPlanRecord;
-  readonly index: number;
-}
-
-interface Snapshot {
-  readonly id: string;
-  readonly retrievedAtMs: number;
-  readonly unusableAtMs: number;
-  readonly tokenSecret: Buffer;
-  readonly flights: readonly SafeFlight[];
-  readonly locations: readonly Location[];
-  readonly airportLocations: readonly Location[];
-  readonly locationTokens: ReadonlyMap<string, readonly number[]>;
-  readonly flightByIndex: ReadonlyMap<number, SafeFlight>;
-  readonly evidence: readonly PublicEvidence[];
-  readonly airwayEvidence: PublicEvidence;
-}
-
-interface PublicEvidence {
-  readonly family: string;
-  readonly records: number;
-  readonly acceptedRecords: number;
-  readonly rejectedRecords: number;
-  /** Present only for the airways family, which deduplicates accepted values. */
-  readonly uniqueRecords?: number;
-  readonly retried: boolean;
-  readonly durationMs: number;
-}
-
-interface PublicGap {
-  readonly status: "gap";
-  readonly sequence: number;
-  readonly reason: RouteGapReason;
-}
-
-interface PublicLeg {
-  readonly id: string;
-  readonly sequence: number;
-  readonly kind: "segment" | "gap";
-  readonly status: "resolved" | "gap";
-  readonly from?: string;
-  readonly to?: string;
-  readonly distanceNm?: number;
-  readonly reason?: RouteGapReason;
-}
-
-interface PublicWaypoint {
-  readonly sequence: number;
-  readonly status: "resolved" | "gap";
-  readonly label?: string;
-  readonly reason?: RouteGapReason;
-}
-
-interface ProjectionEndpointGap {
-  readonly status: "gap";
-  readonly label: string;
-  readonly gap: PublicGap;
-}
-
-type ProjectionEndpoint = Location | ProjectionEndpointGap;
-
-interface RouteProjection<TEndpoint extends ProjectionEndpoint = Location> {
-  readonly id: string;
-  readonly flight: SafeFlight;
-  readonly origin: TEndpoint;
-  readonly destination: TEndpoint;
-  readonly legs: readonly PublicLeg[];
-  readonly waypoints: readonly PublicWaypoint[];
-  readonly segments: readonly (readonly Coordinate[])[];
-  readonly gaps: readonly PublicGap[];
-  readonly distanceNm: number | undefined;
-  readonly complete: boolean;
-  readonly pointCount: number;
-  readonly signature: string;
-}
-
 interface RouteCandidate {
   readonly projection: RouteProjection;
   /** Opaque API flight tokens retained for internal source/provenance tracking. */
@@ -199,18 +114,6 @@ interface RouteCandidate {
 interface DraftEntry {
   readonly snapshotId: string;
   readonly draft: RouteDraft;
-}
-
-interface ScopedToken {
-  readonly g?: unknown;
-  readonly t?: unknown;
-  readonly i?: unknown;
-  readonly e?: unknown;
-  readonly q?: unknown;
-  readonly l?: unknown;
-  readonly o?: unknown;
-  readonly n?: unknown;
-  readonly k?: unknown;
 }
 
 export class ApiHttpError extends Error {
@@ -237,108 +140,6 @@ export class GenerationAcquisitionError extends Error {
     this.name = "GenerationAcquisitionError";
     this.causeCode = causeCode;
   }
-}
-
-function immutableMap<K, V>(entries: Iterable<readonly [K, V]>): ReadonlyMap<K, V> {
-  const map = new Map(entries);
-  const result = {
-    get size() { return map.size; },
-    get: (key: K) => map.get(key),
-    has: (key: K) => map.has(key),
-    keys: () => map.keys(),
-    values: () => map.values(),
-    entries: () => map.entries(),
-    forEach: (callback: (value: V, key: K, map: ReadonlyMap<K, V>) => void) => map.forEach((value, key) => callback(value, key, result)),
-    [Symbol.iterator]: () => map[Symbol.iterator](),
-  };
-  return Object.freeze(result) as ReadonlyMap<K, V>;
-}
-
-function token(value: string): string {
-  return value.trim().toUpperCase();
-}
-
-function base64(value: string | Buffer): string {
-  return Buffer.from(value).toString("base64url");
-}
-
-function scopedToken(snapshot: Snapshot, type: string, values: Record<string, unknown> = {}, expiresAt?: number): string {
-  const body = base64(JSON.stringify({
-    g: snapshot.id,
-    t: type,
-    e: expiresAt ?? snapshot.unusableAtMs,
-    n: randomToken(),
-    ...values,
-  }));
-  const signature = createHmac("sha256", snapshot.tokenSecret).update(body).digest("base64url");
-  return `${body}.${signature}`;
-}
-
-function readScoped(value: unknown, snapshot: Snapshot): ScopedToken | undefined {
-  if (typeof value !== "string") return undefined;
-  const parts = value.split(".");
-  if (parts.length !== 2 || !/^[A-Za-z0-9_-]+$/.test(parts[0]!) || !/^[A-Za-z0-9_-]+$/.test(parts[1]!)) return undefined;
-  const expected = createHmac("sha256", snapshot.tokenSecret).update(parts[0]!).digest("base64url");
-  const actual = Buffer.from(parts[1]!);
-  const expectedBuffer = Buffer.from(expected);
-  if (actual.length !== expectedBuffer.length || !timingSafeEqual(actual, expectedBuffer)) return undefined;
-  try {
-    const parsed = JSON.parse(Buffer.from(parts[0]!, "base64url").toString("utf8")) as unknown;
-    return parsed && typeof parsed === "object" ? parsed as ScopedToken : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function randomToken(): string {
-  return randomBytes(24).toString("base64url");
-}
-
-function publicEvidence(evidence: DatasetEvidence | AirwayEvidence): PublicEvidence {
-  return Object.freeze({
-    family: evidence.family,
-    records: evidence.records,
-    acceptedRecords: evidence.acceptedRecords,
-    rejectedRecords: evidence.rejectedRecords,
-    ...("uniqueRecords" in evidence ? { uniqueRecords: evidence.uniqueRecords } : {}),
-    retried: evidence.retried,
-    durationMs: evidence.durationMs,
-  });
-}
-
-function freezeLocation(value: unknown): Location {
-  const parsed = LocationSchema.parse(value);
-  return Object.freeze({
-    ...parsed,
-    coordinate: Object.freeze({ ...parsed.coordinate }),
-    aliases: Object.freeze([...parsed.aliases]),
-  }) as Location;
-}
-
-function freezeFlightRecord(record: FlightPlanRecord): FlightPlanRecord {
-  return Object.freeze({
-    ...record,
-    ...(record.routeElements === undefined ? {} : {
-      routeElements: Object.freeze(record.routeElements.map((element) => Object.freeze({
-        ...element,
-        ...(element.coordinate ? { coordinate: Object.freeze({ ...element.coordinate }) } : {}),
-      }))),
-    }),
-  }) as FlightPlanRecord;
-}
-
-function locationTokens(location: Location): string[] {
-  return [location.id, location.code ?? "", location.name, ...location.aliases].map(token).filter(Boolean);
-}
-
-function locationKind(dataset: ReferencePoint["dataset"]): Location["kind"] {
-  if (dataset === "airports") return "airport";
-  if (dataset === "navaids") return "station";
-  return "place";
-}
-
-function publicName(location: Location): string {
-  return location.name || location.code || location.id;
 }
 
 function flightMatchesAirport(snapshot: Snapshot, reference: string | null, airport: Location): boolean {
@@ -372,95 +173,6 @@ function deduplicateRouteCandidates(
     });
   }
   return [...candidates.values()];
-}
-
-function familyLocations(results: readonly ReferenceDatasetResult[]): Location[] {
-  const locations: Location[] = [];
-  for (const result of results) {
-    result.points.forEach((point, index) => {
-      const airportName = point.dataset === "airports" ? airportNameForIcao(point.identifier) : undefined;
-      locations.push(freezeLocation({
-        id: `${result.dataset.slice(0, 3)}-${index}`,
-        name: airportName ?? (point.dataset === "airports" ? "Name unavailable" : point.identifier),
-        code: point.identifier,
-        kind: locationKind(point.dataset),
-        coordinate: point.coordinate,
-        aliases: [],
-      }));
-    });
-  }
-  return locations;
-}
-
-function buildSnapshot(
-  display: DisplayAllResult,
-  airway: AirwayEvidence,
-  references: readonly ReferenceDatasetResult[],
-  now: number,
-): Snapshot {
-  const id = randomUUID();
-  const locations = familyLocations(references);
-  const tokenEntries = new Map<string, number[]>();
-  locations.forEach((location, index) => {
-    for (const value of locationTokens(location)) tokenEntries.set(value, [...(tokenEntries.get(value) ?? []), index]);
-  });
-  const frozenTokenEntries = [...tokenEntries.entries()].map(([key, value]) => [key, Object.freeze([...value])] as const);
-  const flights = Object.freeze(display.records.map((record, index) => Object.freeze({ record: freezeFlightRecord(record), index })));
-  // Generation-bound tokens expire at the earliest unusable boundary (the live tier).
-  const retrievedAtMs = now;
-  const unusableAtMs = now + LIVE_UNUSABLE_MS;
-  const evidence = Object.freeze([publicEvidence(display.evidence), ...references.map((result) => publicEvidence(result.evidence))]);
-  return Object.freeze({
-    id,
-    retrievedAtMs,
-    unusableAtMs,
-    tokenSecret: randomBytes(32),
-    flights,
-    locations: Object.freeze(locations),
-    airportLocations: Object.freeze(locations.filter((location) => location.kind === "airport")),
-    locationTokens: immutableMap(frozenTokenEntries),
-    flightByIndex: immutableMap(flights.map((flight) => [flight.index, flight] as const)),
-    evidence,
-    airwayEvidence: publicEvidence(airway),
-  });
-}
-
-async function acquireSnapshot(adapter: CaasAdapter, now: () => number, signal?: AbortSignal): Promise<Snapshot> {
-  // Keep the five-family acquisition bounded and upstream-friendly. The generation
-  // is still published atomically because buildSnapshot runs only after every
-  // family has completed and validated.
-  const display = await adapter.displayAll(signal);
-  const airway = await adapter.airways(signal);
-  const fixes = await adapter.fixes(signal);
-  const airports = await adapter.airports(signal);
-  const navaids = await adapter.navaids(signal);
-  const references = [fixes, airports, navaids] as const;
-  const totalReferenceRecords = references.reduce((total, dataset) => total + dataset.points.length, 0);
-  if (totalReferenceRecords > 700_000) {
-    throw new GenerationAcquisitionError("REFERENCE_RECORD_LIMIT");
-  }
-  return buildSnapshot(display, airway, references, now());
-}
-
-function generationSummary(snapshot: Snapshot, now: number): GenerationSummary {
-  const retrievedAt = new Date(snapshot.retrievedAtMs).toISOString();
-  const elapsedMs = Math.max(0, now - snapshot.retrievedAtMs);
-  const live = liveFreshnessState(elapsedMs);
-  const reference = referenceFreshnessState(elapsedMs);
-  const overall = worseGenerationState(live, reference);
-  const tier = (state: GenerationState, freshMs: number, unusableMs: number): GenerationTier => Object.freeze({
-    state,
-    retrievedAt,
-    freshUntil: new Date(snapshot.retrievedAtMs + freshMs).toISOString(),
-    staleUntil: new Date(snapshot.retrievedAtMs + unusableMs).toISOString(),
-  });
-  return Object.freeze({
-    id: snapshot.id,
-    retrievedAt,
-    live: tier(live, LIVE_FRESH_MS, LIVE_UNUSABLE_MS),
-    reference: tier(reference, REFERENCE_FRESH_MS, REFERENCE_UNUSABLE_MS),
-    overall,
-  });
 }
 
 export class GenerationStore {
@@ -745,223 +457,8 @@ function selectedLocation(snapshot: Snapshot, selection: RouteDraftSelection, re
   return location;
 }
 
-function displayReference(location: Location): string {
-  if (location.kind === "airport" && location.code) return airportDisplayLabel(location.code, location.name === "Name unavailable" ? undefined : location.name);
-  return location.code ?? location.name;
-}
-
-
-function airportLabelForReference(snapshot: Snapshot, value: unknown): string {
-  const raw = typeof value === "string" && value.trim() ? value.trim().toUpperCase() : "UNKNOWN";
-  const result = indexedReferenceResolution(snapshot, raw, "airport");
-  return result.status === "resolved" ? displayReference(result.match) : airportDisplayLabel(raw);
-}
-
-function overviewRouteDto(snapshot: Snapshot, flight: SafeFlight): Record<string, unknown> {
-  const id = flightId(snapshot, flight.index);
-  const originReference = flight.record.departure;
-  const destinationReference = flight.record.destination;
-  const origin = typeof originReference === "string" ? indexedReferenceResolution(snapshot, originReference, "airport") : undefined;
-  const destination = typeof destinationReference === "string" ? indexedReferenceResolution(snapshot, destinationReference, "airport") : undefined;
-  const endpoint = (
-    result: ResolutionResult | undefined,
-    reference: unknown,
-    sequence: number,
-  ): ProjectionEndpoint => result?.status === "resolved"
-    ? result.match
-    : {
-      status: "gap",
-      label: airportLabelForReference(snapshot, reference),
-      gap: {
-        status: "gap",
-        sequence,
-        reason: result?.status === "ambiguous" ? "ambiguous" : reference ? "not-found" : "missing",
-      },
-    };
-  return routeDto(snapshot, routeProjection(
-    snapshot,
-    flight,
-    endpoint(origin, originReference, 0),
-    endpoint(destination, destinationReference, Math.max(1, (flight.record.routeElements?.length ?? 0) + 1)),
-    id,
-  ));
-}
-function flightId(snapshot: Snapshot, flightIndex: number): string {
+export function flightId(snapshot: Snapshot, flightIndex: number): string {
   return scopedToken(snapshot, "flight", { i: flightIndex });
-}
-
-function coordinateKey(coordinate: Coordinate): string {
-  return `${String(coordinate.lat)},${String(coordinate.lon)}`;
-}
-
-function isSameCoordinate(left: Coordinate, right: Coordinate): boolean {
-  return left.lat === right.lat && left.lon === right.lon;
-}
-
-type ProjectionOccurrence =
-  | { point: { label: string; coordinate: Coordinate; sequence: number } }
-  | { gap: PublicGap };
-
-function isProjectionEndpointGap(endpoint: ProjectionEndpoint): endpoint is ProjectionEndpointGap {
-  return "gap" in endpoint;
-}
-
-function routeProjection(
-  snapshot: Snapshot,
-  flight: SafeFlight,
-  origin: Location,
-  destination: Location,
-  routeId?: string,
-): RouteProjection;
-function routeProjection(
-  snapshot: Snapshot,
-  flight: SafeFlight,
-  origin: ProjectionEndpoint,
-  destination: ProjectionEndpoint,
-  routeId?: string,
-): RouteProjection<ProjectionEndpoint>;
-function routeProjection(
-  snapshot: Snapshot,
-  flight: SafeFlight,
-  origin: ProjectionEndpoint,
-  destination: ProjectionEndpoint,
-  routeId = flightId(snapshot, flight.index),
-): RouteProjection<ProjectionEndpoint> {
-  const record = flight.record;
-  const routeIdValue = routeId;
-  const elements = record.routeElements;
-  const occurrences: ProjectionOccurrence[] = [];
-  const gaps: PublicGap[] = [];
-  const pushEndpoint = (endpoint: ProjectionEndpoint, sequence: number) => {
-    if (isProjectionEndpointGap(endpoint)) {
-      occurrences.push({ gap: endpoint.gap });
-      gaps.push(endpoint.gap);
-    } else {
-      occurrences.push({ point: { label: displayReference(endpoint), coordinate: endpoint.coordinate, sequence } });
-    }
-  };
-  pushEndpoint(origin, -1);
-  if (elements === undefined) {
-    const gap = { status: "gap" as const, sequence: 0, reason: "missing" as const };
-    occurrences.push({ gap });
-    gaps.push(gap);
-  } else {
-    for (const element of [...elements].sort((left, right) => left.sequence - right.sequence)) {
-      if (element.coordinate) {
-        let label = `Point ${element.sequence + 1}`;
-        if (element.identifier) {
-          const named = indexedReferenceResolution(snapshot, element.identifier);
-          if (named.status === "resolved") label = displayReference(named.match);
-        }
-        occurrences.push({ point: { label, coordinate: element.coordinate, sequence: element.sequence } });
-        continue;
-      }
-      const result = element.identifier ? indexedReferenceResolution(snapshot, element.identifier) : { status: "gap" as const } as ResolutionResult;
-      const reason: RouteGapReason = result.status === "ambiguous" ? "ambiguous" : result.status === "resolved" ? "not-found" : element.identifier ? "not-found" : "missing";
-      if (result.status === "resolved") {
-        occurrences.push({ point: { label: displayReference(result.match), coordinate: result.match.coordinate, sequence: element.sequence } });
-      } else {
-        const gap = { status: "gap" as const, sequence: element.sequence, reason };
-        occurrences.push({ gap });
-        gaps.push(gap);
-      }
-    }
-  }
-  pushEndpoint(destination, Number.MAX_SAFE_INTEGER);
-
-  // Remove only route points directly adjacent to the corresponding endpoint.
-  // Guard: with zero route elements the only occurrences are the two endpoints
-  // themselves; a co-located origin/destination is a real zero-distance leg and
-  // must never be spliced away (it is not a duplicate route point).
-  if (occurrences.length > 2) {
-    const firstRouteOccurrence = occurrences[1];
-    const firstEndpoint = occurrences[0];
-    if (firstRouteOccurrence && firstEndpoint && "point" in firstRouteOccurrence && "point" in firstEndpoint && isSameCoordinate(firstEndpoint.point.coordinate, firstRouteOccurrence.point.coordinate)) occurrences.splice(1, 1);
-    const last = occurrences.length - 2;
-    const lastRouteOccurrence = occurrences[last];
-    const lastEndpoint = occurrences[occurrences.length - 1];
-    if (last > 0 && lastRouteOccurrence && lastEndpoint && "point" in lastRouteOccurrence && "point" in lastEndpoint && isSameCoordinate(lastRouteOccurrence.point.coordinate, lastEndpoint.point.coordinate)) occurrences.splice(last, 1);
-  }
-
-  const waypoints = Object.freeze(occurrences.map((occurrence) => "gap" in occurrence
-    ? Object.freeze({ sequence: occurrence.gap.sequence, status: "gap" as const, reason: occurrence.gap.reason })
-    : Object.freeze({ sequence: occurrence.point.sequence, status: "resolved" as const, label: occurrence.point.label })));
-  const legs: PublicLeg[] = [];
-  const segments: Coordinate[][] = [];
-  let chain: Array<{ label: string; coordinate: Coordinate; sequence: number }> = [];
-  const flush = () => {
-    if (chain.length >= 2) {
-      segments.push(chain.map((point) => point.coordinate));
-      for (let index = 1; index < chain.length; index += 1) {
-        const from = chain[index - 1]!;
-        const to = chain[index]!;
-        legs.push({
-          id: scopedToken(snapshot, "leg", { i: flight.index, o: legs.length }),
-          sequence: to.sequence,
-          kind: "segment",
-          status: "resolved",
-          from: from.label,
-          to: to.label,
-          distanceNm: haversineDistanceNm(from.coordinate, to.coordinate),
-        });
-      }
-    }
-    chain = [];
-  };
-  for (const occurrence of occurrences) {
-    if ("gap" in occurrence) {
-      flush();
-      legs.push({ id: scopedToken(snapshot, "gap-leg", { i: flight.index, o: legs.length }), sequence: occurrence.gap.sequence, kind: "gap", status: "gap", reason: occurrence.gap.reason });
-    } else {
-      chain.push(occurrence.point);
-    }
-  }
-  flush();
-  const complete = !isProjectionEndpointGap(origin) && !isProjectionEndpointGap(destination) && elements !== undefined && gaps.length === 0 && segments.length === 1;
-  const distanceNm = complete ? legs.reduce((sum, leg) => sum + (leg.distanceNm ?? 0), 0) : undefined;
-  const pointCount = occurrences.filter((occurrence): occurrence is { point: { label: string; coordinate: Coordinate; sequence: number } } => "point" in occurrence).length;
-  const signature = occurrences.map((occurrence) => "gap" in occurrence ? `g:${occurrence.gap.sequence}:${occurrence.gap.reason}` : `p:${occurrence.point.sequence}:${coordinateKey(occurrence.point.coordinate)}`).join("|");
-  return Object.freeze({
-    id: routeIdValue,
-    flight,
-    origin,
-    destination,
-    legs: Object.freeze(legs),
-    waypoints: Object.freeze(waypoints),
-    segments: Object.freeze(segments.map((segment) => Object.freeze(segment))),
-    gaps: Object.freeze(gaps),
-    distanceNm,
-    complete,
-    pointCount,
-    signature,
-  });
-}
-
-function projectionEndpointLabel(endpoint: ProjectionEndpoint): string {
-  return isProjectionEndpointGap(endpoint) ? endpoint.label : displayReference(endpoint);
-}
-
-function routeDto(snapshot: Snapshot, projection: RouteProjection<ProjectionEndpoint>): Record<string, unknown> {
-  const geometry = projection.complete && projection.segments[0] && projection.segments[0].length >= 2 ? toGeoJsonLineString(projection.segments[0]) : undefined;
-  return {
-    id: projection.id,
-    flightId: projection.id,
-    callsign: projection.flight.record.callsign,
-    status: projection.complete ? "complete" : "incomplete",
-    label: `${projection.flight.record.callsign} route`,
-    origin: projectionEndpointLabel(projection.origin),
-    destination: projectionEndpointLabel(projection.destination),
-    pointCount: projection.pointCount,
-    complete: projection.complete,
-    legs: projection.legs,
-    ...(projection.distanceNm === undefined ? {} : { distanceNm: projection.distanceNm }),
-    ...(geometry ? { geometry } : {}),
-    ...(projection.segments.length > 0 ? { segments: projection.segments.map((points) => toGeoJsonLineString(points)) } : {}),
-    provenance: PUBLIC_PROVENANCE,
-    freshness: new Date(snapshot.retrievedAtMs).toISOString(),
-    safety: PERSISTENT_SAFETY_COPY,
-    gaps: projection.gaps,
-  };
 }
 
 function waypointKey(waypoint: PublicWaypoint): string {
@@ -1017,33 +514,6 @@ interface DraftProjection {
  * and binds to one of the waypoint's exact matches. Selections are never treated
  * as nearby or inferred choices.
  */
-/**
- * Index-backed exact reference resolution for the draft hot path: the
- * prebuilt snapshot.locationTokens index resolves a reference in O(matches)
- * instead of rescanning and schema-parsing every location per waypoint (a
- * full scan of ~270k locations per via entry blocks the event loop and evades
- * the warm deadline). Semantics match resolveExactReference for kind
- * "unknown": exact-token match, distinct locations sharing the token stay
- * ambiguous.
- */
-function indexedReferenceResolution(snapshot: Snapshot, value: string, kind: "airport" | "city" | "station" | "place" | "unknown" = "unknown"): ResolutionResult {
-  const reference = { value, kind: "unknown" as const };
-  const indexes = snapshot.locationTokens.get(token(value)) ?? [];
-  if (indexes.length === 0) return { status: "gap", reference, reason: "not-found" };
-  const distinct = new Map<string, Location>();
-  for (const index of indexes) {
-    const location = snapshot.locations[index];
-    if (!location) continue;
-    if (kind !== "unknown" && location.kind !== kind) continue;
-    const key = `${location.id}|${location.kind}|${location.coordinate.lat}|${location.coordinate.lon}`;
-    if (!distinct.has(key)) distinct.set(key, location);
-  }
-  const matches = [...distinct.values()];
-  if (matches.length === 0) return { status: "gap", reference, reason: "not-found" };
-  if (matches.length === 1) return { status: "resolved", reference, match: matches[0]! };
-  return { status: "ambiguous", reference, matches };
-}
-
 function resolveDraftProjection(snapshot: Snapshot, draft: RouteDraft, now: () => number): DraftProjection {
   const origin = resolveAirportEndpoint(snapshot, draft.origin, "origin");
   const destination = resolveAirportEndpoint(snapshot, draft.destination, "destination");
