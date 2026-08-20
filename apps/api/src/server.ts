@@ -5,17 +5,25 @@ import { extname, join, resolve } from "node:path";
 import {
   PERSISTENT_SAFETY_COPY,
   RouteDraftSchema,
+  SynthesisRequestSchema,
+  SYNTHESIS_PAGE,
   type Coordinate,
   type Location,
   type RouteDraft,
   type RouteDraftSelection,
 } from "@flight-route-explorer/contracts";
 import {
+  assembleSynthesisCandidates,
+  buildSynthesisIndex,
   compareDistanceOperands,
   haversineDistanceNm,
   resolveExactReference,
+  SYNTHESIS_ALGORITHM_VERSION,
   toGeoJsonLineString,
+  type AssembledCandidate,
+  type ObservedRoute,
   type ResolutionResult,
+  type SynthesisIndex,
 } from "@flight-route-explorer/route-engine";
 import {
   createCaasAdapter,
@@ -44,9 +52,11 @@ import {
   airportLabelForReference,
   displayReference,
   indexedReferenceResolution,
+  overviewProjection,
   overviewRouteDto,
   routeDto,
   routeProjection,
+  type ProjectionEndpoint,
   type PublicGap,
   type PublicLeg,
   type PublicWaypoint,
@@ -67,6 +77,13 @@ const AMBIGUITY_HARD_TOTAL = 500;
 // Plan §6.1: browser response hard limit 2 MiB — a larger payload fails
 // closed with a bounded error instead of emitting an over-limit body.
 const MAX_BROWSER_RESPONSE_BYTES = 2 * 1024 * 1024;
+
+// Synthesis observability: bounded per-generation outcome counters and a
+// histogram of candidate-set sizes. Counters are keyed by snapshot (WeakMap)
+// so a refresh starts a clean accounting; nothing here is request identity.
+const SYNTHESIS_OUTCOME_COUNTS = ["full", "partial", "ambiguous", "unavailable", "over-limit", "candidate-limit-exceeded", "not-needed"] as const;
+const synthesisCounters = new WeakMap<Snapshot, { seenTargets: Set<number>; counts: Record<string, number>; histogram: Record<string, number> }>();
+const synthesisIndexes = new WeakMap<Snapshot, SynthesisIndex>();
 
 function securityHeaders(reply: FastifyReply): FastifyReply {
   return reply
@@ -459,6 +476,40 @@ function selectedLocation(snapshot: Snapshot, selection: RouteDraftSelection, re
 
 export function flightId(snapshot: Snapshot, flightIndex: number): string {
   return scopedToken(snapshot, "flight", { i: flightIndex });
+}
+
+/**
+ * Reduce an overview projection to the route-engine's observed-route input:
+ * endpoint-inclusive ordinals and exact join identities only. Donor/target
+ * flight identities travel as opaque generation-order keys, never upstream ids.
+ */
+function observedRouteFromProjection(projection: RouteProjection<ProjectionEndpoint>): ObservedRoute {
+  return {
+    flightKey: String(projection.flight.index),
+    occurrences: projection.occurrences.map((occurrence) => "gap" in occurrence
+      ? { ordinal: occurrence.gap.ordinal, gapReason: occurrence.gap.reason }
+      : { ordinal: occurrence.point.ordinal, ...(occurrence.point.referenceId ? { referenceId: occurrence.point.referenceId } : {}), coordinate: occurrence.point.coordinate, label: occurrence.point.label }),
+  };
+}
+
+function synthesisCandidateDto(snapshot: Snapshot, candidate: AssembledCandidate, orderIndex: number): Record<string, unknown> {
+  return {
+    candidateId: scopedToken(snapshot, "synthesis-candidate", { i: orderIndex }),
+    segments: candidate.borrowedSegments.map((segment) => ({
+      kind: "borrowed",
+      geometry: toGeoJsonLineString(segment.coordinates),
+      distanceNm: segment.distanceNm,
+      matchMethod: segment.matchMethod,
+      donorCount: segment.donorCount,
+      ...(segment.donorTruncated ? { donorTruncated: true } : {}),
+      proofIds: segment.donorOrdinals.map((ordinal) =>
+        scopedToken(snapshot, "donor-proof", { i: snapshot.flights.findIndex((flight) => String(flight.index) === ordinal.flightKey), f: ordinal.fromOrdinal, u: ordinal.toOrdinal })),
+    })),
+    sourceResolvedDistanceNm: candidate.sourceResolvedDistanceNm,
+    borrowedDistanceNm: candidate.borrowedDistanceNm,
+    ...(candidate.estimatedTotalDistanceNm !== undefined ? { estimatedTotalDistanceNm: candidate.estimatedTotalDistanceNm } : {}),
+    corridorsCovered: candidate.corridorsCovered,
+  };
 }
 
 function waypointKey(waypoint: PublicWaypoint): string {
@@ -996,6 +1047,65 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.post("/api/v1/routes/overview", warm(routeOverview));
   app.post("/api/v1/overview", warm(routeOverview));
   app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/routes/overview", handler: methodNotAllowed("Route overview") });
+
+  // Donor-subpath synthesis: for an incomplete recorded route, assemble bounded
+  // candidate geometries borrowed from other recorded routes between the exact
+  // anchors around each gap run. The response exposes opaque tokens, borrowed
+  // geometry, and distances only — never donor upstream ids, callsigns, or raw
+  // flight indices. Candidates are cursor-paged with a fixed SYNTHESIS_PAGE.
+  const synthesize = async (request: FastifyRequest, reply: FastifyReply) => {
+    assertEmptyQuery(request);
+    const snapshot = store.requireSnapshot();
+    const parsed = SynthesisRequestSchema.safeParse(bodyObject(request, ["flightId", "cursor"]));
+    if (!parsed.success) throw new ApiHttpError(400, "INVALID_BODY", "The synthesis request body is invalid.");
+    const flightIndex = decodeScoped(parsed.data.flightId, snapshot, "flight", now);
+    const flight = snapshot.flightByIndex.get(flightIndex);
+    if (!flight || !flight.record.departure || !flight.record.destination) throw new ApiHttpError(404, "FLIGHT_NOT_FOUND", "The selected flight was not found.");
+
+    const projection = overviewProjection(snapshot, flight);
+    let index = synthesisIndexes.get(snapshot);
+    if (!index) {
+      const observed = snapshot.flights.map((candidate) => observedRouteFromProjection(overviewProjection(snapshot, candidate)));
+      index = buildSynthesisIndex(observed);
+      synthesisIndexes.set(snapshot, index);
+    }
+    const outcome = assembleSynthesisCandidates(index, observedRouteFromProjection(projection), { complete: projection.complete });
+
+    let counters = synthesisCounters.get(snapshot);
+    if (!counters) {
+      counters = { seenTargets: new Set(), counts: Object.fromEntries(SYNTHESIS_OUTCOME_COUNTS.map((status) => [status, 0])), histogram: {} };
+      synthesisCounters.set(snapshot, counters);
+    }
+    if (!counters.seenTargets.has(flightIndex) && counters.seenTargets.size < snapshot.flights.length) {
+      counters.seenTargets.add(flightIndex);
+      counters.counts[outcome.status] = (counters.counts[outcome.status] ?? 0) + 1;
+      const bucket = outcome.candidates.length === 0 ? "0" : outcome.candidates.length <= 2 ? "1-2" : outcome.candidates.length <= 5 ? "3-5" : "6-20";
+      counters.histogram[bucket] = (counters.histogram[bucket] ?? 0) + 1;
+    }
+
+    const offset = parsed.data.cursor === undefined ? 0
+      : cursorOffset(parsed.data.cursor, snapshot, `${flightIndex}|${SYNTHESIS_ALGORITHM_VERSION}`, SYNTHESIS_PAGE, "synthesis-cursor", now);
+    const page = outcome.candidates.slice(offset, offset + SYNTHESIS_PAGE);
+    const candidates = page.map((candidate, pageIndex) => synthesisCandidateDto(snapshot, candidate, offset + pageIndex));
+    const nextOffset = offset + page.length;
+    const payload = {
+      status: outcome.status,
+      flightId: parsed.data.flightId,
+      corridorCount: outcome.corridorCount,
+      corridorsCovered: outcome.corridorsCovered,
+      algorithmVersion: outcome.algorithmVersion,
+      candidates,
+      ...(nextOffset < outcome.candidates.length ? { nextCursor: scopedToken(snapshot, "synthesis-cursor", { o: nextOffset, q: `${flightIndex}|${SYNTHESIS_ALGORITHM_VERSION}`, l: SYNTHESIS_PAGE }) } : {}),
+      generation: generationSummary(snapshot, now()),
+      safety: PERSISTENT_SAFETY_COPY,
+    };
+    if (Buffer.byteLength(JSON.stringify(payload), "utf8") > MAX_BROWSER_RESPONSE_BYTES) {
+      throw new ApiHttpError(409, "SYNTHESIS_RESPONSE_TOO_LARGE", "The synthesis page exceeds the browser response limit. The candidate set is paginated; retry with the issued cursor.", true);
+    }
+    return reply.send(payload);
+  };
+  app.post("/api/v1/routes/synthesis", warm(synthesize));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/routes/synthesis", handler: methodNotAllowed("Route synthesis") });
 
   // Feature 4: bulk data browse endpoints. Queries and cursors travel in POST
   // bodies only (repo rule: never tokens or state in URLs). Cursors are bound

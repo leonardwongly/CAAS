@@ -246,8 +246,7 @@ export function routeDto(snapshot: Snapshot, projection: RouteProjection<Project
   };
 }
 
-export function overviewRouteDto(snapshot: Snapshot, flight: SafeFlight): Record<string, unknown> {
-  const id = flightId(snapshot, flight.index);
+export function overviewProjection(snapshot: Snapshot, flight: SafeFlight): RouteProjection<ProjectionEndpoint> {
   const originReference = flight.record.departure;
   const destinationReference = flight.record.destination;
   const origin = typeof originReference === "string" ? indexedReferenceResolution(snapshot, originReference, "airport") : undefined;
@@ -267,13 +266,17 @@ export function overviewRouteDto(snapshot: Snapshot, flight: SafeFlight): Record
         reason: result?.status === "ambiguous" ? "ambiguous" : reference ? "not-found" : "missing",
       },
     };
-  return routeDto(snapshot, routeProjection(
+  return routeProjection(
     snapshot,
     flight,
     endpoint(origin, originReference, 0),
     endpoint(destination, destinationReference, Math.max(1, (flight.record.routeElements?.length ?? 0) + 1)),
-    id,
-  ));
+    flightId(snapshot, flight.index),
+  );
+}
+
+export function overviewRouteDto(snapshot: Snapshot, flight: SafeFlight): Record<string, unknown> {
+  return routeDto(snapshot, overviewProjection(snapshot, flight));
 }
 
 export function coordinateKey(coordinate: Coordinate): string {
