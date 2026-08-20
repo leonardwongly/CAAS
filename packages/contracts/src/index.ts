@@ -177,7 +177,7 @@ export function parseCoordinate(value: unknown): Coordinate {
   return CoordinateInputSchema.parse(value);
 }
 
-export function safeParseCoordinate(value: unknown): z.SafeParseReturnType<unknown, Coordinate> {
+export function safeParseCoordinate(value: unknown): z.ZodSafeParseResult<Coordinate> {
   return CoordinateInputSchema.safeParse(value);
 }
 
@@ -188,7 +188,7 @@ export function parseReference(value: unknown): LocationReference {
   return LocationReferenceSchema.parse(value);
 }
 
-export function safeParseReference(value: unknown): z.SafeParseReturnType<unknown, LocationReference> {
+export function safeParseReference(value: unknown): z.ZodSafeParseResult<LocationReference> {
   if (typeof value === "string") {
     return LocationReferenceSchema.safeParse({ value });
   }
@@ -203,7 +203,7 @@ export function parseLocation(value: unknown): Location {
   return LocationSchema.parse(value);
 }
 
-export function safeParseLocation(value: unknown): z.SafeParseReturnType<unknown, Location> {
+export function safeParseLocation(value: unknown): z.ZodSafeParseResult<Location> {
   return LocationSchema.safeParse(value);
 }
 
@@ -211,6 +211,6 @@ export function parseRouteDraft(value: unknown): RouteDraft {
   return RouteDraftSchema.parse(value);
 }
 
-export function safeParseRouteDraft(value: unknown): z.SafeParseReturnType<unknown, RouteDraft> {
+export function safeParseRouteDraft(value: unknown): z.ZodSafeParseResult<RouteDraft> {
   return RouteDraftSchema.safeParse(value);
 }

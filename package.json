@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@11.5.2",
   "engines": {
-    "node": ">=22.14.0",
+    "node": ">=22.22.2",
     "pnpm": ">=11.5.2 <12"
   },
   "scripts": {
@@ -17,6 +17,7 @@
     "test:a11y": "pnpm --filter @flight-route-explorer/tests run test:a11y",
     "test:e2e": "pnpm --filter @flight-route-explorer/tests run test:e2e",
     "test:responsive": "pnpm --filter @flight-route-explorer/tests run test:responsive",
+    "test:browser": "pnpm --filter @flight-route-explorer/tests run test:browser",
     "test:offline": "node scripts/test-offline.mjs",
     "test:evidence": "node --test --experimental-strip-types tests/validation/*.test.ts && node scripts/validation/validate-evidence-bundle.mjs",
     "test:integration": "node --experimental-strip-types scripts/validation/loopback-lane.mjs",
@@ -40,9 +41,9 @@
   },
   "devDependencies": {
     "@cloudflare/containers": "0.3.7",
-    "@cloudflare/workers-types": "4.20260511.1",
-    "@types/node": "22.15.3",
-    "typescript": "5.8.3",
+    "@cloudflare/workers-types": "5.20260810.1",
+    "@types/node": "22.20.1",
+    "typescript": "7.0.2",
     "wrangler": "4.120.0",
     "yaml": "2.9.0"
   }

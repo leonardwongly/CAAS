@@ -83,7 +83,7 @@ Frontend and backend remain separate source/build responsibilities even though t
 
 ## Local Linux workflow
 
-The currently checked-in root metadata pins Node `>=22.14.0` and `pnpm@11.5.2`. Commands below are local setup or currently declared scaffold commands; no command should be described as passed until its output, subject, measurements, and artifact hash are retained in a gate manifest.
+The currently checked-in root metadata pins Node `>=22.22.2` and `pnpm@11.5.2`. Commands below are local setup or currently declared scaffold commands; no command should be described as passed until its output, subject, measurements, and artifact hash are retained in a gate manifest.
 
 ```bash
 # Confirm the workspace is the intended checkout.
