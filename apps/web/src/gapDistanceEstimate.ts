@@ -6,7 +6,12 @@ import {
   type GapDistancePrediction,
 } from "@flight-route-explorer/route-engine/gap-distance";
 import type { Coordinate, RouteLeg, RouteOption } from "./api";
-import type { PotentialEndpoints } from "./potentialRoute";
+
+/** Optional exact endpoint coordinates supplied to the statistical annotation only. */
+export type GapEndpoints = {
+  origin?: Coordinate | undefined;
+  destination?: Coordinate | undefined;
+};
 
 export type GapCorridorDistanceAnalysis = {
   gapSequences: number[];
@@ -72,7 +77,7 @@ function gapLegRuns(legs: readonly RouteLeg[]): RouteLeg[][] {
   return runs;
 }
 
-function candidateSpans(segments: readonly Coordinate[][], endpoints: PotentialEndpoints): CandidateSpan[] {
+function candidateSpans(segments: readonly Coordinate[][], endpoints: GapEndpoints): CandidateSpan[] {
   const spans: CandidateSpan[] = [];
   const firstSegment = segments[0];
   const lastSegment = segments.at(-1);
@@ -140,7 +145,7 @@ function sourceResolvedLegSubtotal(route: RouteOption): number | undefined {
 
 export function analyzeIncompleteRouteDistance(
   route: RouteOption,
-  endpoints: PotentialEndpoints = {},
+  endpoints: GapEndpoints = {},
   modelFile: GapDistanceModelFile = NO_MODEL,
   routeConfidenceLevel = 0.9,
 ): IncompleteRouteDistanceAnalysis {

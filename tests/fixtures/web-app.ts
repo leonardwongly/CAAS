@@ -56,6 +56,8 @@ export type StubOptions = {
   deferSearch?: boolean | undefined;
   /** Fail bulk browse requests with 409 CURSOR_EXPIRED. */
   failCursor?: boolean | undefined;
+  /** Fail the synthesis endpoint (500) to exercise synthesis error recovery. */
+  failSynthesis?: boolean | undefined;
   /** Replace the default overview with this many distinct renderable flights. */
   overviewCount?: number | undefined;
   /** Return two flights with exactly overlapping rendered paths. */
@@ -220,6 +222,39 @@ const pointMatches: Record<string, unknown> = {
   MIDPT: { matches: [{ id: "loc-MIDPT", callsign: "MIDPT", name: "MIDPT", kind: "fix", coordinate: { lat: 35, lon: -90 } }] },
 };
 
+/**
+ * Deterministic donor-subpath synthesis envelope matching fetchSynthesis in
+ * apps/web/src/api.ts. The borrowed GeoJSON subpath is geometry "observed on
+ * a donor record" bridging the fixture's unresolved gap; nothing here is
+ * client-interpolated.
+ */
+const synthesisResult = {
+  status: "full",
+  corridorCount: 1,
+  corridorsCovered: 1,
+  algorithmVersion: "stub-donor-subpath-v1",
+  candidates: [
+    {
+      candidateId: "candidate-1",
+      segments: [
+        {
+          kind: "borrowed",
+          geometry: { type: "LineString", coordinates: [[-80, 39], [-80.5, 38.8]] },
+          distanceNm: 32.4,
+          matchMethod: "exact-coordinate",
+          donorCount: 1,
+          proofIds: ["proof-fixture-1"],
+        },
+      ],
+      sourceResolvedDistanceNm: 480.1,
+      borrowedDistanceNm: 32.4,
+      estimatedTotalDistanceNm: 512.5,
+      corridorsCovered: 1,
+    },
+  ],
+  safety: "Stub synthesis note: borrowed subpaths are copied unchanged from donor records in the same generation.",
+};
+
 type StubResponse = {
   ok: boolean;
   status: number;
@@ -292,6 +327,11 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
         return new Promise<StubResponse>((resolve) => { draftResolvers.push(() => resolve(jsonResponse({ target: draftCompareTarget, comparison: draftCompareComparison }))); });
       }
       return jsonResponse({ target: draftCompareTarget, comparison: draftCompareComparison });
+    }
+    // Donor-subpath synthesis: POST { flightId, cursor? } -> bounded candidates.
+    if (method === "POST" && url === "/api/v1/routes/synthesis") {
+      if (options.failSynthesis) return jsonResponse({ error: { message: "Synthesis unavailable (stub).", code: "SYNTHESIS_FAIL" } }, 500);
+      return jsonResponse(synthesisResult);
     }
     // Readiness on mount and live refresh.
     if (method === "GET" && url === "/api/v1/readiness") {

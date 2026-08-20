@@ -403,8 +403,9 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
   .map-first-panel > .map-legend { font-size: .6rem; gap: 10px; padding: 9px 12px; }
 }
 
-/* Conservative potential-route layer: client-only modeled geometry is always
-   distinct from recorded geometry and remains legible without color alone. */
+/* Observed-donor synthesis layer: borrowed geometry is dotted amber and comes
+   exclusively from the synthesis API; the source record renders solid. It
+   remains distinct from recorded geometry and legible without color alone. */
 .route-path-potential-known { fill: none; stroke: rgba(217, 230, 242, .74); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; }
 .route-path-potential { fill: none; stroke: var(--amber); stroke-dasharray: 4 7; stroke-linecap: round; stroke-linejoin: round; stroke-width: 3.5; }
 .potential-derived-point circle { fill: #07131f; stroke: var(--amber); stroke-dasharray: 2 2; stroke-width: 2; }
@@ -417,6 +418,15 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
 .potential-route-options strong, .potential-route-options small { display: block; }.potential-route-options strong { color: #eff8ff; font-size: .78rem; }.potential-route-options small, .potential-route-options > button > span:last-child { color: var(--muted); font-size: .66rem; }
 @media (max-width: 760px) { .potential-route-prompt { align-items: flex-start; flex-direction: column; gap: 8px; }.potential-route-options button { align-items: flex-start; flex-direction: column; gap: 4px; } }
 @media (forced-colors: active) { .route-path-potential-known { stroke: GrayText; }.route-path-potential { stroke: Highlight; }.potential-derived-point circle { fill: Canvas; stroke: Highlight; }.legend-line-potential { background: repeating-linear-gradient(90deg, CanvasText 0 5px, transparent 5px 9px); } }
+.synthesis-status { border-left: 3px solid var(--blue); padding: 4px 0 4px 10px; color: var(--muted); font-size: .68rem; line-height: 1.4; }
+.synthesis-status.synthesis-unavailable { border-left-color: var(--amber); }
+.synthesis-candidates { display: grid; gap: 8px; }
+.synthesis-candidates button { align-items: center; background: #0a1a28; border: 1px solid rgba(82, 184, 232, .38); border-radius: 7px; color: var(--ink); display: flex; gap: 10px; justify-content: space-between; padding: 11px 12px; text-align: left; width: 100%; }
+.synthesis-candidates button:hover { background: rgba(82, 184, 232, .1); border-color: var(--blue); }
+.synthesis-candidates button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.synthesis-candidates button[aria-pressed="true"] { border-color: var(--blue); background: rgba(88, 166, 255, .08); }
+.synthesis-candidates strong, .synthesis-candidates small { display: block; }.synthesis-candidates strong { color: #eff8ff; font-size: .78rem; }.synthesis-candidates small, .synthesis-candidates > button > span:last-child { color: var(--muted); font-size: .66rem; }
+@media (max-width: 760px) { .synthesis-candidates button { align-items: flex-start; flex-direction: column; gap: 4px; } }
 
 /* Persistent left-side route-leg panel. This final scoped layer intentionally
    overrides the earlier bottom-sheet experiment: route legs never collapse

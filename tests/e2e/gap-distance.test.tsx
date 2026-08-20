@@ -162,22 +162,23 @@ describe("non-operational gap-distance analysis", () => {
     expect(analysis.continuousRouteMinimumNm).toBeUndefined();
   });
 
-  it("shows lower-bound data and the fail-closed calibration state in the left drawer", async () => {
+  it("keeps the statistical annotation separate from synthesis in the left drawer", async () => {
     installApiStub();
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Show visual estimate" }));
-    const drawer = await screen.findByRole("region", { name: "Estimated gap preview" });
+    await user.click(await screen.findByRole("button", { name: "Show observed-donor synthesis" }));
+    const drawer = await screen.findByRole("region", { name: "Observed-donor synthesis" });
     await user.click(within(drawer).getByRole("button", { name: /Recorded with unresolved gap/ }));
 
-    await waitFor(() => expect(within(drawer).getByText("Continuous-route minimum")).toBeTruthy());
-    expect(within(drawer).getByText("Gap anchor minimum")).toBeTruthy();
-    expect(within(drawer).getByText("Recorded geometry")).toBeTruthy();
-    expect(within(drawer).getByText("Statistical estimate")).toBeTruthy();
-    expect(within(drawer).getByText("Historical release gates not met")).toBeTruthy();
+    await waitFor(() => expect(within(drawer).getByText("Separate statistical annotation (not synthesis)")).toBeTruthy());
     expect(within(drawer).getByText(GAP_DISTANCE_ANNOTATION_CAVEAT)).toBeTruthy();
     expect(within(drawer).getByText(/Lower bounds remain available/)).toBeTruthy();
     expect(within(drawer).getByText(/Gap position 3: minimum/)).toBeTruthy();
+    expect(within(drawer).getByText(/continuous-route minimum/)).toBeTruthy();
+    expect(within(drawer).getByText(/not an expected or source route total/)).toBeTruthy();
+    // Candidate totals never mix in the statistical annotation values.
+    expect(within(drawer).getByText("Estimated total (source + borrowed)")).toBeTruthy();
+    expect(within(drawer).getByText("512.5 NM")).toBeTruthy();
   });
 });

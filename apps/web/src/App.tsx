@@ -4,6 +4,7 @@ import {
   fetchReadiness,
   fetchRouteOverview,
   fetchRouteOptions,
+  fetchSynthesis,
   lookupPoint,
   refreshLiveData,
   searchCallsigns,
@@ -16,6 +17,9 @@ import {
   type PointMatch,
   type RouteLeg,
   type RouteOption,
+  type SynthesisCandidate,
+  type SynthesisResult,
+  type SynthesisSegment,
 } from "./api";
 import {
   COMPLETE_GROUP_DESCRIPTION,
@@ -29,11 +33,10 @@ import {
 import { clampZoom, DEFAULT_SIZE, fitViewToCoordinates, MAX_ZOOM, MIN_ZOOM, OSM_ATTRIBUTION, pixelFromView, projectWorldSegmentsMercator, TileLayer, viewFromPixelDelta, viewFromZoomAtPoint, type MapSize, type TileView } from "./TileMap";
 import ApiDataPage from "./ApiDataPage";
 import { compareDistanceOperands } from "@flight-route-explorer/route-engine/compare";
-import { deriveConservativePotentialRoute, type ConservativePotentialRoute, type PotentialEndpoints } from "./potentialRoute";
 import { analyzeIncompleteRouteDistance, type IncompleteRouteDistanceAnalysis } from "./gapDistanceEstimate";
 import { BUNDLED_GAP_DISTANCE_MODEL } from "./gapDistanceModel";
 
-type Surface = "none" | "routes" | "route-data" | "editor" | "compare" | "potential";
+type Surface = "none" | "routes" | "route-data" | "editor" | "compare" | "synthesis";
 type SearchState = { query: string; matches: CallsignMatch[]; loading: boolean; searched: boolean; error?: string | undefined };
 const emptySearch: SearchState = { query: "", matches: [], loading: false, searched: false };
 // Type-ahead settles this long after the last keystroke; Enter fires a search
@@ -95,6 +98,46 @@ function refreshFailureMessage(error: unknown): string {
   return apiMessage(error);
 }
 
+function synthesisStatusCopy(result: SynthesisResult): string {
+  switch (result.status) {
+    case "not-needed":
+      return "Source route is complete; no synthesis is needed.";
+    case "full":
+    case "ambiguous": {
+      const count = result.candidates.length;
+      return `${count} candidate${count === 1 ? "" : "s"} assembled from geometry observed on other recorded routes in this generation. Dotted segments are borrowed; nothing was interpolated.`;
+    }
+    case "partial":
+      return "Only some gap corridors could be covered by observed donor geometry.";
+    case "unavailable":
+      return "No other recorded route in this generation contains the missing directed subpath.";
+    case "over-limit":
+    case "candidate-limit-exceeded":
+      return "Too many donor combinations to list; narrowing is required. No candidate was truncated or silently chosen.";
+  }
+}
+
+/** A candidate carries no donor roster; the largest per-segment donor count is the only client-defensible figure. */
+function candidateDonorCount(candidate: SynthesisCandidate): number {
+  return candidate.segments.reduce((maximum, segment) => Math.max(maximum, segment.donorCount), 0);
+}
+
+function borrowedSegmentProvenanceCopy(segment: SynthesisSegment): string {
+  return `Observed subpath copied without modification from ${segment.donorCount} donor route(s); match by ${segment.matchMethod === "reference" ? "exact reference identity" : "exact coordinate"}${segment.donorTruncated ? "; additional donors not listed" : ""}.`;
+}
+
+/** Best-effort statistical annotation copy; kept strictly separate from synthesis candidate totals. */
+function statisticalAnnotationNote(analysis: IncompleteRouteDistanceAnalysis | undefined): string | undefined {
+  if (!analysis) return undefined;
+  if (analysis.status === "unavailable") return analysis.message ?? "The statistical annotation is unavailable for this source route.";
+  const aggregate = analysis.aggregateEstimate;
+  const aggregateCopy = aggregate
+    ? `Calibrated central value ${formatDistance(aggregate.centralNm)} with ${Math.round(aggregate.interval.confidenceLevel * 100)}% interval ${formatDistance(aggregate.interval.lowerNm)}–${formatDistance(aggregate.interval.upperNm)} (a sum of corridor medians, model ${aggregate.modelVersion}).`
+    : `A calibrated statistical estimate is unavailable: ${analysis.message ?? "historical release gates were not met."}`;
+  const corridorCopy = analysis.corridors.map((corridor) => `Gap position${corridor.gapSequences.length === 1 ? "" : "s"} ${corridor.gapSequences.map((sequence) => sequence + 1).join(", ")}: minimum ${formatDistance(corridor.minimumNm)}.`).join(" ");
+  return `${aggregateCopy} Recorded geometry subtotal ${formatDistance(analysis.recordedGeometrySubtotalNm)}; gap anchor minimum ${formatDistance(analysis.gapMinimumSubtotalNm)}; continuous-route minimum ${formatDistance(analysis.continuousRouteMinimumNm)} (not an expected or source route total). ${corridorCopy}`;
+}
+
 function App() {
   const [overview, setOverview] = useState<RouteOption[]>([]);
   const [overviewLoading, setOverviewLoading] = useState(true);
@@ -104,8 +147,11 @@ function App() {
   const [search, setSearch] = useState<SearchState>(emptySearch);
   const [options, setOptions] = useState<RouteOption[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<RouteOption>();
-  const [potentialRoute, setPotentialRoute] = useState<RouteOption>();
-  const [potentialEndpointCoordinates, setPotentialEndpointCoordinates] = useState<PotentialEndpoints>({});
+  const [synthesisRoute, setSynthesisRoute] = useState<RouteOption>();
+  const [synthesis, setSynthesis] = useState<SynthesisResult>();
+  const [synthesisLoading, setSynthesisLoading] = useState(false);
+  const [synthesisError, setSynthesisError] = useState<string>();
+  const [selectedCandidate, setSelectedCandidate] = useState<SynthesisCandidate>();
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState<string>();
   const [routeReload, setRouteReload] = useState(0);
@@ -122,6 +168,8 @@ function App() {
   const [refreshError, setRefreshError] = useState<string>();
   const [readinessError, setReadinessError] = useState<string>();
   const routeRequest = useRef(0);
+  const synthesisRequest = useRef(0);
+  const synthesisController = useRef<AbortController | undefined>(undefined);
   const draftRequest = useRef<AbortController | undefined>(undefined);
   const searchRequest = useRef<AbortController | undefined>(undefined);
   const searchSeq = useRef(0);
@@ -137,10 +185,6 @@ function App() {
   const mapOnlyTriggerRef = useRef<HTMLButtonElement>(null);
   const restoreControlsRef = useRef<HTMLButtonElement>(null);
   const apiDataTriggerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    setPotentialEndpointCoordinates({});
-  }, [potentialRoute?.id]);
 
   // Design §15.2: focus return is deterministic after closing a surface,
   // selecting a route, retrying an error, or leaving Map Only.
@@ -261,7 +305,7 @@ function App() {
     searchRequest.current?.abort();
     if (searchTimer.current !== undefined) { window.clearTimeout(searchTimer.current); searchTimer.current = undefined; }
     setSelectedFlight(match);
-    setPotentialRoute(undefined);
+    clearSynthesis();
     setSelectedRoute(overview.find((route) => route.flightId === match.flightId && isCompleteRoute(route)));
     setSearch(preserveSearchFilter ? { query: match.callsign, matches: [], loading: false, searched: false } : emptySearch);
     setStatus(`Selected flight ${match.callsign}, departing ${match.departure} for ${match.destination}. Loading complete same-endpoint recorded routes.`);
@@ -269,7 +313,7 @@ function App() {
 
   function chooseOverviewRoute(route: RouteOption) {
     if (!isCompleteRoute(route)) return;
-    setPotentialRoute(undefined);
+    clearSynthesis();
     chooseFlight({
       id: route.flightId,
       flightId: route.flightId,
@@ -281,23 +325,72 @@ function App() {
     setSelectedRoute(route);
   }
 
-  function openPotentialRouteChooser() {
-    resetDraftState();
-    setSelectedRoute(undefined);
-    setPotentialRoute(undefined);
-    setPrimarySurface("potential");
+  /** Invalidate and clear any in-flight or settled synthesis for the previous target. */
+  function clearSynthesis() {
+    synthesisRequest.current += 1;
+    synthesisController.current?.abort();
+    setSynthesisRoute(undefined);
+    setSynthesis(undefined);
+    setSynthesisError(undefined);
+    setSelectedCandidate(undefined);
+    setSynthesisLoading(false);
   }
 
-  function choosePotentialRoute(route?: RouteOption) {
+  function openSynthesisChooser() {
+    resetDraftState();
+    setSelectedRoute(undefined);
+    clearSynthesis();
+    setPrimarySurface("synthesis");
+  }
+
+  function chooseSynthesisTarget(route?: RouteOption) {
     if (!route) {
-      setPotentialRoute(undefined);
+      clearSynthesis();
       return;
     }
     if (isCompleteRoute(route)) return;
     resetDraftState();
     setSelectedRoute(undefined);
-    setPotentialRoute(route);
-    setStatus(`Showing a visual gap estimate for ${route.callsign}. Dotted spans join exact anchors only; this is not a route suggestion and does not change source route facts.`);
+    setSynthesisRoute(route);
+    void loadSynthesis(route);
+  }
+
+  async function loadSynthesis(route: RouteOption) {
+    const requestId = ++synthesisRequest.current;
+    synthesisController.current?.abort();
+    const controller = new AbortController();
+    synthesisController.current = controller;
+    setSynthesisLoading(true);
+    setSynthesisError(undefined);
+    setSynthesis(undefined);
+    setSelectedCandidate(undefined);
+    setStatus(`Requesting observed-donor synthesis candidates for ${route.callsign}.`);
+    try {
+      const allCandidates: SynthesisCandidate[] = [];
+      let cursor: string | undefined;
+      let result: SynthesisResult | undefined;
+      do {
+        result = await fetchSynthesis(route.flightId, cursor, controller.signal);
+        // A superseded or aborted request must never apply a late page.
+        if (controller.signal.aborted || synthesisRequest.current !== requestId) return;
+        allCandidates.push(...result.candidates);
+        // Terminal guard: an empty page (or a misbehaving repeated cursor)
+        // must not loop forever under a perpetual loading spinner.
+        cursor = result.candidates.length > 0 ? result.nextCursor : undefined;
+      } while (cursor);
+      if (!result) return;
+      // Last-page envelope: after paging to the terminal cursor the final
+      // page carries status/counts, and candidates is the merged full set.
+      const merged: SynthesisResult = { ...result, candidates: allCandidates };
+      setSynthesis(merged);
+      setSelectedCandidate(allCandidates[0]);
+      setStatus(synthesisStatusCopy(merged));
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (synthesisRequest.current === requestId) setSynthesisError(apiMessage(error));
+    } finally {
+      if (synthesisRequest.current === requestId) setSynthesisLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -376,7 +469,7 @@ function App() {
     setSearch(emptySearch);
     setOptions([]);
     setSelectedRoute(undefined);
-    setPotentialRoute(undefined);
+    clearSynthesis();
     setRouteLoading(false);
     setRouteError(undefined);
     setStatus("Session reset.");
@@ -413,11 +506,15 @@ function App() {
     return query ? overview.filter((route) => route.callsign.toUpperCase().includes(query)) : overview;
   }, [overview, search.query]);
 
-  const filteredPotentialOverview = useMemo(() => filteredOverview.filter((route) => !isCompleteRoute(route)), [filteredOverview]);
-  const potentialDistanceAnalysis = useMemo(
-    () => potentialRoute ? analyzeIncompleteRouteDistance(potentialRoute, potentialEndpointCoordinates, BUNDLED_GAP_DISTANCE_MODEL) : undefined,
-    [potentialRoute, potentialEndpointCoordinates],
+  const incompleteOverview = useMemo(() => filteredOverview.filter((route) => !isCompleteRoute(route)), [filteredOverview]);
+  // Statistical annotation survives as a separate, best-effort descriptor: the
+  // old endpoint coordinates were client midpoint artifacts, so it now runs
+  // with an empty endpoint object and keeps its existing semantics.
+  const statisticalAnnotation = useMemo(
+    () => synthesisRoute ? analyzeIncompleteRouteDistance(synthesisRoute, {}, BUNDLED_GAP_DISTANCE_MODEL) : undefined,
+    [synthesisRoute],
   );
+  const statisticalNote = useMemo(() => statisticalAnnotationNote(statisticalAnnotation), [statisticalAnnotation]);
 
   return (
     <div className="app-shell map-first-shell">
@@ -445,10 +542,10 @@ function App() {
         {mapOnly && <h1 className="sr-only">Map-first route comparison</h1>}
         <section className="map-panel map-first-panel" aria-labelledby="map-heading">
           <h2 className="sr-only" id="map-heading">Global route map</h2>
-          <RouteMap routes={filteredOverview} selectedRoute={selectedRoute} potentialRoute={potentialRoute} callsign={selectedFlight?.callsign} onSelectRoute={chooseOverviewRoute} onPotentialEndpointsChange={setPotentialEndpointCoordinates} />
-          <div className="map-hud">{selectedRoute ? <><span className="eyebrow">SELECTED SOURCE ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? formatDistance(selectedRoute.distanceNm) : "No complete source route available"}</span></> : potentialRoute ? <><span className="eyebrow">ESTIMATED GAP PREVIEW</span><strong>{potentialRoute.label ?? potentialRoute.callsign}</strong><span>Dotted geometry is a visual estimate between exact anchors—not a route suggestion, plan, or operational data.</span></> : <><span className="eyebrow">SOURCE ROUTE OVERVIEW</span><strong>{overviewLoading ? "Loading source route records…" : `${filteredOverview.length} of ${overview.length} source route records shown`}</strong><span>{overviewError ?? "Refreshed source data, not real-time tracking. Select a route from the map or list."}</span></>}</div>
+          <RouteMap routes={filteredOverview} selectedRoute={selectedRoute} synthesisRoute={synthesisRoute} selectedCandidate={selectedCandidate} callsign={selectedFlight?.callsign} onSelectRoute={chooseOverviewRoute} />
+          <div className="map-hud">{selectedRoute ? <><span className="eyebrow">SELECTED SOURCE ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? formatDistance(selectedRoute.distanceNm) : "No complete source route available"}</span></> : synthesisRoute ? <><span className="eyebrow">OBSERVED-DONOR SYNTHESIS</span><strong>{synthesisRoute.label ?? synthesisRoute.callsign}</strong><span>Dotted segments were observed on other recorded routes in this generation—not estimates or suggestions.</span></> : <><span className="eyebrow">SOURCE ROUTE OVERVIEW</span><strong>{overviewLoading ? "Loading source route records…" : `${filteredOverview.length} of ${overview.length} source route records shown`}</strong><span>{overviewError ?? "Refreshed source data, not real-time tracking. Select a route from the map or list."}</span></>}</div>
           {!mapOnly && <div className={`map-left-stack ${selectedRoute ? "has-route-legs" : ""}`}>
-            <FlightOverviewList routes={filteredOverview} incompleteRoutes={filteredPotentialOverview} total={overview.length} selected={selectedRoute} loading={overviewLoading} error={overviewError} onRetry={() => setOverviewReload((current) => current + 1)} onSelect={chooseOverviewRoute} onSelectIncomplete={choosePotentialRoute} onExplorePotential={openPotentialRouteChooser} />
+            <FlightOverviewList routes={filteredOverview} incompleteRoutes={incompleteOverview} total={overview.length} selected={selectedRoute} loading={overviewLoading} error={overviewError} onRetry={() => setOverviewReload((current) => current + 1)} onSelect={chooseOverviewRoute} onSelectIncomplete={chooseSynthesisTarget} onExploreSynthesis={openSynthesisChooser} />
             {selectedRoute && <RouteLegPanel route={selectedRoute} />}
           </div>}
           {!mapOnly && <nav className="map-rail" aria-label="Route workspace controls">
@@ -461,15 +558,15 @@ function App() {
             <button ref={compareTriggerRef} type="button" aria-pressed={primarySurface === "compare"} onClick={() => setPrimarySurface((surface) => surface === "compare" ? "none" : "compare")} disabled={!selectedRoute || options.length < 2}>Compare</button>
           </nav>}
           {mapOnly && <button ref={restoreControlsRef} className="restore-controls" type="button" onClick={leaveMapOnly} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leaveMapOnly(); } }}>Restore controls</button>}
-          {!mapOnly && primarySurface !== "none" && <aside className="map-drawer map-bottom-sheet" role="region" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : primarySurface === "compare" ? "Route comparison" : primarySurface === "potential" ? "Estimated gap preview" : "Explore a route variation"}>
-            <div className="drawer-header"><p className="eyebrow">{primarySurface === "compare" ? "COMPARE ROUTES" : primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : primarySurface === "potential" ? "ESTIMATED GAP PREVIEW" : "EXPLORE VARIATION"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>
+          {!mapOnly && primarySurface !== "none" && <aside className="map-drawer map-bottom-sheet" role="region" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : primarySurface === "compare" ? "Route comparison" : primarySurface === "synthesis" ? "Observed-donor synthesis" : "Explore a route variation"}>
+            <div className="drawer-header"><p className="eyebrow">{primarySurface === "compare" ? "COMPARE ROUTES" : primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : primarySurface === "synthesis" ? "OBSERVED-DONOR SYNTHESIS" : "EXPLORE VARIATION"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>
             {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} onRetry={() => { setRouteReload((current) => current + 1); requestAnimationFrame(() => document.getElementById("options-heading")?.focus()); }} onSelect={(option) => { resetDraftState(); chooseOverviewRoute(option); setStatus(`Selected flight ${option.callsign} from the neutral route comparison.`); closeSurface("routes"); }} />}
-            {primarySurface === "potential" && <PotentialRouteExplorer routes={filteredPotentialOverview} selected={potentialRoute} analysis={potentialDistanceAnalysis} onSelect={choosePotentialRoute} />}
+            {primarySurface === "synthesis" && <SynthesisExplorer routes={incompleteOverview} selected={synthesisRoute} synthesis={synthesis} selectedCandidate={selectedCandidate} loading={synthesisLoading} error={synthesisError} statisticalNote={statisticalNote} onSelect={chooseSynthesisTarget} onChooseCandidate={setSelectedCandidate} onRetry={() => { if (synthesisRoute) void loadSynthesis(synthesisRoute); }} />}
             {primarySurface === "compare" && selectedRoute && <RouteCompare baseline={selectedRoute} options={options} onSelect={(option) => { chooseOverviewRoute(option); setStatus(`Comparing ${selectedRoute.label ?? "route"} with ${option.label ?? "route option"}.`); }} />}
             {primarySurface === "route-data" && selectedRoute && <RouteDetails route={selectedRoute} onStartDraft={() => { setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); requestAnimationFrame(() => document.getElementById("draft-heading")?.focus()); }} />}
             {primarySurface === "editor" && selectedRoute && draftActive && <DraftEditor draft={draft} baseline={selectedRoute} loading={draftLoading} error={draftError} onUpdate={(via, selections) => void updateDraft(via, selections)} onClose={() => { resetDraftState(); closeSurface("editor"); }} />}
           </aside>}
-          {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected source route</span><span><i className="legend-line legend-line-alt" /> Alternate source route</span><span><i className="legend-line legend-line-potential" /> Dotted visual estimate (not a route)</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
+          {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected source route</span><span><i className="legend-line legend-line-alt" /> Alternate source route</span><span><i className="legend-line legend-line-potential" /> Dotted segments: observed on another recorded route (same generation)</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
           <div className="sr-status" role="status" aria-live="polite">{routeLoading ? "Loading route options." : status}</div>
         </section>
       </main>}
@@ -477,13 +574,13 @@ function App() {
   );
 }
 
-function FlightOverviewList({ routes, incompleteRoutes, total, selected, loading, error, onRetry, onSelect, onSelectIncomplete, onExplorePotential }: { routes: RouteOption[]; incompleteRoutes: RouteOption[]; total: number; selected?: RouteOption | undefined; loading: boolean; error?: string | undefined; onRetry: () => void; onSelect: (route: RouteOption) => void; onSelectIncomplete: (route: RouteOption) => void; onExplorePotential: () => void }) {
+function FlightOverviewList({ routes, incompleteRoutes, total, selected, loading, error, onRetry, onSelect, onSelectIncomplete, onExploreSynthesis }: { routes: RouteOption[]; incompleteRoutes: RouteOption[]; total: number; selected?: RouteOption | undefined; loading: boolean; error?: string | undefined; onRetry: () => void; onSelect: (route: RouteOption) => void; onSelectIncomplete: (route: RouteOption) => void; onExploreSynthesis: () => void }) {
   return <section className="flight-overview-list" aria-label="Full flight list">
     <div className="overview-list-heading"><div><span className="eyebrow">SOURCE FLIGHT RECORDS</span><strong>{routes.length} of {total}</strong></div></div>
     {loading && <div className="loading-row"><span className="spinner dark" /> Loading all route pages…</div>}
     {error && <div className="notice error-notice" role="alert"><span>{error}</span><button className="retry-button" type="button" onClick={onRetry}>Retry overview</button></div>}
     {!loading && !error && routes.length === 0 && <p className="muted-copy">No source flight records match the current filter.</p>}
-    {!loading && !error && incompleteRoutes.length > 0 && <div className="potential-route-prompt"><div><span className="eyebrow">ESTIMATED GAPS</span><strong>{incompleteRoutes.length} source route record{incompleteRoutes.length === 1 ? "" : "s"} with gaps</strong><p>Dotted previews are visual estimates only—not route suggestions or operational data.</p></div><button className="quiet-button" type="button" onClick={onExplorePotential}>Show visual estimate</button></div>}
+    {!loading && !error && incompleteRoutes.length > 0 && <div className="potential-route-prompt"><div><span className="eyebrow">OBSERVED-DONOR SYNTHESIS</span><strong>{incompleteRoutes.length} source route record{incompleteRoutes.length === 1 ? "" : "s"} with gaps</strong><p>Synthesis shows geometry observed on other recorded routes in this generation—never interpolation, ranking, or a route suggestion.</p></div><button className="quiet-button" type="button" onClick={onExploreSynthesis}>Show observed-donor synthesis</button></div>}
     <div className="overview-flight-buttons">
       {routes.map((route) => {
         const complete = isCompleteRoute(route);
@@ -496,44 +593,43 @@ function FlightOverviewList({ routes, incompleteRoutes, total, selected, loading
   </section>;
 }
 
-function PotentialRouteExplorer({ routes, selected, analysis, onSelect }: { routes: RouteOption[]; selected?: RouteOption | undefined; analysis?: IncompleteRouteDistanceAnalysis | undefined; onSelect: (route?: RouteOption) => void }) {
-  const aggregate = analysis?.aggregateEstimate;
-  const intervalCopy = aggregate
-    ? `${Math.round(aggregate.interval.confidenceLevel * 100)}% aggregate interval ${formatDistance(aggregate.interval.lowerNm)}–${formatDistance(aggregate.interval.upperNm)}. Central value ${formatDistance(aggregate.centralNm)} is a sum of corridor medians, not a source route total.`
-    : analysis?.message ?? "Select an incomplete source route to evaluate exact anchor coverage.";
-  return <section className="potential-route-section" aria-labelledby="potential-route-heading">
+function SynthesisExplorer({ routes, selected, synthesis, selectedCandidate, loading, error, statisticalNote, onSelect, onChooseCandidate, onRetry }: { routes: RouteOption[]; selected?: RouteOption | undefined; synthesis?: SynthesisResult | undefined; selectedCandidate?: SynthesisCandidate | undefined; loading: boolean; error?: string | undefined; statisticalNote?: string | undefined; onSelect: (route?: RouteOption) => void; onChooseCandidate: (candidate: SynthesisCandidate) => void; onRetry: () => void }) {
+  const unavailableTone = Boolean(synthesis && (synthesis.status === "unavailable" || synthesis.status === "over-limit" || synthesis.status === "candidate-limit-exceeded"));
+  return <section className="potential-route-section" aria-labelledby="synthesis-heading">
     {!selected ? <>
-      <div className="section-title"><div><p className="eyebrow">VISUAL ESTIMATE ONLY</p><h2 id="potential-route-heading">Choose a source route with gaps</h2></div><span className="count-label">{routes.length} available</span></div>
-      <p className="criterion-copy">This preview never changes a source route. It draws dotted geometry only between exact anchors, with no span-distance cap; it is not a route suggestion, plan, or operational data.</p>
+      <div className="section-title"><div><p className="eyebrow">OBSERVED-DONOR SYNTHESIS</p><h2 id="synthesis-heading">Choose a source route with gaps</h2></div><span className="count-label">{routes.length} available</span></div>
+      <p className="criterion-copy">Synthesis assembles candidates from geometry observed on other recorded routes in the same data generation. Nothing is interpolated, ranked, or written back to the source record.</p>
       <div className="potential-route-options">{routes.map((route) => <button type="button" key={route.flightId} onClick={() => onSelect(route)}><span><strong>{route.callsign}</strong><small>{route.label ?? "Recorded route"} · {route.gaps.length} gap{route.gaps.length === 1 ? "" : "s"}</small></span><span>{route.origin ?? "Unknown departure"} → {route.destination ?? "Unknown destination"}</span></button>)}</div>
       {!routes.length && <p className="muted-copy">No incomplete recorded routes match the current filter.</p>}
     </> : <>
-      <div className="section-title"><div><p className="eyebrow">VISUAL ESTIMATE ONLY</p><h2 id="potential-route-heading">Estimated gap preview</h2></div><button className="quiet-button" type="button" onClick={() => onSelect()}>Choose another</button></div>
-      <p className="criterion-copy">Known source geometry and gaps remain unchanged. Dotted spans and distance annotations are client-only; midpoint dots are synthetic coordinates, never named fixes or route waypoints.</p>
-      <div className="metric-grid">
-        <Metric label="Source gaps" value={String(selected.gaps.length)} />
-        <Metric label="Gap corridors" value={analysis ? String(analysis.corridors.length) : "Unavailable"} note="Each anchor-bounded corridor is counted once" />
-        <Metric label="Source resolved legs" value={formatDistance(analysis?.sourceResolvedLegSubtotalNm)} note="Subtotal only when every resolved leg supplies distance" />
-        <Metric label="Recorded geometry" value={analysis ? formatDistance(analysis.recordedGeometrySubtotalNm) : "Unavailable"} note="Haversine subtotal from exact source coordinates" />
-      </div>
-      <div className="metric-grid">
-        <Metric label="Gap anchor minimum" value={formatDistance(analysis?.gapMinimumSubtotalNm)} note="Shortest geometric span across bounded gaps" />
-        <Metric label="Continuous-route minimum" value={formatDistance(analysis?.continuousRouteMinimumNm)} note="Not an expected or source route total" />
-        <Metric label="Statistical estimate" value={aggregate ? formatDistance(aggregate.centralNm) : "Unavailable"} note={aggregate ? "Sum of calibrated corridor medians" : "Historical release gates not met"} />
-        <Metric label="Confidence interval" value={aggregate ? `${formatDistance(aggregate.interval.lowerNm)}–${formatDistance(aggregate.interval.upperNm)}` : "Unavailable"} note={aggregate ? `${Math.round(aggregate.interval.confidenceLevel * 100)}% aggregate confidence` : "No calibrated interval released"} />
-      </div>
-      <div className="metric-grid">
-        <Metric label="Named fixes inferred" value="0" />
-        <Metric label="Ranking" value="Excluded" />
-        <Metric label="Comparison" value="Excluded" />
-        <Metric label="Source route mutation" value="None" />
-      </div>
-      <div className="evidence-stack">
-        <Evidence label="Distance interpretation" value={GAP_DISTANCE_ANNOTATION_CAVEAT} tone="amber" />
-        <Evidence label={aggregate ? `Calibrated estimate · ${aggregate.modelVersion}` : "Calibration status"} value={intervalCopy} tone={aggregate ? "blue" : "amber"} />
-        <Evidence label="Gap coverage" value={analysis?.corridors.length ? analysis.corridors.map((corridor) => `Gap position${corridor.gapSequences.length === 1 ? "" : "s"} ${corridor.gapSequences.map((sequence) => sequence + 1).join(", ")}: minimum ${formatDistance(corridor.minimumNm)}.`).join(" ") : "No complete exact-anchor corridor could be established; no distance was fabricated."} tone={analysis?.corridors.length ? "blue" : "red"} />
-      </div>
+      <div className="section-title"><div><p className="eyebrow">OBSERVED-DONOR SYNTHESIS</p><h2 id="synthesis-heading">Observed-donor synthesis</h2></div><button className="quiet-button" type="button" onClick={() => onSelect()}>Choose another</button></div>
+      <p className="sr-only" aria-live="polite">Solid segments are recorded for this flight; dotted segments were observed on other flights in the same data generation.</p>
       <p className="muted-copy">{selected.callsign} · {selected.origin ?? "Unknown departure"} → {selected.destination ?? "Unknown destination"}</p>
+      {loading && <div className="loading-row"><span className="spinner dark" /> Requesting observed-donor synthesis candidates…</div>}
+      {error && !loading && <div className="notice error-notice" role="alert"><span>{error}</span><button className="retry-button" type="button" onClick={onRetry}>Retry synthesis</button></div>}
+      {synthesis && !loading && !error && <>
+        <p className={`synthesis-status${unavailableTone ? " synthesis-unavailable" : ""}`}>{synthesisStatusCopy(synthesis)}</p>
+        {synthesis.candidates.length > 0 && <div className="synthesis-candidates" role="group" aria-label="Synthesis candidates">{synthesis.candidates.map((candidate) => <button type="button" key={candidate.candidateId} aria-pressed={candidate.candidateId === selectedCandidate?.candidateId} onClick={() => onChooseCandidate(candidate)}><span><strong>Candidate {candidate.candidateId}</strong><small>Observed on {candidateDonorCount(candidate)} donor route(s) · borrowed {formatDistance(candidate.borrowedDistanceNm)}</small></span><span>{candidate.corridorsCovered} corridor{candidate.corridorsCovered === 1 ? "" : "s"} covered</span></button>)}</div>}
+        {selectedCandidate && <>
+          <div className="metric-grid">
+            {selectedCandidate.estimatedTotalDistanceNm !== undefined && <Metric label="Estimated total (source + borrowed)" value={formatDistance(selectedCandidate.estimatedTotalDistanceNm)} note="Never a source record change" />}
+            <Metric label="Source resolved" value={formatDistance(selectedCandidate.sourceResolvedDistanceNm)} />
+            <Metric label="Borrowed" value={formatDistance(selectedCandidate.borrowedDistanceNm)} />
+            <Metric label="Corridors covered" value={`${selectedCandidate.corridorsCovered}/${synthesis.corridorCount}`} />
+          </div>
+          <div className="evidence-stack">
+            {selectedCandidate.segments.map((segment, index) => <Evidence key={`borrowed-provenance-${index}`} label="Borrowed segment provenance" value={borrowedSegmentProvenanceCopy(segment)} tone="blue" />)}
+          </div>
+        </>}
+        <div className="evidence-stack">
+          {synthesis.safety && <Evidence label="Synthesis safety" value={synthesis.safety} tone="amber" />}
+          <Evidence label="Inspection aid" value="Synthesized candidates are inspection aids only. They are not operational routes and never modify the source record." tone="amber" />
+        </div>
+      </>}
+      {statisticalNote && <div className="evidence-stack">
+        <Evidence label="Separate statistical annotation (not synthesis)" value={GAP_DISTANCE_ANNOTATION_CAVEAT} tone="amber" />
+        <Evidence label="Statistical annotation detail" value={statisticalNote} tone="blue" />
+      </div>}
     </>}
   </section>;
 }
@@ -734,10 +830,9 @@ function endpointReference(label: string): string {
   return /\(([A-Z]{4})\)$/.exec(label)?.[1] ?? label;
 }
 
-function RouteMap({ routes, selectedRoute, potentialRoute, callsign, onSelectRoute, onPotentialEndpointsChange }: { routes: RouteOption[]; selectedRoute?: RouteOption | undefined; potentialRoute?: RouteOption | undefined; callsign?: string | undefined; onSelectRoute: (route: RouteOption) => void; onPotentialEndpointsChange: (endpoints: PotentialEndpoints) => void }) {
+function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, callsign, onSelectRoute }: { routes: RouteOption[]; selectedRoute?: RouteOption | undefined; synthesisRoute?: RouteOption | undefined; selectedCandidate?: SynthesisCandidate | undefined; callsign?: string | undefined; onSelectRoute: (route: RouteOption) => void }) {
   const [overlapChoices, setOverlapChoices] = useState<RouteOption[]>([]);
   const [endpoints, setEndpoints] = useState<{ departure?: EndpointLocation | undefined; arrival?: EndpointLocation | undefined }>({});
-  const [potentialEndpoints, setPotentialEndpoints] = useState<{ departure?: EndpointLocation | undefined; arrival?: EndpointLocation | undefined }>({});
   const [view, setView] = useState<TileView>({ lat: 20, lon: 0, zoom: 2 });
   const [tilesEnabled, setTilesEnabled] = useState(true);
   const [tilesFailed, setTilesFailed] = useState(false);
@@ -765,35 +860,30 @@ function RouteMap({ routes, selectedRoute, potentialRoute, callsign, onSelectRou
     const sourceSegments = route.segments ?? (route.geometry ? [route.geometry] : []);
     return { route, projection: tilesOn ? projectWorldSegmentsMercator(sourceSegments, view, stageSize) : projectWorldSegments(sourceSegments) };
   }), [routes, tilesOn, view, stageSize]);
-  const selectedProjection = useMemo(() => {
-    if (!selectedRoute || !isCompleteRoute(selectedRoute)) return undefined;
-    const sourceSegments = selectedRoute.segments ?? (selectedRoute.geometry ? [selectedRoute.geometry] : []);
+  const displayRoute = selectedRoute ?? synthesisRoute;
+  const displayProjection = useMemo(() => {
+    if (!displayRoute) return undefined;
+    const sourceSegments = displayRoute.segments ?? (displayRoute.geometry ? [displayRoute.geometry] : []);
     return tilesOn ? projectWorldSegmentsMercator(sourceSegments, view, stageSize) : projectWorldSegments(sourceSegments);
-  }, [selectedRoute, tilesOn, view, stageSize]);
-  const alternates = projections.flatMap(({ route, projection }) => route.flightId !== selectedRoute?.flightId && projection && projection.segments.length ? [{ route, projection }] : []);
-  const conservativePotential = useMemo<ConservativePotentialRoute | undefined>(() => potentialRoute ? deriveConservativePotentialRoute(potentialRoute, { origin: potentialEndpoints.departure?.coordinate, destination: potentialEndpoints.arrival?.coordinate }) : undefined, [potentialRoute, potentialEndpoints]);
-  const potentialKnownProjection = useMemo(() => {
-    if (!conservativePotential) return undefined;
-    const sourceSegments = conservativePotential.knownSegments;
-    return tilesOn ? projectWorldSegmentsMercator(sourceSegments, view, stageSize) : projectWorldSegments(sourceSegments);
-  }, [conservativePotential, tilesOn, view, stageSize]);
-  const potentialInferredProjection = useMemo(() => {
-    if (!conservativePotential) return undefined;
-    const sourceSegments = conservativePotential.inferredSegments;
-    return tilesOn ? projectWorldSegmentsMercator(sourceSegments, view, stageSize) : projectWorldSegments(sourceSegments);
-  }, [conservativePotential, tilesOn, view, stageSize]);
+  }, [displayRoute, tilesOn, view, stageSize]);
+  const alternates = projections.flatMap(({ route, projection }) => route.flightId !== displayRoute?.flightId && projection && projection.segments.length ? [{ route, projection }] : []);
+  // Borrowed donor geometry comes exclusively from the synthesis API response;
+  // the client never generates coordinates for it.
+  const borrowedProjection = useMemo(() => {
+    const borrowedSegments = selectedCandidate?.segments.map((segment) => segment.geometry) ?? [];
+    if (!borrowedSegments.length) return undefined;
+    return tilesOn ? projectWorldSegmentsMercator(borrowedSegments, view, stageSize) : projectWorldSegments(borrowedSegments);
+  }, [selectedCandidate, tilesOn, view, stageSize]);
   function chooseProjectedRoute(route: RouteOption, projection: ProjectedSegments) {
     const signature = projection.segments.map((segment) => segment.path).join("|");
     const overlaps = projections.flatMap((candidate) => candidate.projection?.segments.map((segment) => segment.path).join("|") === signature ? [candidate.route] : []);
     if (overlaps.length > 1) setOverlapChoices(overlaps);
     else onSelectRoute(route);
   }
-  const hasLine = Boolean(selectedProjection?.segments.length);
-  const potentialHasLine = Boolean(potentialKnownProjection?.segments.length || potentialInferredProjection?.segments.length);
-  const hasAnyLine = hasLine || alternates.length > 0 || potentialHasLine;
-  const incomplete = Boolean(potentialRoute);
-  const displayRoute = selectedRoute ?? potentialRoute;
-  const displayEndpoints = selectedRoute ? endpoints : potentialEndpoints;
+  const hasLine = Boolean(displayProjection?.segments.length);
+  const borrowedHasLine = Boolean(borrowedProjection?.segments.length);
+  const hasAnyLine = hasLine || alternates.length > 0 || borrowedHasLine;
+  const displayEndpoints = selectedRoute ? endpoints : {};
   const departure = displayRoute?.origin ?? "Not supplied";
   const arrival = displayRoute?.destination ?? "Not supplied";
 
@@ -814,61 +904,33 @@ function RouteMap({ routes, selectedRoute, potentialRoute, callsign, onSelectRou
   }, [selectedRoute?.id, selectedRoute?.origin, selectedRoute?.destination]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const exact = (matches: PointMatch[]): EndpointLocation | undefined => {
-      const unique = matches.filter((match) => !match.duplicateGroup);
-      return unique.length === 1 ? unique[0] : undefined;
-    };
-    if (!potentialRoute?.origin && !potentialRoute?.destination) {
-      setPotentialEndpoints({});
-      onPotentialEndpointsChange({});
-      return () => controller.abort();
-    }
-    void Promise.all([
-      potentialRoute?.origin ? lookupPoint(endpointReference(potentialRoute.origin), controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
-      potentialRoute?.destination ? lookupPoint(endpointReference(potentialRoute.destination), controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
-    ]).then(([departurePoint, arrivalPoint]) => {
-      if (controller.signal.aborted) return;
-      setPotentialEndpoints({ departure: departurePoint, arrival: arrivalPoint });
-      onPotentialEndpointsChange({
-        ...(departurePoint ? { origin: departurePoint.coordinate } : {}),
-        ...(arrivalPoint ? { destination: arrivalPoint.coordinate } : {}),
-      });
-    });
-    return () => controller.abort();
-  }, [potentialRoute?.id, potentialRoute?.origin, potentialRoute?.destination, onPotentialEndpointsChange]);
-
-  useEffect(() => {
-    if (!tilesOn || (!selectedRoute && !potentialRoute)) return;
-    const sourceSegments = selectedRoute ? (selectedRoute.segments ?? (selectedRoute.geometry ? [selectedRoute.geometry] : [])) : [];
+    if (!tilesOn || !displayRoute) return;
+    const sourceSegments = displayRoute.segments ?? (displayRoute.geometry ? [displayRoute.geometry] : []);
     const coordinates = [
       ...sourceSegments.flat(),
-      ...(conservativePotential?.knownSegments.flat() ?? []),
-      ...(conservativePotential?.inferredSegments.flat() ?? []),
+      ...(selectedCandidate?.segments.flatMap((segment) => segment.geometry) ?? []),
     ];
     if (endpoints.departure) coordinates.push(endpoints.departure.coordinate);
     if (endpoints.arrival) coordinates.push(endpoints.arrival.coordinate);
-    if (potentialEndpoints.departure) coordinates.push(potentialEndpoints.departure.coordinate);
-    if (potentialEndpoints.arrival) coordinates.push(potentialEndpoints.arrival.coordinate);
     const fitted = fitViewToCoordinates(coordinates, stageSize);
     if (fitted) setView(fitted);
-  }, [selectedRoute, potentialRoute, conservativePotential, endpoints, potentialEndpoints, stageSize.width, stageSize.height, tilesOn]);
+  }, [displayRoute, selectedCandidate, endpoints, stageSize.width, stageSize.height, tilesOn]);
 
   const projectPoint = (coordinate: Coordinate): Point => tilesOn ? pixelFromView(coordinate, view, stageSize) : projectWorldPoint(coordinate);
   const departurePoint = displayEndpoints.departure ? projectPoint(displayEndpoints.departure.coordinate) : undefined;
   const arrivalPoint = displayEndpoints.arrival ? projectPoint(displayEndpoints.arrival.coordinate) : undefined;
   const departureLabel = displayEndpoints.departure?.name && displayEndpoints.departure.name !== departure ? `${displayEndpoints.departure.name} (${departure})` : departure;
   const arrivalLabel = displayEndpoints.arrival?.name && displayEndpoints.arrival.name !== arrival ? `${displayEndpoints.arrival.name} (${arrival})` : arrival;
-  const selectedSegmentCount = selectedProjection?.segments.length ?? 0;
-  const label = potentialRoute
-    ? `${callsign ?? potentialRoute.callsign} world map showing an estimated gap preview for ${departureLabel} to ${arrivalLabel}; dotted geometry is a visual estimate only, not a route suggestion, plan, or operational data`
+  const selectedSegmentCount = displayProjection?.segments.length ?? 0;
+  const label = synthesisRoute
+    ? `${callsign ?? synthesisRoute.callsign} world map showing observed-donor synthesis for ${departureLabel} to ${arrivalLabel}; dotted segments were observed on other recorded routes in this generation, not estimates or suggestions`
     : hasLine
       ? `${callsign ?? "Selected flight"} world map showing ${departureLabel} departure and ${arrivalLabel} arrival with ${selectedSegmentCount} resolved segment${selectedSegmentCount === 1 ? "" : "s"}${alternates.length ? `; ${alternates.length} alternate recorded route${alternates.length === 1 ? "" : "s"} shown dimmed` : ""}`
       : hasAnyLine
         ? `${callsign ?? "Selected flight"} world map showing ${routes.length} recorded route${routes.length === 1 ? "" : "s"}; select one to highlight it`
         : "World map waiting for server-returned route segments";
   const baseName = tilesOn ? "World map" : "Schematic base map";
-  const banner = potentialRoute ? `${baseName} · estimated gap preview · dotted geometry is a visual estimate, not a route suggestion.` : hasAnyLine ? `${baseName} · source route geometry` : `${baseName} · no route geometry returned yet.`;
+  const banner = synthesisRoute ? `${baseName} · observed-donor synthesis · dotted segments were observed on other recorded routes in this generation.` : hasAnyLine ? `${baseName} · source route geometry` : `${baseName} · no route geometry returned yet.`;
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!tilesOn) return;
     dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
@@ -901,20 +963,18 @@ function RouteMap({ routes, selectedRoute, potentialRoute, callsign, onSelectRou
     const cursor = rect && rect.width > 0 ? { x: event.clientX - rect.left, y: event.clientY - rect.top } : { x: stageSize.width / 2, y: stageSize.height / 2 };
     setView(viewFromZoomAtPoint(cursor, view, nextZoom, stageSize));
   };
-  return <div className={`map-stage ${selectedRoute ? "has-selected-route" : ""}`} ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onWheel={onWheel}>
+  return <div className={`map-stage ${displayRoute ? "has-selected-route" : ""}`} ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onWheel={onWheel}>
     <div className="map-canvas" role="img" aria-label={label}>
       {tilesOn && <TileLayer view={view} size={stageSize} onTileFailure={() => setTilesFailed(true)} />}
       <svg className="route-svg" viewBox={tilesOn ? `0 0 ${stageSize.width} ${stageSize.height}` : "0 0 800 440"} aria-hidden="true">
         {!tilesOn && <WorldMapBase />}
         {alternates.map(({ route, projection }) => <g key={route.id} className="route-line-alternate">{projection.segments.map((segment, index) => <path key={`alternate-segment-${index}`} d={segment.path} className="route-path-alternate" />)}</g>)}
-        {potentialKnownProjection && <g className="route-line-potential-known">{potentialKnownProjection.segments.map((segment, index) => <path key={`potential-known-segment-${index}`} d={segment.path} className="route-path-potential-known" />)}</g>}
-        {potentialInferredProjection && <g className="route-line-potential-inferred">{potentialInferredProjection.segments.map((segment, index) => <path key={`potential-inferred-segment-${index}`} d={segment.path} className="route-path-potential" />)}</g>}
-        {conservativePotential?.derivedPoints.map((coordinate, index) => { const point = projectPoint(coordinate); return <g key={`potential-point-${index}`} className="potential-derived-point"><circle cx={point.x} cy={point.y} r="4" /><title>Synthetic visual-estimate point only; not a named fix or route waypoint</title></g>; })}
-        {selectedRoute && selectedProjection && <g className="route-line-selected">{selectedProjection.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" filter="url(#glow)" /><path d={segment.path} className="route-path" /></g>)}</g>}
+        {borrowedProjection && <g className="route-line-potential-inferred">{borrowedProjection.segments.map((segment, index) => <path key={`borrowed-segment-${index}`} d={segment.path} className="route-path-potential" />)}</g>}
+        {displayRoute && displayProjection && <g className="route-line-selected">{displayProjection.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" filter="url(#glow)" /><path d={segment.path} className="route-path" /></g>)}</g>}
         {projections.map(({ route, projection }) => projection && <g key={`hit-${route.flightId}`} className="route-hit-lines">{projection.segments.map((segment, index) => <path key={`hit-segment-${index}`} d={segment.path} className="route-hit" onClick={(event) => { event.stopPropagation(); chooseProjectedRoute(route, projection); }} />)}</g>)}
         {departurePoint && <MapMarker point={departurePoint} label={departure} tone="origin" />}
         {arrivalPoint && <MapMarker point={arrivalPoint} label={arrival} tone="destination" />}
-        {selectedProjection?.gapBoundaries.map((point, index) => <g key={`gap-${index}`} className="gap-boundary"><circle cx={point.x} cy={point.y} r="7" /><text x={point.x + 12} y={point.y + 4}>Gap</text></g>)}
+        {displayProjection?.gapBoundaries.map((point, index) => <g key={`gap-${index}`} className="gap-boundary"><circle cx={point.x} cy={point.y} r="7" /><text x={point.x + 12} y={point.y + 4}>Gap</text></g>)}
       </svg>
     </div>
     {overlapChoices.length > 0 && <section className="map-overlap-chooser" role="dialog" aria-modal="false" aria-label="Choose an overlapping recorded flight"><div><strong>{overlapChoices.length} routes overlap here</strong><button type="button" className="quiet-button" onClick={() => setOverlapChoices([])}>Close</button></div>{overlapChoices.map((route) => <button key={route.flightId} type="button" onClick={() => { setOverlapChoices([]); onSelectRoute(route); }}><strong>{route.callsign}</strong><span>{route.origin} → {route.destination}</span></button>)}</section>}
@@ -924,7 +984,7 @@ function RouteMap({ routes, selectedRoute, potentialRoute, callsign, onSelectRou
       <button type="button" aria-label="Zoom out" disabled={!tilesOn || view.zoom <= MIN_ZOOM} onClick={() => setView((current) => ({ ...current, zoom: clampZoom(current.zoom - 1) }))}>−</button>
       <button type="button" aria-pressed={tilesOn} onClick={() => { setTilesEnabled((current) => !current); setTilesFailed(false); }}>Toggle base map</button>
     </div>
-    {(selectedRoute || potentialRoute) && <section className="map-endpoints" aria-label="Route endpoint locations"><div className="map-endpoint departure"><b>Departure</b><span>{departureLabel}</span></div><div className="map-endpoint arrival"><b>Arrival</b><span>{arrivalLabel}</span></div></section>}
+    {displayRoute && <section className="map-endpoints" aria-label="Route endpoint locations"><div className="map-endpoint departure"><b>Departure</b><span>{departureLabel}</span></div><div className="map-endpoint arrival"><b>Arrival</b><span>{arrivalLabel}</span></div></section>}
     {!hasAnyLine && <div className="map-empty"><span>◎</span><strong>{routes.length ? "No resolved geometry returned" : "No overview routes to display"}</strong><p>{routes.length ? "The world map does not infer a line across missing route data." : "Clear the callsign filter or retry the all-flight overview."}</p></div>}
     <div className="map-attribution">{tilesOn ? OSM_ATTRIBUTION : "Schematic base map only"}</div>
   </div>;
