@@ -3,8 +3,10 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import {
+  MAX_ROUTE_POINTS,
   PERSISTENT_SAFETY_COPY,
   RouteDraftSchema,
+  SourceOccurrencesRequestSchema,
   SynthesisRequestSchema,
   SYNTHESIS_PAGE,
   type Coordinate,
@@ -502,8 +504,13 @@ function synthesisCandidateDto(snapshot: Snapshot, candidate: AssembledCandidate
       matchMethod: segment.matchMethod,
       donorCount: segment.donorCount,
       ...(segment.donorTruncated ? { donorTruncated: true } : {}),
-      proofIds: segment.donorOrdinals.map((ordinal) =>
-        scopedToken(snapshot, "donor-proof", { i: snapshot.flights.findIndex((flight) => String(flight.index) === ordinal.flightKey), f: ordinal.fromOrdinal, u: ordinal.toOrdinal })),
+      proofIds: segment.donorOrdinals.map((ordinal) => {
+        // ObservedRoute.flightKey is String(flight.index); resolve O(1) and
+        // fail closed at issuance rather than minting a bogus proof token.
+        const donor = snapshot.flightByIndex.get(Number(ordinal.flightKey));
+        if (!donor) throw new ApiHttpError(500, "INTERNAL_ERROR", "The route service encountered an internal error.");
+        return scopedToken(snapshot, "donor-proof", { i: donor.index, f: ordinal.fromOrdinal, u: ordinal.toOrdinal });
+      }),
     })),
     sourceResolvedDistanceNm: candidate.sourceResolvedDistanceNm,
     borrowedDistanceNm: candidate.borrowedDistanceNm,
@@ -1106,6 +1113,43 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   };
   app.post("/api/v1/routes/synthesis", warm(synthesize));
   app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/routes/synthesis", handler: methodNotAllowed("Route synthesis") });
+
+  // Canonical donor proofs: a synthesis proof token resolves to the donor
+  // flight's own occurrences over the exact issued ordinal range — same
+  // projection the overview/detail surfaces produce, never a reconstructed or
+  // inferred path. Forged, expired, cross-generation, or out-of-bounds proofs
+  // fail closed; a missing donor flight means an older generation (410).
+  const sourceOccurrences = async (request: FastifyRequest, reply: FastifyReply) => {
+    assertEmptyQuery(request);
+    const snapshot = store.requireSnapshot();
+    const parsed = SourceOccurrencesRequestSchema.safeParse(bodyObject(request, ["proofId"]));
+    if (!parsed.success) throw new ApiHttpError(400, "INVALID_BODY", "The source-occurrences request body is invalid.");
+    const decoded = readScoped(parsed.data.proofId, snapshot);
+    if (!decoded || decoded.g !== snapshot.id || decoded.t !== "donor-proof" || typeof decoded.e !== "number" || decoded.e < now()) {
+      throw new ApiHttpError(400, "PROOF_INVALID", "The donor proof is not a valid service-issued proof.");
+    }
+    const donorIndex = decoded.i;
+    const fromOrdinal = decoded.f;
+    const toOrdinal = decoded.u;
+    if (typeof toOrdinal !== "number" || typeof donorIndex !== "number" || !Number.isInteger(donorIndex) || donorIndex < 0 || typeof fromOrdinal !== "number" || !Number.isInteger(fromOrdinal) || !Number.isInteger(toOrdinal) || toOrdinal < fromOrdinal || toOrdinal - fromOrdinal + 1 > MAX_ROUTE_POINTS) {
+      throw new ApiHttpError(400, "PROOF_INVALID", "The donor proof range is invalid.");
+    }
+    const flight = snapshot.flightByIndex.get(donorIndex);
+    if (!flight) throw new ApiHttpError(410, "GENERATION_EXPIRED", "The donor proof belongs to an older data generation.");
+    const projection = overviewProjection(snapshot, flight);
+    const occurrences = projection.occurrences
+      .filter((occurrence) => ("gap" in occurrence ? occurrence.gap.ordinal : occurrence.point.ordinal) >= fromOrdinal && ("gap" in occurrence ? occurrence.gap.ordinal : occurrence.point.ordinal) <= toOrdinal)
+      .map((occurrence) => "gap" in occurrence
+        ? { ordinal: occurrence.gap.ordinal, status: "gap", reason: occurrence.gap.reason }
+        : { ordinal: occurrence.point.ordinal, status: "point", label: occurrence.point.label, coordinate: occurrence.point.coordinate });
+    return reply.send({
+      data: { flightId: flightId(snapshot, flight.index), occurrences },
+      generation: generationSummary(snapshot, now()),
+      safety: PERSISTENT_SAFETY_COPY,
+    });
+  };
+  app.post("/api/v1/routes/source-occurrences", warm(sourceOccurrences));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/routes/source-occurrences", handler: methodNotAllowed("Source occurrences lookup") });
 
   // Feature 4: bulk data browse endpoints. Queries and cursors travel in POST
   // bodies only (repo rule: never tokens or state in URLs). Cursors are bound

@@ -90,6 +90,10 @@ export interface ScopedToken {
   readonly o?: unknown;
   readonly n?: unknown;
   readonly k?: unknown;
+  /** Inclusive lower ordinal bound (donor-proof range tokens). */
+  readonly f?: unknown;
+  /** Inclusive upper ordinal bound (donor-proof range tokens). */
+  readonly u?: unknown;
 }
 
 function immutableMap<K, V>(entries: Iterable<readonly [K, V]>): ReadonlyMap<K, V> {

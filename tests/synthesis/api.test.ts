@@ -60,3 +60,24 @@ test("synthesis: method/URL/body hygiene fails closed", async (t) => {
   const queryString = await server.app.inject({ method: "POST", url: "/api/v1/routes/synthesis?flightId=x", payload: {} });
   assert.equal(queryString.statusCode, 400);
 });
+
+test("source-occurrences: proof ordinals contiguous, coordinates exact, direction preserved", async (t) => {
+  const server = await createApiServer({ adapter: synthesisAdapter() });
+  t.after(() => server.app.close());
+  const ids = await flightIds(server);
+  const synthesis = await server.app.inject({ method: "POST", url: "/api/v1/routes/synthesis", payload: { flightId: ids.get("SYNTH3") } });
+  const body = synthesis.json() as { candidates: Array<{ segments: Array<{ proofIds?: string[]; geometry: { coordinates: number[][] } }> }> };
+  const borrowed = body.candidates[0]!.segments.find((segment) => "proofIds" in segment)!;
+
+  const proof = await server.app.inject({ method: "POST", url: "/api/v1/routes/source-occurrences", payload: { proofId: borrowed.proofIds![0] } });
+  assert.equal(proof.statusCode, 200);
+  const proofBody = proof.json() as { data: { flightId: string; occurrences: Array<{ ordinal: number; status: string; coordinate?: { lat: number; lon: number } }> } };
+  // Borrowed GeoJSON is [lon, lat]; proof coordinates must match exactly, in order (direction check).
+  const proofCoordinates = proofBody.data.occurrences.filter((occurrence) => occurrence.status === "point").map((occurrence) => [occurrence.coordinate!.lon, occurrence.coordinate!.lat]);
+  assert.deepEqual(proofCoordinates, borrowed.geometry.coordinates);
+
+  const bad = await server.app.inject({ method: "POST", url: "/api/v1/routes/source-occurrences", payload: { proofId: "forged.token" } });
+  assert.equal(bad.statusCode, 400);
+  const wrongMethod = await server.app.inject({ method: "GET", url: "/api/v1/routes/source-occurrences" });
+  assert.equal(wrongMethod.statusCode, 405);
+});
