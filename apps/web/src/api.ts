@@ -343,6 +343,117 @@ export async function fetchRouteOptions(flightId: OpaqueId, signal?: AbortSignal
   };
 }
 
+export type SynthesisSegment = {
+  kind: "borrowed";
+  geometry: Coordinate[];           // parsed from GeoJSON LineString, [lon,lat] -> {lat,lon}
+  distanceNm?: number | undefined;
+  matchMethod: "reference" | "exact-coordinate";
+  donorCount: number;
+  donorTruncated?: boolean | undefined;
+  proofIds: string[];
+};
+
+export type SynthesisCandidate = {
+  candidateId: string;
+  segments: SynthesisSegment[];
+  sourceResolvedDistanceNm?: number | undefined;
+  borrowedDistanceNm?: number | undefined;
+  estimatedTotalDistanceNm?: number | undefined;
+  corridorsCovered: number;
+};
+
+export type SynthesisStatus = "not-needed" | "full" | "ambiguous" | "partial" | "unavailable" | "over-limit" | "candidate-limit-exceeded";
+
+export type SynthesisResult = {
+  status: SynthesisStatus;
+  corridorCount: number;
+  corridorsCovered: number;
+  candidates: SynthesisCandidate[];
+  nextCursor?: string | undefined;
+  safety?: string | undefined;
+};
+
+export type DonorProofResult = {
+  flightId: string;
+  occurrences: Array<{ ordinal: number; status: string; label?: string | undefined; coordinate?: Coordinate | undefined; reason?: string | undefined }>;
+};
+
+function normalizeSynthesisCandidate(value: unknown): SynthesisCandidate | undefined {
+  if (!isRecord(value)) return undefined;
+  const candidateId = stringValue(value, "candidateId");
+  if (!candidateId || !Array.isArray(value.segments)) return undefined;
+  const segments: SynthesisSegment[] = [];
+  for (const segment of value.segments) {
+    if (!isRecord(segment)) return undefined;
+    const geometry = normalizeGeometry(segment.geometry);
+    const matchMethod = stringValue(segment, "matchMethod");
+    if (!geometry || (matchMethod !== "reference" && matchMethod !== "exact-coordinate")) return undefined;
+    segments.push({
+      kind: "borrowed",
+      geometry,
+      ...(finiteNumber(segment, "distanceNm") !== undefined ? { distanceNm: finiteNumber(segment, "distanceNm") } : {}),
+      matchMethod,
+      donorCount: finiteNumber(segment, "donorCount") ?? 1,
+      ...(segment.donorTruncated === true ? { donorTruncated: true } : {}),
+      proofIds: Array.isArray(segment.proofIds) ? segment.proofIds.filter((proof): proof is string => typeof proof === "string" && proof.trim().length > 0) : [],
+    });
+  }
+  return {
+    candidateId,
+    segments,
+    ...(finiteNumber(value, "sourceResolvedDistanceNm") !== undefined ? { sourceResolvedDistanceNm: finiteNumber(value, "sourceResolvedDistanceNm") } : {}),
+    ...(finiteNumber(value, "borrowedDistanceNm") !== undefined ? { borrowedDistanceNm: finiteNumber(value, "borrowedDistanceNm") } : {}),
+    ...(finiteNumber(value, "estimatedTotalDistanceNm") !== undefined ? { estimatedTotalDistanceNm: finiteNumber(value, "estimatedTotalDistanceNm") } : {}),
+    corridorsCovered: finiteNumber(value, "corridorsCovered") ?? 0,
+  };
+}
+
+export async function fetchSynthesis(flightId: OpaqueId, cursor: string | undefined, signal?: AbortSignal): Promise<SynthesisResult> {
+  const payload = await request("/api/v1/routes/synthesis", {
+    method: "POST",
+    ...(signal ? { signal } : {}),
+    body: JSON.stringify({ flightId, ...(cursor ? { cursor } : {}) }),
+  });
+  if (!isRecord(payload)) throw new ApiError(502, "The synthesis response is not an object.", "SYNTHESIS_MALFORMED");
+  const status = stringValue(payload, "status");
+  if (status !== "not-needed" && status !== "full" && status !== "ambiguous" && status !== "partial" && status !== "unavailable" && status !== "over-limit" && status !== "candidate-limit-exceeded") {
+    throw new ApiError(502, "The synthesis response has no usable status.", "SYNTHESIS_MALFORMED");
+  }
+  return {
+    status,
+    corridorCount: finiteNumber(payload, "corridorCount") ?? 0,
+    corridorsCovered: finiteNumber(payload, "corridorsCovered") ?? 0,
+    candidates: Array.isArray(payload.candidates) ? payload.candidates.flatMap((candidate) => { const normalized = normalizeSynthesisCandidate(candidate); return normalized ? [normalized] : []; }) : [],
+    ...(stringValue(payload, "nextCursor") ? { nextCursor: stringValue(payload, "nextCursor") } : {}),
+    ...(stringValue(payload, "safety") ? { safety: stringValue(payload, "safety") } : {}),
+  };
+}
+
+export async function fetchDonorProof(proofId: string, signal?: AbortSignal): Promise<DonorProofResult> {
+  const payload = await request("/api/v1/routes/source-occurrences", {
+    method: "POST",
+    ...(signal ? { signal } : {}),
+    body: JSON.stringify({ proofId }),
+  });
+  const data = isRecord(payload) && isRecord(payload.data) ? payload.data : {};
+  const flightId = stringValue(data, "flightId") ?? "";
+  const occurrences = Array.isArray(data.occurrences) ? data.occurrences.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const ordinal = finiteNumber(entry, "ordinal");
+    const entryStatus = stringValue(entry, "status");
+    if (ordinal === undefined || !entryStatus) return [];
+    const lat = isRecord(entry.coordinate) ? finiteNumber(entry.coordinate, "lat") : undefined;
+    const lon = isRecord(entry.coordinate) ? finiteNumber(entry.coordinate, "lon") : undefined;
+    return [{
+      ordinal, status: entryStatus,
+      ...(stringValue(entry, "label") ? { label: stringValue(entry, "label") } : {}),
+      ...(lat !== undefined && lon !== undefined ? { coordinate: { lat, lon } } : {}),
+      ...(stringValue(entry, "reason") ? { reason: stringValue(entry, "reason") } : {}),
+    }];
+  }) : [];
+  return { flightId, occurrences };
+}
+
 export type Readiness = {
   status: string;
   generation?: GenerationSummary | undefined;
