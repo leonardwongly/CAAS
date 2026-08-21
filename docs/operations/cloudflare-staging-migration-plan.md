@@ -30,7 +30,7 @@ The existing Dockerfile is intentionally reused. It still contains the Vite dist
 | Bundled airport-name data | Container image | No KV, D1, R2, queue, or snapshot store is introduced. Add one only after a separately approved persistence requirement. |
 | Azure POC topology and identities | Unchanged | This plan does not modify Bicep, Azure DNS, Key Vault, Entra, or the existing Azure release/rollback controls. |
 
-The staging Container is limited to one active instance, with the same 1 vCPU/2 GiB shape as the current POC contract. This avoids inventing horizontal-state semantics for a process-local generation store. Cold starts and five-family acquisition remain expected behavior; readiness, not merely an open port, is the serving signal.
+The staging Container is limited to one active instance, with a 1 vCPU/3 GiB shape (the Cloudflare Containers minimum memory for the first 4 vCPUs; the Azure POC contract used 1 vCPU/2 GiB). This avoids inventing horizontal-state semantics for a process-local generation store. Cold starts and five-family acquisition remain expected behavior; readiness, not merely an open port, is the serving signal.
 
 ## 3. Required one-time account setup (owner-operated)
 
