@@ -16,7 +16,7 @@ describe("observed-donor synthesis accessibility", () => {
     expect(within(drawer).getByRole("heading", { name: "Choose a source route with gaps" })).toBeTruthy();
     await user.click(within(drawer).getByRole("button", { name: /Recorded with unresolved gap/ }));
 
-    await waitFor(() => expect(within(drawer).getByRole("heading", { name: "Observed-donor synthesis" })).toBeTruthy());
+    await waitFor(() => expect(within(drawer).getByRole("heading", { name: "Synthesis result" })).toBeTruthy());
     // Candidate chooser: neutral, pressed-state semantics; no ranking wording anywhere.
     const candidate = within(drawer).getByRole("button", { name: /Observed on 1 donor route\(s\) · borrowed 32\.4 NM/ });
     expect(candidate.getAttribute("aria-pressed")).toBe("true");

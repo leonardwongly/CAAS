@@ -602,7 +602,7 @@ function SynthesisExplorer({ routes, selected, synthesis, selectedCandidate, loa
       <div className="potential-route-options">{routes.map((route) => <button type="button" key={route.flightId} onClick={() => onSelect(route)}><span><strong>{route.callsign}</strong><small>{route.label ?? "Recorded route"} · {route.gaps.length} gap{route.gaps.length === 1 ? "" : "s"}</small></span><span>{route.origin ?? "Unknown departure"} → {route.destination ?? "Unknown destination"}</span></button>)}</div>
       {!routes.length && <p className="muted-copy">No incomplete recorded routes match the current filter.</p>}
     </> : <>
-      <div className="section-title"><div><p className="eyebrow">OBSERVED-DONOR SYNTHESIS</p><h2 id="synthesis-heading">Observed-donor synthesis</h2></div><button className="quiet-button" type="button" onClick={() => onSelect()}>Choose another</button></div>
+      <div className="section-title"><div><p className="eyebrow">OBSERVED-DONOR SYNTHESIS</p><h2 id="synthesis-heading">Synthesis result</h2></div><button className="quiet-button" type="button" onClick={() => onSelect()}>Choose another</button></div>
       <p className="sr-only" aria-live="polite">Solid segments are recorded for this flight; dotted segments were observed on other flights in the same data generation.</p>
       <p className="muted-copy">{selected.callsign} · {selected.origin ?? "Unknown departure"} → {selected.destination ?? "Unknown destination"}</p>
       {loading && <div className="loading-row"><span className="spinner dark" /> Requesting observed-donor synthesis candidates…</div>}

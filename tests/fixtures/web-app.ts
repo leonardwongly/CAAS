@@ -56,8 +56,12 @@ export type StubOptions = {
   deferSearch?: boolean | undefined;
   /** Fail bulk browse requests with 409 CURSOR_EXPIRED. */
   failCursor?: boolean | undefined;
-  /** Fail the synthesis endpoint (500) to exercise synthesis error recovery. */
-  failSynthesis?: boolean | undefined;
+  /** Fail the synthesis endpoint (500); `"once"` fails only the first call so retry recovery is observable. */
+  failSynthesis?: boolean | "once" | undefined;
+  /** Override the default donor-subpath synthesis envelope. Takes precedence over the default envelope but not over `failSynthesis`; the whole envelope is replaced, not deep-merged, so it must be complete and valid. */
+  synthesis?: Record<string, unknown> | undefined;
+  /** Override the default donor-proof (source-occurrences) envelope. */
+  donorProof?: Record<string, unknown> | undefined;
   /** Replace the default overview with this many distinct renderable flights. */
   overviewCount?: number | undefined;
   /** Return two flights with exactly overlapping rendered paths. */
@@ -285,6 +289,7 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
   const overviewRoutes = overviewRoutesFor(options);
   const draftResolvers: Array<() => void> = [];
   const searchResolvers: Array<() => void> = [];
+  let synthesisFailuresRemaining = options.failSynthesis === "once" ? 1 : 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<StubResponse> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = (init?.method ?? "GET").toUpperCase();
@@ -330,8 +335,15 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     }
     // Donor-subpath synthesis: POST { flightId, cursor? } -> bounded candidates.
     if (method === "POST" && url === "/api/v1/routes/synthesis") {
-      if (options.failSynthesis) return jsonResponse({ error: { message: "Synthesis unavailable (stub).", code: "SYNTHESIS_FAIL" } }, 500);
-      return jsonResponse(synthesisResult);
+      if (options.failSynthesis === true || synthesisFailuresRemaining > 0) {
+        if (synthesisFailuresRemaining > 0) synthesisFailuresRemaining -= 1;
+        return jsonResponse({ error: { message: "Synthesis unavailable (stub).", code: "SYNTHESIS_FAIL" } }, 500);
+      }
+      return jsonResponse(options.synthesis ?? synthesisResult);
+    }
+    // Donor proof: POST { proofId } -> { data: { flightId, occurrences } }.
+    if (method === "POST" && url === "/api/v1/routes/source-occurrences") {
+      return jsonResponse(options.donorProof ?? { data: { flightId: "donor-proof-flight", occurrences: [] } });
     }
     // Readiness on mount and live refresh.
     if (method === "GET" && url === "/api/v1/readiness") {
