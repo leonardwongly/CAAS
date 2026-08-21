@@ -60,6 +60,7 @@ Technical contracts, acceptance criteria, gate definitions, and evidence rules r
 - [Production operations: ownership, SLOs, incident response, DR (design candidates)](operations/production-operations.md)
 - [Production-prerequisites register](operations/production-prerequisites-register.md) (closed out of scope by owner decision 2026-08-15; production remains prohibited)
 - [ADR: binding POC authority and legacy reconciliation](adr/0001-poc-authority-and-legacy-reconciliation.md)
+- [ADR: server-side donor-subpath synthesis](adr/0002-server-side-donor-subpath-synthesis.md) — additive on-demand candidate assembly from same-generation observed slices; source routes never mutated
 
 ## Evidence
 

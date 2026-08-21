@@ -32,6 +32,17 @@ Record naming: every record remains bound to the subject and artifact hashes it 
 | `AC-POC-REL-01` — unchanged-digest direct deployment, first-deploy ingress-disabled abort/cleanup, later prior-revision plus complete app-scoped configuration rollback, smoke, and current-data reacquisition | Designed and procedurally defined; not evidenced — blocked on authorization | Operator procedures: `docs/operations/azure-release-path.md`, `azure-preflight-and-bootstrap.md`, `azure-deployment-procedure.md`, `azure-abort-and-rollback-drills.md`, `azure-post-demo-verification.md`; topology contract `docs/architecture/azure-poc-topology.md`. No Azure deployment, drill, or smoke execution is evidenced; all cloud writes are unauthorized | Requires user authorization and the completed `PG-03` evidence before any cloud write |
 | `AC-POC-DOC-01` — architecture, algorithms, tooling, build/deploy, limitations, AI use, lessons, requested feedback, and future roadmaps documented | Implemented and evidenced | README, documentation index, POC boundary, data-use, operations (local + Azure release path), security, testing (incl. accessibility/UAT), and ADR documents; historical archive; this matrix | The 30-minute walkthrough and UAT remain pending execution (`docs/testing/uat-walkthrough.md`, `docs/operations/uat-and-timed-walkthrough.md`) |
 
+## Feature capability rows (non-criterion)
+
+| Capability | Status | What exists today (with citations) | Gap / next action |
+|---|---|---|---|
+| Donor-subpath synthesis — server-side assembly of bounded candidate completions for incomplete recorded routes from contiguous forward gap-free slices observed in the SAME immutable generation ([ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md)) | Implemented and focused-tested locally; live aggregation lanes pass on bounded honest responses | Engine `packages/route-engine/src/synthesis.ts` (`donor-subpath-v1`, fail-closed statuses `not-needed`/`full`/`ambiguous`/`partial`/`unavailable`/`over-limit`/`candidate-limit-exceeded`); POST-only endpoints `POST /api/v1/routes/synthesis` (page ≤5, `SYNTHESIS_PAGE`) and `POST /api/v1/routes/source-occurrences` in `apps/api/src/server.ts` with generation-bound proof tokens failing closed (`PROOF_INVALID`); bounds 256 points / 20 candidates / 2 MiB / 5 s / 8 provenance entries. Gate references: engine/api/e2e/a11y/responsive suites; adversarial privacy negatives `tests/adversarial/sec-r5-synthesis.test.ts`; `PERF-SYNTHESIS-INDEX-HARD` (≤1000 ms) and `PERF-SYNTHESIS-WARM-HARD` (p95 ≤5000 ms) in `scripts/validation/measure-performance.mjs`; honest live-lane aggregation `LIVE-SYNTHESIS-AGGREGATE` in `scripts/validation/live-lane.mjs` and its container counterpart in `scripts/validation/container-live-lane.mjs`, which pass including zero synthesizable targets. Golden regression fixtures prove source DTO byte-stability (additive-only: source routes, gaps, distances, signatures, comparisons, and ordering are never mutated) | Revised human UAT of the synthesis chooser remains pending under the UAT kit; older retained lanes pre-date the feature and remain historical only |
+
+Pre-feature evidence boundary for synthesis: lane, performance, and security
+records retained before 2026-08-18 prove only their named subjects and do not
+cover the synthesis endpoints; this row does not reclassify them, and a new
+subject-bound retained record is required to evidence synthesis in a gate.
+
 ## Gate status
 
 | Gate | Status | Evidence present | Blocker / next action |

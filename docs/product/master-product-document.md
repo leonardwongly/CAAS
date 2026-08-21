@@ -250,6 +250,28 @@ No production statistical value is shown until an approved historical corpus sat
 
 The persistent annotation copy is: **“Visual estimate only. Exact-anchor spans are geometric minimums; any calibrated interval is a non-operational statistical descriptor, not source flight data, a route suggestion, or real-time tracking.”**
 
+### 5.4.2 Observed-donor subpath synthesis (on-demand, additive)
+
+An incomplete recorded route may be opened in an explicit, on-demand **synthesis** chooser. It asks a single bounded question: do other flights in this same immutable data generation contain contiguous forward gap-free coordinate slices between the route's exact anchors? It never edits, removes, or replaces the recorded route.
+
+Four states stay distinct everywhere in the product:
+
+- **Source:** the recorded route's exact resolved points, gaps, completeness, distance, signature, comparison behavior, and ordering — never mutated by synthesis.
+- **Borrowed:** contiguous donor subpaths copied without modification, rendered dotted (recorded geometry stays solid) and labelled as observed on other recorded routes.
+- **Estimated:** the separately labelled estimated total is partitioned into source-resolved and borrowed distance; it is an annotation, never a route suggestion. The Section 5.4.1 statistical gap-distance annotation remains a separate client-only feature and is not synthesis.
+- **Unsupported:** gaps that no same-generation donor geometry can join remain explicit gaps; nothing is interpolated.
+
+Server behavior is fail-closed and bounded (recorded in [ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md)):
+
+- Two POST-only endpoints carry identifiers/tokens in request bodies, never URLs: `POST /api/v1/routes/synthesis` (`{flightId, cursor?}` → status, corridorCount, corridorsCovered, a candidate page of at most 5, nextCursor) and `POST /api/v1/routes/source-occurrences` (`{proofId}` → the donor flight's observed occurrences for auditing).
+- Statuses are explicit: `not-needed`, `full`, `ambiguous`, `partial`, `unavailable`, `over-limit`, `candidate-limit-exceeded`.
+- Joining requires exact reference identity or exact coordinate; conflicted reference ids are unjoinable with no coordinate fallback; slices are forward-only and contiguous, with no interpolation or fuzzy matching.
+- Bounds: at most 256 endpoint-inclusive points per candidate, at most 20 candidates, a 2 MiB response page, a 5-second deadline, and at most 8 provenance entries per deduplicated geometry (`donorTruncated` beyond that). Algorithm version is `donor-subpath-v1`.
+- Borrowed geometry carries scoped proof tokens resolvable through `source-occurrences`; proofs bind to the current generation and fail closed otherwise.
+- Candidates are never ranked, best-labelled, or shortest-labelled; this extends the comparison-without-a-winner contract of Section 5.5.
+
+Provenance copy and sr-only text describe borrowed segments as observed subpaths copied without modification, and the chooser exposes only aggregate donor counts — never donor callsigns or upstream identifiers.
+
 ### 5.5 Comparison without a winner
 
 Compare only routes with the same origin and destination. Show available facts side by side:
@@ -347,6 +369,7 @@ P0 is reserved for the core browse-select-inspect-compare journey and controls t
 | Explore a route variation | Create and edit a local copy | The approved phrase is clearer and less operationally suggestive |
 | Local and unsaved | Saved draft | Nothing persists across restart |
 | Gap / unresolved / ambiguous | Estimated or nearby point | No proximity inference is permitted |
+| Borrowed geometry / observed donor subpath | Interpolated, repaired, or completed route | Synthesis copies observed same-generation geometry only; the source route stays unchanged (Section 5.4.2) |
 | International Civil Aviation Organization (ICAO) code | Acronym-only destination label | Users should see the actual airport name first |
 
 ### 8.1 Current technical wording
@@ -713,6 +736,7 @@ A residual risk is accepted only when the private POC boundary makes its impact 
 | Compare without winner | Owner decision, 2026-08-16 | Implemented; `AC-POC-COMPARE-01` and preference-field guards |
 | Optional route variation | Owner decision adapting design `USR-03` | Implemented product copy and current mechanics; internal `draft` remains non-user-facing |
 | Explain differences | Design `USR-04` | Neutral comparison implemented; human comprehension remains UAT |
+| Observed-donor subpath synthesis | Owner direction, 2026-08-18 | Implemented additively under [ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md); engine/api/e2e/a11y/responsive suites, adversarial privacy negatives, `PERF-SYNTHESIS-INDEX-HARD`/`PERF-SYNTHESIS-WARM-HARD`, and `LIVE-SYNTHESIS-AGGREGATE` lanes |
 | Map remains dominant | Design `USR-05` | Current map-first UI evidence |
 | Five-family server acquisition | Design §0.2/0.3 | Local/live lane records and `PG-03` |
 | Non-operational boundary | README and design | Exact copy tests and UAT |
@@ -733,6 +757,7 @@ A residual risk is accepted only when the private POC boundary makes its impact 
 | 2026-08-16 | Compare without a winner label | Supersede the Rank-era presentation; reconciliation completed locally | Modeled distance alone cannot establish operational preference; selected-first source order and prohibited preference fields now enforce neutrality. |
 | 2026-08-16 | Rename optional editing to Explore a route variation | Keep local mechanics but remove mandatory/operational implication | The phrase signals temporary analysis rather than modification of a filed plan; making editing part of the core journey was rejected. |
 | 2026-08-16 | Add a two-release incomplete-route distance annotation goal | Authorize exact-anchor lower bounds now and calibrated statistical intervals only after historical-corpus gates pass | A geometric minimum is useful without repairing source facts; an uncalibrated point estimate, active-generation fit, or silent flight-history retention was rejected. |
+| 2026-08-18 | Authorize server-side donor-subpath synthesis for incomplete recorded routes | Additive on-demand chooser borrowing only contiguous forward same-generation observed slices; source routes, gaps, distances, signatures, comparisons, and ordering remain untouched | A bounded observed-geometry answer is useful without repairing source facts; client interpolation, fuzzy matching, ranking, reversal, or cross-generation donors were rejected ([ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md)). |
 | 2026-08-16 | Establish this master document | Make one product-direction source of truth while preserving technical and evidence authority | Consolidation reduces scattered intent conflicts; rewriting technical contracts or evidence history was rejected. |
 
 ## 23. Change control

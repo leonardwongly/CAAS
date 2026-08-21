@@ -56,6 +56,24 @@ For each reference string, parse a bounded identifier plus latitude/longitude an
 
 CAAS Airports remain authoritative only for exact endpoint code/coordinate resolution in this POC. Display-name enrichment is a separate governed metadata layer documented in [airport-name reference governance](airport-name-reference.md): exact ICAO join only, pinned/checksummed OurAirports bundle, `Name unavailable (ICAO)` fallback, no fuzzy/proximity/generated-code join, and no runtime third-party lookup.
 
+## Synthesis of incomplete recorded routes (additive, 2026-08-18)
+
+Synthesis adds no new upstream dataset and no new CAAS request. It reuses the already-acquired, in-memory five-family generation: for an incomplete recorded route, the server may assemble candidate completions using ONLY contiguous forward gap-free coordinate slices observed on other flights in the SAME immutable data generation. The recorded route's exact resolution, gaps, distance, signature, comparison behavior, and ordering are never mutated.
+
+Four data states stay separate:
+
+- **Source:** the route's own exact resolved occurrences and explicit gaps.
+- **Borrowed:** donor subpaths copied without modification from same-generation observed routes.
+- **Estimated:** a separately labelled total partitioned into source-resolved and borrowed distance; never a route suggestion.
+- **Unsupported:** corridors no same-generation donor geometry can join remain explicit gaps.
+
+Two POST-only endpoints carry identifiers/tokens in request bodies, never URLs:
+
+- `POST /api/v1/routes/synthesis` — `{flightId, cursor?}` → status, corridorCount, corridorsCovered, a candidate page of at most 5, and nextCursor. Statuses fail closed: `not-needed`, `full`, `ambiguous`, `partial`, `unavailable`, `over-limit`, `candidate-limit-exceeded`.
+- `POST /api/v1/routes/source-occurrences` — `{proofId}` → the donor flight's observed occurrences for auditing. Proofs are generation-bound scoped tokens; cross-generation or forged proofs fail closed with `PROOF_INVALID`.
+
+Bounds: at most 256 endpoint-inclusive points per candidate, at most 20 candidates, a 2 MiB response page, a 5-second warm deadline, and at most 8 provenance entries per deduplicated geometry (`donorTruncated` beyond that). Joining requires exact reference identity or exact coordinate; conflicted reference ids are unjoinable with no coordinate fallback; slices are forward-only and contiguous, with no interpolation or fuzzy matching. Candidates are never ranked (algorithm `donor-subpath-v1`). Synthesis responses expose opaque tokens, borrowed geometry, distances, and aggregate donor counts only — never donor upstream identifiers, callsigns, or raw flight indices — so the standing runtime contract (no raw upstream objects, no credentials, bounded sanitized responses) is unchanged. See [ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md).
+
 ## What this evidence does not prove
 
 The discovery record does not prove quotas, retries, pagination, induced-failure behavior, long-term stability, redistribution rights, or implementation. No throttling or upstream-fault probe was deliberately performed, and no pagination metadata or Flight response rate-limit/retry headers were observed. Those behaviors require later deterministic adapter tests and any separately authorized live evidence.

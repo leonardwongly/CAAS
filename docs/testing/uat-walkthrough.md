@@ -43,6 +43,7 @@ Record observed real values rather than fixture callsigns, counts, names, or dis
 - Unresolved endpoints and intermediate points remain explicit gaps. Independently resolvable interior components remain visible and no line bridges a gap.
 - The optional editor is **Explore variation** / **Explore a route variation**, local and unsaved.
 - Persistent safety copy is exact: `Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.`
+- Donor-subpath synthesis (additive, 2026-08-18, [ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md)) is on-demand and additive only: candidates assemble exclusively from contiguous forward same-generation observed slices, never mutate the source route (occurrences, gaps, distance, signature, comparison, ordering), never rank candidates, and expose only opaque tokens, borrowed geometry, distances, and aggregate donor counts. `POST /api/v1/routes/synthesis` and `POST /api/v1/routes/source-occurrences` carry identifiers/tokens in bodies only, never URLs; generation-bound proofs fail closed.
 
 ## 3. Walkthrough script
 
@@ -80,6 +81,10 @@ Record one pass/fail plus an observed value or artifact reference for every row.
 | 28 | Inspect network/privacy | Browser calls only same-origin application APIs plus constrained OSM tile image URLs; no CAAS key/raw object or route state appears in URLs | ☐ |
 | 29 | Inspect safety language | Persistent exact safety sentence is present; no valid/recommended/safe/cleared/best/winner route claim appears | ☐ |
 | 30 | Restart | Ephemeral selection/variation is gone; a complete real generation is reacquired before the populated overview appears | ☐ |
+| 31 | Select an incomplete route and open the synthesis chooser | The chooser is on-demand and returns a fail-closed status (`not-needed`, `full`, `ambiguous`, `partial`, `unavailable`, `over-limit`, or `candidate-limit-exceeded`) with at most 5 candidates per page and a nextCursor when more remain; no ranking/best/shortest label appears | ☐ |
+| 32 | Inspect candidates | Borrowed segments render dotted over the solid recorded geometry; provenance copy describes observed subpaths copied without modification with aggregate donor counts only (and `donorTruncated` wording when provenance is capped); distances partition into source-resolved and borrowed with the estimated total labelled separately | ☐ |
+| 33 | Resolve provenance | A borrowed segment's `proofIds` token resolves via `source-occurrences` to the donor flight's observed occurrences; a cross-generation or forged proof fails closed (`PROOF_INVALID`) | ☐ |
+| 34 | Confirm source unchanged | After synthesis, the source route DTO (occurrences, gaps, distance, signature, comparison eligibility, ordering) is byte-identical to before; no synthesis identifier or token appears in any URL | ☐ |
 
 ## 4. Evidence rules
 
