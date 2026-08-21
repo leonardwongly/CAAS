@@ -1,14 +1,14 @@
 # Flight Route Explorer — Master Product Document
 
 Status: Master authority for product direction and target experience
-Version: 1.2 (implementation-aligned)
-Date: 2026-08-16
+Version: 1.3 (implementation-aligned)
+Date: 2026-08-20
 Product decision authority: The user
 Audience: Product, UX, engineering, delivery, and challenge reviewers
 
 ## 0. Document authority and use
 
-This document is the single source of truth for Flight Route Explorer **product direction**. It consolidates the challenge brief, README, documentation index, binding design, implementation plan, customer journey, personas, current evidence, and the product-owner decisions made through 2026-08-16.
+This document is the single source of truth for Flight Route Explorer **product direction**. It consolidates the challenge brief, README, documentation index, binding design, implementation plan, customer journey, personas, current evidence, and the product-owner decisions made through 2026-08-20.
 
 It governs:
 
@@ -258,7 +258,7 @@ Four states stay distinct everywhere in the product:
 
 - **Source:** the recorded route's exact resolved points, gaps, completeness, distance, signature, comparison behavior, and ordering — never mutated by synthesis.
 - **Borrowed:** contiguous donor subpaths copied without modification, rendered dotted (recorded geometry stays solid) and labelled as observed on other recorded routes.
-- **Estimated:** the separately labelled estimated total is partitioned into source-resolved and borrowed distance; it is an annotation, never a route suggestion. The Section 5.4.1 statistical gap-distance annotation remains a separate client-only feature and is not synthesis.
+- **Estimated:** candidate distances partition into source-resolved and borrowed components; any estimated total is their sum, labelled separately — it is an annotation, never a route suggestion. The Section 5.4.1 statistical gap-distance annotation remains a separate client-only feature and is not synthesis.
 - **Unsupported:** gaps that no same-generation donor geometry can join remain explicit gaps; nothing is interpolated.
 
 Server behavior is fail-closed and bounded (recorded in [ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md)):

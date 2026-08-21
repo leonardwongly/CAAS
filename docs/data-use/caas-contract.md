@@ -64,8 +64,8 @@ Four data states stay separate:
 
 - **Source:** the route's own exact resolved occurrences and explicit gaps.
 - **Borrowed:** donor subpaths copied without modification from same-generation observed routes.
-- **Estimated:** a separately labelled total partitioned into source-resolved and borrowed distance; never a route suggestion.
-- **Unsupported:** corridors no same-generation donor geometry can join remain explicit gaps.
+- **Estimated:** candidate distances partition into source-resolved and borrowed components; any estimated total is their sum, labelled separately, and never a route suggestion.
+- **Unsupported:** gaps no same-generation donor geometry can join remain explicit gaps.
 
 Two POST-only endpoints carry identifiers/tokens in request bodies, never URLs:
 

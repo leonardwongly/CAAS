@@ -1,6 +1,6 @@
 # POC capability and gate-status matrix
 
-Status snapshot: 2026-08-16 working tree. Neutral comparison, uncapped all-route overview, shared selection, tolerant gap projection, and governed airport-name enrichment are implemented and focused-tested locally. Azure remains unauthorized and unexecuted.
+Status snapshot: 2026-08-20 working tree. Neutral comparison, uncapped all-route overview, shared selection, tolerant gap projection, governed airport-name enrichment, and donor-subpath synthesis (ADR-0002, additive) are implemented and focused-tested locally. Azure remains unauthorized and unexecuted.
 
 This matrix records the current status of every `AC-POC-*` acceptance criterion
 (binding design Section 0.6 and implementation plan Section 8.3) and of the
