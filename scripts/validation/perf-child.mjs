@@ -5,12 +5,16 @@
 // Modes (first argv):
 //   cold  - one fresh boot to readiness; prints {phase:"cold", readyMs, readyStatus, rssMb}
 //   warm  - one fresh boot, then 10 warmup + 100 sampled requests per endpoint
-//           with 1 Hz RSS sampling; prints {phase:"warm", ...}
+//           with 1 Hz RSS sampling; additionally one synthesis index build
+//           over the generation plus 1 warmup + 50 sampled
+//           POST /api/v1/routes/synthesis requests; prints {phase:"warm", ...}
 //
 // The fixture apikey is consumed only by the deterministic mock transport; no
 // live CAAS origin call is made by this measurement.
 import { createApiServer } from "../../apps/api/src/index.ts";
+import { overviewProjection } from "../../apps/api/src/projection.ts";
 import { createCaasAdapter } from "../../packages/upstream-caas/src/index.ts";
+import { buildSynthesisIndex } from "../../packages/route-engine/src/index.ts";
 import { FIXTURE_API_KEY, createMockTransport, fixtureBodies } from "./fixtures.mjs";
 
 const mode = process.argv[2] ?? "cold";
@@ -48,6 +52,25 @@ if (mode === "cold") {
   process.exit(0);
 }
 
+// Synthesis index build over the active generation, measured once. This
+// mirrors the server's own lazy build (server.ts synthesize): the same
+// overview projections reduced to observed-route inputs, then one
+// buildSynthesisIndex pass. Duration only — no flight identifiers are ever
+// printed or recorded.
+function observedRoute(snapshot, flight) {
+  const projection = overviewProjection(snapshot, flight);
+  return {
+    flightKey: String(flight.index),
+    occurrences: projection.occurrences.map((occurrence) => "gap" in occurrence
+      ? { ordinal: occurrence.gap.ordinal, gapReason: occurrence.gap.reason }
+      : { ordinal: occurrence.point.ordinal, ...(occurrence.point.referenceId ? { referenceId: occurrence.point.referenceId } : {}), coordinate: occurrence.point.coordinate, label: occurrence.point.label }),
+  };
+}
+const snapshot = server.store.readiness().snapshot;
+const indexStartedAt = Date.now();
+buildSynthesisIndex(snapshot.flights.map((flight) => observedRoute(snapshot, flight)));
+const synthesisIndexBuildMs = Date.now() - indexStartedAt;
+
 // Warm mode: 10 warmup requests, then 100 samples per endpoint with 1 Hz RSS
 // sampling over the same window.
 const rssPeak = { value: process.memoryUsage().rss };
@@ -77,12 +100,57 @@ const sample = async (path, count) => {
 
 const live = await sample("/api/v1/health/live", 100);
 const browse = await sample("/api/v1/routes?limit=20", 100);
+
+// Synthesis warm window: select the first incomplete target in deterministic
+// generation order (fall back to the first flight), then 1 warmup request
+// (which also triggers the server's own lazy index build) and 50 sampled
+// POST /api/v1/routes/synthesis requests. Aggregates are request count,
+// latency, and response bytes only — never request bodies.
+const postJson = async (path, payload) => {
+  const response = await fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+  const text = await response.text();
+  return { status: response.status, text, json: () => JSON.parse(text) };
+};
+let firstFlightId;
+let firstIncompleteId;
+let overviewCursor;
+let overviewPages = 0;
+while (overviewPages < 100 && firstIncompleteId === undefined) {
+  const page = await postJson("/api/v1/routes/overview", overviewCursor === undefined ? { limit: 100 } : { limit: 100, cursor: overviewCursor });
+  if (page.status !== 200) throw new Error(`overview paging failed with ${page.status}`);
+  const parsed = page.json();
+  firstFlightId ??= parsed.data[0]?.flightId;
+  firstIncompleteId ??= parsed.data.find((route) => route.complete === false)?.flightId;
+  overviewCursor = parsed.nextCursor;
+  overviewPages += 1;
+  if (overviewCursor === undefined) break;
+}
+const synthesisTarget = firstIncompleteId ?? firstFlightId;
+if (!synthesisTarget) throw new Error("the fixture generation has no flights to synthesize");
+await postJson("/api/v1/routes/synthesis", { flightId: synthesisTarget });
+const synthesisLatencies = [];
+let synthesisResponseBytes = 0;
+for (let i = 0; i < 50; i += 1) {
+  const sampleStarted = Date.now();
+  const response = await postJson("/api/v1/routes/synthesis", { flightId: synthesisTarget });
+  synthesisLatencies.push(Date.now() - sampleStarted);
+  synthesisResponseBytes += Buffer.byteLength(response.text, "utf8");
+}
+synthesisLatencies.sort((a, b) => a - b);
+const synthesis = {
+  p95Ms: synthesisLatencies[Math.ceil(0.95 * synthesisLatencies.length) - 1],
+  maxMs: synthesisLatencies[synthesisLatencies.length - 1],
+  samples: synthesisLatencies.length,
+  responseBytes: synthesisResponseBytes,
+};
 clearInterval(rssTimer);
 console.log(JSON.stringify({
   phase: "warm",
   readyMs,
   live: { p95Ms: live.p95Ms, maxMs: live.maxMs, samples: live.samples },
   browse: { p95Ms: browse.p95Ms, maxMs: browse.maxMs, samples: browse.samples },
+  synthesisIndex: { buildMs: synthesisIndexBuildMs, flightCount: snapshot.flights.length },
+  synthesis,
   rssPeakMb: Math.round(rssPeak.value / 1048576),
 }));
 await server.app.close();

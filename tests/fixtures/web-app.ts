@@ -368,7 +368,7 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     // paged family endpoints. Cursors are stubbed as opaque strings.
     if (method === "GET" && url === "/api/v1/data/summary") {
       return jsonResponse({
-        generation,
+        generation: generationFor(options),
         families: [
           { family: "flights", records: 3, acceptedRecords: 3, rejectedRecords: 0 },
           { family: "fixes", records: 1, acceptedRecords: 1, rejectedRecords: 0 },
