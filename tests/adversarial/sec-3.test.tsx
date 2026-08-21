@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchRouteData, lookupPoint, searchCallsigns } from "../../apps/web/src/api.ts";
+import { fetchRouteData, lookupPoint } from "../../apps/web/src/api.ts";
 
 /**
  * Regression test for finding sec-3: flight tokens, user lookup terms, and
@@ -31,9 +31,10 @@ import { fetchRouteData, lookupPoint, searchCallsigns } from "../../apps/web/src
  *
  * Correct behavior asserted here: neither the reference term nor the signed
  * flight token may ever appear in a request URL; each travels in a POST
- * body. The positive control (searchCallsigns) proves the interception
- * harness does catch URL-embedded data, so any failure above is a real
- * violation, not a harness artifact.
+ * body. Each test also asserts its structural positive (a POST carrying the
+ * term/token in the body exists), proving the interception harness does catch
+ * URL-embedded data, so any failure is a real violation, not a harness
+ * artifact.
  */
 
 type CapturedCall = { method: string; url: string; body?: string | undefined };
@@ -137,18 +138,5 @@ describe("flight tokens and user lookup terms must never appear in request URLs 
     ).toBeTruthy();
     const body = carrying?.body ? (JSON.parse(carrying.body) as { routeId?: unknown }) : undefined;
     expect(body?.routeId).toBe(SIGNED_FLIGHT_TOKEN);
-  });
-
-  it("harness check: the interception stub records every client request (structural positives above prove it)", async () => {
-    // The URL-hygiene coverage for callsign search lives in the offline
-    // runtime-policies suite ("callsign search sends the query in the POST
-    // body and never in the URL"), which asserts the same behavior with
-    // richer assertions. The structural positives in the two tests above
-    // (a POST carrying the term/token in the body exists) already prove this
-    // harness would catch URL-embedded data.
-    const { calls } = installStub();
-    await searchCallsigns("SQ321");
-    expect(calls.length).toBeGreaterThan(0);
-    expect(calls[0]?.method).toBe("POST");
   });
 });

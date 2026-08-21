@@ -21,10 +21,26 @@ const r5 = route("synth-r5", [pt(0, "B", 10, -10), pt(1, "D", 10, 20), gap(2), p
 const r3 = route("synth-r3", [pt(0, "C", 10, 10), pt(1, "D", 10, 20), gap(2), pt(3, "E", 10, 40)]);
 
 test("index build is deterministic and never mutates inputs", () => {
+  // Content-level serialization of the key -> (flightKey, position) map, so
+  // determinism is proved at the content level, not merely by map sizes.
+  const serialize = (index: ReturnType<typeof buildSynthesisIndex>): string => {
+    const normalized: Record<string, Array<{ flightKey: string; position: number }>> = {};
+    for (const key of [...index.pointsByKey.keys()].sort()) {
+      normalized[key] = (index.pointsByKey.get(key) ?? [])
+        .map((entry) => ({ flightKey: index.routes[index.components[entry.component]!.routeIndex]!.flightKey, position: entry.position }))
+        .sort((left, right) => left.flightKey.localeCompare(right.flightKey) || left.position - right.position);
+    }
+    return JSON.stringify(normalized);
+  };
   const frozen = JSON.stringify([r2, r4, r5, r3]);
   const a = buildSynthesisIndex([r2, r4, r5, r3]);
   const b = buildSynthesisIndex([r2, r4, r5, r3]);
-  assert.deepEqual(a.pointsByKey.size, b.pointsByKey.size);
+  assert.deepEqual(serialize(a), serialize(b), "identical input order must produce content-identical indexes");
+  // A permuted route-array order must build the same candidate SET
+  // (membership), not merely the same sizes.
+  const permuted = buildSynthesisIndex([r3, r5, r2, r4]);
+  assert.deepEqual([...permuted.pointsByKey.keys()].sort(), [...a.pointsByKey.keys()].sort(), "key membership is order-independent");
+  assert.deepEqual(serialize(permuted), serialize(a), "content-level index equality under route-order permutation");
   assert.equal(JSON.stringify([r2, r4, r5, r3]), frozen);
 });
 
@@ -129,8 +145,11 @@ test("over-limit: every assembled candidate beyond the point cap is rejected, ne
 });
 
 test("synthesized output is never accepted as index input (type boundary)", () => {
-  // Compile-time check: assembleSynthesisCandidates returns AssembledCandidate[],
-  // which lacks flightKey/occurrences and cannot satisfy ObservedRoute.
   const outcome = assembleSynthesisCandidates(buildSynthesisIndex(canonical), r3);
-  assert.ok(!("occurrences" in (outcome.candidates[0] ?? {})));
+  assert.ok(outcome.candidates.length > 0, "the canonical fixture assembles candidates");
+  // Compile-time boundary: assembleSynthesisCandidates returns AssembledCandidate[],
+  // which lacks flightKey/occurrences and can never satisfy ObservedRoute.
+  // @ts-expect-error synthesized candidates must never type-check as observed routes
+  const notARoute: ObservedRoute = outcome.candidates[0];
+  void notARoute;
 });

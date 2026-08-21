@@ -243,7 +243,9 @@ export function assembleSynthesisCandidates(
   const coveredGapOrdinals = new Set<number>();
 
   // Per-corridor deduplicated slices (geometry-keyed, provenance aggregated).
-  type CorridorChoice = { signature: string; segments: BorrowedSegment[]; distanceNm: number };
+  // donorKeys carries the UNCAPPED donor union per geometry so candidate-level
+  // aggregates stay truthful even when segment provenance is capped.
+  type CorridorChoice = { signature: string; donorKeys: readonly string[]; segments: BorrowedSegment[]; distanceNm: number };
   const choicesPerCorridor: CorridorChoice[][] = [];
   for (const corridor of corridors) {
     const from = pointsByOrdinal.get(corridor.fromOrdinal)!;
@@ -267,6 +269,7 @@ export function assembleSynthesisCandidates(
       const seamByCoordinate = keyOf(index, from).kind === "coordinate" || keyOf(index, to).kind === "coordinate";
       choices.push({
         signature,
+        donorKeys: donorFlightKeys,
         distanceNm,
         segments: [{
           coordinates,
@@ -318,7 +321,12 @@ export function assembleSynthesisCandidates(
       const totalPoints = target.occurrences.filter(isObservedPoint).length
         + borrowedSegments.reduce((sum, segment) => sum + Math.max(0, segment.coordinates.length - 2), 0);
       if (totalPoints > MAX_ROUTE_POINTS) return; // over-limit candidate: reject, never truncate
-      const donorFlightKeys = [...new Set(borrowedSegments.flatMap((segment) => segment.donorFlightKeys))]
+      // Candidate-level aggregates come from the uncapped per-corridor donor
+      // unions, so donorCount reports the true aggregate even when segment
+      // provenance lists are capped at MAX_DONOR_PROVENANCE. The key list is
+      // engine-internal (the API DTO serializes segment provenance only) and
+      // stays consistent with donorCount.
+      const donorFlightKeys = [...new Set(picked.flatMap((choice) => choice.donorKeys))]
         .sort((left, right) => index.routes.findIndex((route) => route.flightKey === left) - index.routes.findIndex((route) => route.flightKey === right));
       const donorCount = donorFlightKeys.length;
       const donorTruncated = borrowedSegments.some((segment) => segment.donorTruncated);

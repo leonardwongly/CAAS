@@ -49,16 +49,14 @@ test("synthesis: complete route returns not-needed; incomplete target yields aud
   assert.deepEqual(ordinals, ordinals.map((_, index) => ordinals[0]! + index)); // contiguous/increasing
 });
 
-test("synthesis: method/URL/body hygiene fails closed", async (t) => {
+test("synthesis: method/URL hygiene fails closed", async (t) => {
   const server = await createApiServer({ adapter: synthesisAdapter() });
   t.after(() => server.app.close());
   const get = await server.app.inject({ method: "GET", url: "/api/v1/routes/synthesis" });
   assert.equal(get.statusCode, 405);
   assert.equal(get.headers.allow, "POST");
-  const badBody = await server.app.inject({ method: "POST", url: "/api/v1/routes/synthesis", payload: { flightId: "x", extra: 1 } });
-  assert.equal(badBody.statusCode, 400);
-  const queryString = await server.app.inject({ method: "POST", url: "/api/v1/routes/synthesis?flightId=x", payload: {} });
-  assert.equal(queryString.statusCode, 400);
+  // Trimmed: extra-field (INVALID_BODY) and query-string (INVALID_QUERY)
+  // hygiene probes are pinned with codes by tests/adversarial/sec-r5-synthesis.test.ts.
 });
 
 test("source-occurrences: proof ordinals contiguous, coordinates exact, direction preserved", async (t) => {
@@ -78,6 +76,7 @@ test("source-occurrences: proof ordinals contiguous, coordinates exact, directio
 
   const bad = await server.app.inject({ method: "POST", url: "/api/v1/routes/source-occurrences", payload: { proofId: "forged.token" } });
   assert.equal(bad.statusCode, 400);
+  assert.equal((bad.json() as { error: { code: string } }).error.code, "PROOF_INVALID");
   const wrongMethod = await server.app.inject({ method: "GET", url: "/api/v1/routes/source-occurrences" });
   assert.equal(wrongMethod.statusCode, 405);
 });

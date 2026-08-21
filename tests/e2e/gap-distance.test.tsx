@@ -180,5 +180,11 @@ describe("non-operational gap-distance analysis", () => {
     // Candidate totals never mix in the statistical annotation values.
     expect(within(drawer).getByText("Estimated total (source + borrowed)")).toBeTruthy();
     expect(within(drawer).getByText("512.5 NM")).toBeTruthy();
+    // Corridor counter and the screen-reader live region distinguishing solid
+    // recorded vs dotted borrowed geometry (merged from the retired
+    // a11y/gap-distance suite).
+    expect(within(drawer).getByText("Corridors covered")).toBeTruthy();
+    expect(within(drawer).getByText("1/1")).toBeTruthy();
+    expect(drawer.textContent).toContain("Solid segments are recorded for this flight; dotted segments were observed on other flights in the same data generation.");
   });
 });

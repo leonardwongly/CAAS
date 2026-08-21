@@ -908,7 +908,13 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
       request.log.info({ securityEvent: error.code, status: error.statusCode }, "security-relevant request rejected");
     }
     if (error instanceof ApiHttpError) return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message.slice(0, MAX_ERROR_MESSAGE), retryable: error.retryable }, ...(error.details ? { ...error.details } : {}) });
-    if (error instanceof SyntaxError) return reply.code(400).send({ error: { code: "INVALID_JSON", message: "The request body is not valid JSON." } });
+    // Fastify's content-type parser wraps JSON parse failures in a
+    // FastifyError (code FST_ERR_CTP_INVALID_JSON_BODY, statusCode 400) before
+    // the handler runs, so the stable INVALID_JSON code must match that shape
+    // as well as a bare SyntaxError.
+    if (error instanceof SyntaxError || (error as { code?: unknown }).code === "FST_ERR_CTP_INVALID_JSON_BODY") {
+      return reply.code(400).send({ error: { code: "INVALID_JSON", message: "The request body is not valid JSON." } });
+    }
     // Client-shaped Fastify errors (body parsing, content-type mismatch, entity
     // too large) carry a 4xx statusCode; report them as 4xx, never as a 500
     // server fault.
@@ -1125,7 +1131,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     const parsed = SourceOccurrencesRequestSchema.safeParse(bodyObject(request, ["proofId"]));
     if (!parsed.success) throw new ApiHttpError(400, "INVALID_BODY", "The source-occurrences request body is invalid.");
     const decoded = readScoped(parsed.data.proofId, snapshot);
-    if (!decoded || decoded.g !== snapshot.id || decoded.t !== "donor-proof" || typeof decoded.e !== "number" || decoded.e < now()) {
+    if (!decoded || decoded.g !== snapshot.id || decoded.t !== "donor-proof" || typeof decoded.e !== "number" || decoded.e < now() || typeof decoded.n !== "string") {
       throw new ApiHttpError(400, "PROOF_INVALID", "The donor proof is not a valid service-issued proof.");
     }
     const donorIndex = decoded.i;

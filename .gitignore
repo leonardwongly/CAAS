@@ -10,6 +10,9 @@ pnpm-debug.log*
 **/dist/
 **/coverage/
 
+# Test run artifacts
+tests/test-results/
+
 # macOS metadata
 .DS_Store
 **/.DS_Store
