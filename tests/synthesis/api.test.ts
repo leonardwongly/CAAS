@@ -1,0 +1,82 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createApiServer } from "../../apps/api/src/index.ts";
+import { synthesisAdapter } from "../fixtures/synthesis-caas.ts";
+
+async function flightIds(server: Awaited<ReturnType<typeof createApiServer>>): Promise<Map<string, string>> {
+  const overview = await server.app.inject({ method: "POST", url: "/api/v1/routes/overview", payload: { limit: 25 } });
+  const map = new Map<string, string>();
+  for (const route of (overview.json() as { data: Array<{ callsign: string; flightId: string }> }).data) map.set(route.callsign, route.flightId);
+  return map;
+}
+
+test("synthesis: complete route returns not-needed; incomplete target yields auditable candidates", async (t) => {
+  const server = await createApiServer({ adapter: synthesisAdapter() });
+  t.after(() => server.app.close());
+  const ids = await flightIds(server);
+
+  const complete = await server.app.inject({ method: "POST", url: "/api/v1/routes/synthesis", payload: { flightId: ids.get("SYNTH1") } });
+  assert.equal(complete.statusCode, 200);
+  assert.equal((complete.json() as { status: string }).status, "not-needed");
+
+  const target = await server.app.inject({ method: "POST", url: "/api/v1/routes/synthesis", payload: { flightId: ids.get("SYNTH3") } });
+  assert.equal(target.statusCode, 200);
+  const body = target.json() as {
+    status: string; candidates: Array<Record<string, unknown>>; generation: { id: string }; safety: string;
+  };
+  assert.equal(body.status, "ambiguous");
+  assert.equal(body.candidates.length, 2);
+  assert.equal(body.safety, "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.");
+  const serialized = JSON.stringify(body);
+  for (const forbidden of ["synth-r2", "hidden-airway", "rank", "rankDistanceNm", "operationalProxy"]) {
+    if (forbidden === "rank") { assert.equal(/"rank"/.test(serialized), false); continue; }
+    assert.equal(serialized.includes(forbidden), false, forbidden);
+  }
+  // Source DTO untouched: the target route DTO still reports incomplete with no distanceNm.
+  const detail = await server.app.inject({ method: "POST", url: "/api/v1/routes/detail", payload: { routeId: ids.get("SYNTH3") } });
+  const dto = (detail.json() as { data: Record<string, unknown> }).data;
+  assert.equal(dto.complete, false);
+  assert.equal("distanceNm" in dto, false);
+  assert.equal((dto.gaps as unknown[]).length, 1);
+
+  // Every donor proof resolves through source-occurrences with exact coordinates.
+  const candidate = body.candidates[0] as { segments: Array<{ proofIds?: string[]; geometry?: { coordinates: number[][] } }> };
+  const borrowed = candidate.segments.find((segment) => "proofIds" in segment)!;
+  const proof = await server.app.inject({ method: "POST", url: "/api/v1/routes/source-occurrences", payload: { proofId: borrowed.proofIds![0] } });
+  assert.equal(proof.statusCode, 200);
+  const proofBody = proof.json() as { data: { occurrences: Array<{ ordinal: number; coordinate?: [number, number] | { lat: number; lon: number } }> } };
+  const ordinals = proofBody.data.occurrences.map((occurrence) => occurrence.ordinal);
+  assert.deepEqual(ordinals, ordinals.map((_, index) => ordinals[0]! + index)); // contiguous/increasing
+});
+
+test("synthesis: method/URL hygiene fails closed", async (t) => {
+  const server = await createApiServer({ adapter: synthesisAdapter() });
+  t.after(() => server.app.close());
+  const get = await server.app.inject({ method: "GET", url: "/api/v1/routes/synthesis" });
+  assert.equal(get.statusCode, 405);
+  assert.equal(get.headers.allow, "POST");
+  // Trimmed: extra-field (INVALID_BODY) and query-string (INVALID_QUERY)
+  // hygiene probes are pinned with codes by tests/adversarial/sec-r5-synthesis.test.ts.
+});
+
+test("source-occurrences: proof ordinals contiguous, coordinates exact, direction preserved", async (t) => {
+  const server = await createApiServer({ adapter: synthesisAdapter() });
+  t.after(() => server.app.close());
+  const ids = await flightIds(server);
+  const synthesis = await server.app.inject({ method: "POST", url: "/api/v1/routes/synthesis", payload: { flightId: ids.get("SYNTH3") } });
+  const body = synthesis.json() as { candidates: Array<{ segments: Array<{ proofIds?: string[]; geometry: { coordinates: number[][] } }> }> };
+  const borrowed = body.candidates[0]!.segments.find((segment) => "proofIds" in segment)!;
+
+  const proof = await server.app.inject({ method: "POST", url: "/api/v1/routes/source-occurrences", payload: { proofId: borrowed.proofIds![0] } });
+  assert.equal(proof.statusCode, 200);
+  const proofBody = proof.json() as { data: { flightId: string; occurrences: Array<{ ordinal: number; status: string; coordinate?: { lat: number; lon: number } }> } };
+  // Borrowed GeoJSON is [lon, lat]; proof coordinates must match exactly, in order (direction check).
+  const proofCoordinates = proofBody.data.occurrences.filter((occurrence) => occurrence.status === "point").map((occurrence) => [occurrence.coordinate!.lon, occurrence.coordinate!.lat]);
+  assert.deepEqual(proofCoordinates, borrowed.geometry.coordinates);
+
+  const bad = await server.app.inject({ method: "POST", url: "/api/v1/routes/source-occurrences", payload: { proofId: "forged.token" } });
+  assert.equal(bad.statusCode, 400);
+  assert.equal((bad.json() as { error: { code: string } }).error.code, "PROOF_INVALID");
+  const wrongMethod = await server.app.inject({ method: "GET", url: "/api/v1/routes/source-occurrences" });
+  assert.equal(wrongMethod.statusCode, 405);
+});

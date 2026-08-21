@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApiServer } from "../../apps/api/src/index.ts";
-import type { CaasAdapter, FlightPlanRecord } from "../../packages/upstream-caas/src/index.ts";
+import type { CaasAdapter, FlightPlanRecord, ReferenceDatasetResult, ReferencePoint } from "../../packages/upstream-caas/src/index.ts";
 import { sanitizedAdapter, sanitizedFlights } from "../fixtures/sanitized-caas.ts";
 
 function mutableAdapter(records: readonly FlightPlanRecord[], state: { records: readonly FlightPlanRecord[] }): CaasAdapter {
@@ -9,6 +9,27 @@ function mutableAdapter(records: readonly FlightPlanRecord[], state: { records: 
   return {
     ...base,
     displayAll: async () => ({ records: state.records, evidence: { family: "displayAll", bytes: 128, records: state.records.length, acceptedRecords: state.records.length, rejectedRecords: 0, retried: false, durationMs: 0 } }),
+  };
+}
+
+// Merged from tests/adversarial/sec-6.test.ts: the duplicate-kind token probe
+// needs a navaids dataset carrying an ambiguous identifier with a live group token.
+function duplicateAdapter(): CaasAdapter {
+  const base = sanitizedAdapter();
+  const points: ReferencePoint[] = [
+    { dataset: "navaids", identifier: "DUPX", coordinate: { lat: 35, lon: -90 } },
+    { dataset: "navaids", identifier: "DUPX", coordinate: { lat: 36, lon: -91 } },
+  ];
+  const index = new Map<string, readonly ReferencePoint[]>();
+  index.set("DUPX", points);
+  return {
+    ...base,
+    navaids: async (): Promise<ReferenceDatasetResult> => ({
+      dataset: "navaids",
+      points,
+      index,
+      evidence: { family: "navaids", bytes: 128, records: points.length, acceptedRecords: points.length, rejectedRecords: 0, retried: false, durationMs: 0 },
+    }),
   };
 }
 
@@ -138,6 +159,17 @@ test("forged, tampered, stale, and mismatched selections fail closed", async (t)
   const stale = await draftCompare(server, { draft: { origin: "KOR1", destination: "KDS1", via: ["DUPX"], selections: [{ sequence: 0, locationId: match.id }] } });
   assert.equal(stale.statusCode, 410);
   assert.equal((stale.json() as { error: { code: string } }).error.code, "GENERATION_EXPIRED");
+});
+
+test("a forged duplicate-kind token (tampered signature) fails closed at compare time", async (t) => {
+  const server = await serverFor(t, duplicateAdapter());
+  const lookup = await server.app.inject({ method: "GET", url: "/api/v1/points/DUPX" });
+  const groupToken = (lookup.json() as { matches?: Array<{ duplicateGroup?: string }> }).matches?.[0]?.duplicateGroup!;
+  const [payload, signature] = groupToken.split(".");
+  const forged = `${payload}.${signature === undefined ? "" : signature.slice(0, -2)}xx`;
+  const compared = await draftCompare(server, { draft: { origin: "KOR1", destination: "KDS1", via: ["DUPX"], selections: [{ sequence: 0, locationId: forged }] } });
+  assert.equal(compared.statusCode, 400, "a tampered group token must fail closed at compare time");
+  assert.equal((compared.json() as { error?: { code?: string } }).error?.code, "TOKEN_INVALID");
 });
 
 test("selection shape and pairing bounds reject malformed drafts", async (t) => {

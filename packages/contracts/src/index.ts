@@ -7,6 +7,13 @@ export const MAX_ALIASES = 16;
 export const MAX_ROUTE_POINTS = 256;
 export const MAX_ROUTE_LEGS = MAX_ROUTE_POINTS - 1;
 
+/** Maximum donor candidate slices/combinations returned for one target flight. */
+export const MAX_SYNTHESIS_CANDIDATES = 20;
+/** Maximum donor provenance entries aggregated onto one deduplicated geometry. */
+export const MAX_DONOR_PROVENANCE = 8;
+/** Fixed synthesis candidate page size (cursor-bound). */
+export const SYNTHESIS_PAGE = 5;
+
 const finiteNumber = z.number().finite();
 const normalizedText = z.string().trim().min(1).max(MAX_TEXT_LENGTH);
 const normalizedReferenceValue = z.string().trim().min(1).max(MAX_REFERENCE_LENGTH);
@@ -140,6 +147,17 @@ export const RouteDraftSchema = z.object({
   selections: z.array(RouteDraftSelectionSchema).max(MAX_ROUTE_LEGS - 1).default([]),
 }).strict();
 export type RouteDraft = z.output<typeof RouteDraftSchema>;
+
+export const SynthesisRequestSchema = z.object({
+  flightId: z.string().trim().min(1).max(2048),
+  cursor: z.string().trim().min(1).max(2048).optional(),
+}).strict();
+export type SynthesisRequest = z.output<typeof SynthesisRequestSchema>;
+
+export const SourceOccurrencesRequestSchema = z.object({
+  proofId: z.string().trim().min(1).max(2048),
+}).strict();
+export type SourceOccurrencesRequest = z.output<typeof SourceOccurrencesRequestSchema>;
 
 /**
  * Persistent safety copy carried on every recorded route, draft route, and

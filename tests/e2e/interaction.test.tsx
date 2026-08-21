@@ -2,8 +2,6 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../../apps/web/src/App.tsx";
-import { deriveConservativePotentialRoute } from "../../apps/web/src/potentialRoute.ts";
-import type { RouteOption } from "../../apps/web/src/api.ts";
 import { installApiStub, type StubOptions } from "../fixtures/web-app.ts";
 
 /**
@@ -63,41 +61,22 @@ describe("interaction review", () => {
     expect(screen.queryByText("Recorded routes with visible gaps")).toBeNull();
   });
 
-  it("renders a dotted potential span without changing recorded route facts", async () => {
+  it("renders dotted borrowed donor geometry without changing recorded route facts", async () => {
     installApiStub();
     const user = userEvent.setup();
     const { container } = render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Show visual estimate" }));
-    const drawer = await screen.findByRole("region", { name: "Estimated gap preview" });
+    await user.click(await screen.findByRole("button", { name: "Show observed-donor synthesis" }));
+    const drawer = await screen.findByRole("region", { name: "Observed-donor synthesis" });
     await user.click(within(drawer).getByRole("button", { name: /Recorded with unresolved gap/ }));
 
     await waitFor(() => expect(container.querySelectorAll(".route-path-potential")).toHaveLength(1));
-    expect(container.querySelectorAll(".potential-derived-point")).toHaveLength(1);
-    expect(screen.getByRole("img", { name: /estimated gap preview/ })).toBeTruthy();
-    expect(within(drawer).getByText("Named fixes inferred")).toBeTruthy();
-    expect(within(drawer).getAllByText("Excluded")).toHaveLength(2);
-  });
-
-  it("renders a visual estimate across a distant exact-anchor gap", () => {
-    const route: RouteOption = {
-      id: "incomplete-route",
-      flightId: "flight-incomplete",
-      callsign: "BOUNDTEST",
-      status: "incomplete",
-      complete: false,
-      pointCount: 4,
-      legs: [],
-      gaps: [{ sequence: 2, status: "gap", reason: "Unresolved reference" }],
-      segments: [
-        [{ lat: 0, lon: 0 }, { lat: 0, lon: 1 }],
-        [{ lat: 0, lon: 5 }, { lat: 0, lon: 6 }],
-      ],
-    };
-
-    const potential = deriveConservativePotentialRoute(route);
-    expect(potential?.inferredSegments).toHaveLength(1);
-    expect(potential?.derivedPoints).toHaveLength(1);
+    // The client midpoint machinery is gone: no client-derived dots render.
+    expect(container.querySelectorAll(".potential-derived-point")).toHaveLength(0);
+    expect(screen.getByRole("img", { name: /observed-donor synthesis/ })).toBeTruthy();
+    await waitFor(() => expect(within(drawer).getByText(/Observed subpath copied without modification from 1 donor route\(s\)/)).toBeTruthy());
+    expect(within(drawer).getByText("Synthesized candidates are inspection aids only. They are not operational routes and never modify the source record.")).toBeTruthy();
+    expect(within(drawer).getByRole("button", { name: /Observed on 1 donor route\(s\) · borrowed 32\.4 NM/, pressed: true })).toBeTruthy();
   });
 
   it("draws every returned route on the map with alternates dimmed and moves the highlight on selection", async () => {

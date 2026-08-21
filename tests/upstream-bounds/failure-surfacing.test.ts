@@ -93,10 +93,21 @@ test("live transport sends a fixed GET with the API key, redirects forbidden, an
   }
 });
 
-test("enforces the response size bound from the content-length header without reading the body", async () => {
+test("enforces the response size bound from the content-length header without reading the body, cancelling the unread stream", async () => {
+  // Merged from tests/adversarial/sec-7.test.ts: rejecting by content-length
+  // must also CANCEL the unread body stream — an abandoned stream ties up the
+  // connection for the full response length.
   const originalFetch = globalThis.fetch;
+  const cancelled: boolean[] = [];
   globalThis.fetch = (async () => {
-    return new Response("body-that-must-never-be-read", { status: 200, headers: { "content-type": "text/plain", "content-length": String(FAMILY_POLICIES.airways.maxBytes + 1) } });
+    return {
+      status: 200,
+      ok: true,
+      headers: new Headers({ "content-length": String(FAMILY_POLICIES.airways.maxBytes + 1), "content-type": "text/plain" }),
+      body: { cancel: async () => { cancelled.push(true); } },
+      json: async () => ({}),
+      text: async () => "",
+    } as unknown as Response;
   }) as typeof fetch;
   try {
     const transport = createLiveTransport();
@@ -104,6 +115,7 @@ test("enforces the response size bound from the content-length header without re
       () => transport.get({ family: "airways", method: "GET", url: `${CAAS_ORIGIN}${FAMILY_POLICIES.airways.path}`, headers: {}, maxBytes: FAMILY_POLICIES.airways.maxBytes }),
       { code: "RESPONSE_TOO_LARGE" },
     );
+    assert.deepEqual(cancelled, [true], "the unread body stream must be cancelled on the content-length rejection");
   } finally {
     globalThis.fetch = originalFetch;
   }

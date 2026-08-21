@@ -4,18 +4,19 @@ import { createApiServer } from "../../apps/api/src/index.ts";
 import { LIVE_UNUSABLE_MS } from "../../packages/upstream-caas/src/index.ts";
 import { sanitizedAdapter } from "../fixtures/sanitized-caas.ts";
 
-// Candidate finding: apps/api/src/server.ts getDraft (line 538) checks the token
-// expiry with `decoded.e <= this.now()` while decodeScoped (line 563),
-// cursorOffset (line 1001), and selectedLocation (line 619) all use `e < now()`.
-// Every scoped token carries e = snapshot.unusableAtMs (scopedToken, line 241),
-// so at now === e the generation is still servable ("stale", inclusive boundary
-// per packages/upstream-caas/src/freshness.ts: "unusable strictly after it") and
-// flight tokens and cursors return 200 — but a draft from the same snapshot
-// returns 410 DRAFT_EXPIRED at that exact instant. A draft CREATED at that
-// instant gets 201 yet immediately 410s on compare. All existing boundary tests
-// step the clock by LIVE_UNUSABLE_MS + 1 (apps/api/test/server.test.ts:346,380)
-// or assert store-level readiness only (tests/upstream-bounds/
-// generation-lifecycle.test.ts:44-45), so the 1 ms window is untested.
+// Regression pin (post-fix): the draft-token expiry boundary once disagreed
+// with every other scoped token. getDraft checked `decoded.e <= this.now()`
+// while decodeScoped, cursorOffset, and selectedLocation all use `e < now()`,
+// so at now === e (where e = snapshot.unusableAtMs) flight tokens and cursors
+// stayed servable but a draft from the same snapshot returned 410
+// DRAFT_EXPIRED — and a draft created at that instant got 201 yet immediately
+// 410s on compare. The fix aligned getDraft with the inclusive boundary so all
+// generation-bound tokens behave identically at the exact unusable instant.
+// This test pins that FIXED behavior; the prior boundary tests only stepped
+// the clock by LIVE_UNUSABLE_MS + 1 (apps/api/test/server.test.ts) or
+// asserted store-level readiness (tests/upstream-bounds/
+// generation-lifecycle.test.ts), leaving the exact-instant window covered
+// solely here.
 //
 // North-star contract: design Section 0.2 binds every cursor, point reference,
 // candidate ID, and draft token to the generation; docs/architecture/

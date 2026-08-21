@@ -4,6 +4,7 @@ import {
   CaasAdapterError,
   MAX_RETRY_AFTER_MS,
   createCaasAdapter,
+  createLiveTransport,
   type CaasTransport,
   type CaasTransportRequest,
   type CaasTransportResponse,
@@ -174,4 +175,40 @@ test("succeeds on the retry attempt with the retried flag surfaced in evidence",
   assert.equal(result.evidence.retried, true);
   assert.equal(result.records.length, 1);
   assert.equal(result.records[0]?.callsign, "F1");
+});
+
+// Merged from tests/adversarial/finding-7.test.ts: a retryable 429 whose
+// body stream is already errored must not skip the mandated retry. The live
+// transport awaits response.body.cancel() for every non-ok response; when the
+// connection died after the status headers arrived, that stream is errored
+// and cancel() rejects — the retry decision is keyed on the 429 status and
+// must still fire (plan §6.1: "One retry for 429 or retryable 5xx").
+test("a 429 whose body teardown fails still gets the mandated retry (2 calls, retried=true)", async () => {
+  process.env.apikey = "offline-fixture-key";
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls += 1;
+    if (calls === 1) {
+      // Status headers arrive, then the connection dies: the body stream is
+      // already errored, so cancel() rejects with the connection error.
+      const dead = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.error(new Error("connection died after 429 headers"));
+        },
+      });
+      return new Response(dead, { status: 429, headers: { "content-type": "text/plain" } });
+    }
+    return new Response(JSON.stringify(["KOR1 (40,-73)"]), { status: 200, headers: { "content-type": "text/plain" } });
+  }) as typeof fetch;
+  try {
+    const adapter = createCaasAdapter({ transport: createLiveTransport(), sleep: async () => {} });
+    const result = await adapter.airports();
+    assert.equal(calls, 2, "a received 429 must be retried exactly once even when body teardown fails");
+    assert.equal(result.evidence.retried, true, "the retry flag must be surfaced in evidence");
+    assert.equal(result.points.length, 1);
+    assert.equal(result.points[0]?.identifier, "KOR1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

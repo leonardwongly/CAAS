@@ -56,6 +56,12 @@ export type StubOptions = {
   deferSearch?: boolean | undefined;
   /** Fail bulk browse requests with 409 CURSOR_EXPIRED. */
   failCursor?: boolean | undefined;
+  /** Fail the synthesis endpoint (500); `"once"` fails only the first call so retry recovery is observable. */
+  failSynthesis?: boolean | "once" | undefined;
+  /** Override the default donor-subpath synthesis envelope. Takes precedence over the default envelope but not over `failSynthesis`; the whole envelope is replaced, not deep-merged, so it must be complete and valid. */
+  synthesis?: Record<string, unknown> | undefined;
+  /** Override the default donor-proof (source-occurrences) envelope. */
+  donorProof?: Record<string, unknown> | undefined;
   /** Replace the default overview with this many distinct renderable flights. */
   overviewCount?: number | undefined;
   /** Return two flights with exactly overlapping rendered paths. */
@@ -220,6 +226,39 @@ const pointMatches: Record<string, unknown> = {
   MIDPT: { matches: [{ id: "loc-MIDPT", callsign: "MIDPT", name: "MIDPT", kind: "fix", coordinate: { lat: 35, lon: -90 } }] },
 };
 
+/**
+ * Deterministic donor-subpath synthesis envelope matching fetchSynthesis in
+ * apps/web/src/api.ts. The borrowed GeoJSON subpath is geometry "observed on
+ * a donor record" bridging the fixture's unresolved gap; nothing here is
+ * client-interpolated.
+ */
+const synthesisResult = {
+  status: "full",
+  corridorCount: 1,
+  corridorsCovered: 1,
+  algorithmVersion: "stub-donor-subpath-v1",
+  candidates: [
+    {
+      candidateId: "candidate-1",
+      segments: [
+        {
+          kind: "borrowed",
+          geometry: { type: "LineString", coordinates: [[-80, 39], [-80.5, 38.8]] },
+          distanceNm: 32.4,
+          matchMethod: "exact-coordinate",
+          donorCount: 1,
+          proofIds: ["proof-fixture-1"],
+        },
+      ],
+      sourceResolvedDistanceNm: 480.1,
+      borrowedDistanceNm: 32.4,
+      estimatedTotalDistanceNm: 512.5,
+      corridorsCovered: 1,
+    },
+  ],
+  safety: "Stub synthesis note: borrowed subpaths are copied unchanged from donor records in the same generation.",
+};
+
 type StubResponse = {
   ok: boolean;
   status: number;
@@ -250,6 +289,7 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
   const overviewRoutes = overviewRoutesFor(options);
   const draftResolvers: Array<() => void> = [];
   const searchResolvers: Array<() => void> = [];
+  let synthesisFailuresRemaining = options.failSynthesis === "once" ? 1 : 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<StubResponse> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = (init?.method ?? "GET").toUpperCase();
@@ -293,6 +333,18 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
       }
       return jsonResponse({ target: draftCompareTarget, comparison: draftCompareComparison });
     }
+    // Donor-subpath synthesis: POST { flightId, cursor? } -> bounded candidates.
+    if (method === "POST" && url === "/api/v1/routes/synthesis") {
+      if (options.failSynthesis === true || synthesisFailuresRemaining > 0) {
+        if (synthesisFailuresRemaining > 0) synthesisFailuresRemaining -= 1;
+        return jsonResponse({ error: { message: "Synthesis unavailable (stub).", code: "SYNTHESIS_FAIL" } }, 500);
+      }
+      return jsonResponse(options.synthesis ?? synthesisResult);
+    }
+    // Donor proof: POST { proofId } -> { data: { flightId, occurrences } }.
+    if (method === "POST" && url === "/api/v1/routes/source-occurrences") {
+      return jsonResponse(options.donorProof ?? { data: { flightId: "donor-proof-flight", occurrences: [] } });
+    }
     // Readiness on mount and live refresh.
     if (method === "GET" && url === "/api/v1/readiness") {
       if (options.noGeneration) return jsonResponse({ status: "ready" });
@@ -316,7 +368,7 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     // paged family endpoints. Cursors are stubbed as opaque strings.
     if (method === "GET" && url === "/api/v1/data/summary") {
       return jsonResponse({
-        generation,
+        generation: generationFor(options),
         families: [
           { family: "flights", records: 3, acceptedRecords: 3, rejectedRecords: 0 },
           { family: "fixes", records: 1, acceptedRecords: 1, rejectedRecords: 0 },

@@ -1,0 +1,170 @@
+{
+  "recordKind": "lane-results",
+  "lane": "live-five-family-lane",
+  "subject": {
+    "type": "commit",
+    "identifiers": {
+      "commit": "be2a61cd4237"
+    },
+    "environment": "authorized-live-run"
+  },
+  "startedAt": "2026-08-21T03:44:58.563Z",
+  "endedAt": "2026-08-21T03:45:04.088Z",
+  "mode": "authorized-run",
+  "credentialHandling": "authorized key consumed by the real transport; never printed or recorded",
+  "checks": [
+    {
+      "checkId": "LIVE-LIVENESS",
+      "name": "liveness endpoint",
+      "procedure": "GET /api/v1/health/live returns 200.",
+      "startedAt": "2026-08-21T03:44:58.563Z",
+      "endedAt": "2026-08-21T03:45:01.425Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "liveness endpoint",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "48894c1f01cb22c26a1f45326aaecc98768ca43734559ee22ae46ffb38122139"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LIVE-FIVE-FAMILY-ACQUISITION",
+      "name": "live five-family acquisition",
+      "procedure": "All five families acquired and validated from the real origin: Flight Plan, Fixes, Airports, NAVAIDs in the families payload plus Airways validated separately.",
+      "startedAt": "2026-08-21T03:44:58.563Z",
+      "endedAt": "2026-08-21T03:45:01.427Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "live five-family acquisition",
+        "value": true,
+        "units": "families",
+        "sampleCount": 4
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "48894c1f01cb22c26a1f45326aaecc98768ca43734559ee22ae46ffb38122139"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LIVE-BROWSE-EXACT-ONCE",
+      "name": "live browse exact-once traversal",
+      "procedure": "Cursor traversal from first page to terminal cursor returns every flight exactly once and terminates within the page cap.",
+      "startedAt": "2026-08-21T03:44:58.563Z",
+      "endedAt": "2026-08-21T03:45:01.430Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "live browse exact-once traversal",
+        "value": true,
+        "units": "flights",
+        "sampleCount": 92
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "48894c1f01cb22c26a1f45326aaecc98768ca43734559ee22ae46ffb38122139"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LIVE-SYNTHESIS-AGGREGATE",
+      "name": "live synthesis honest aggregation",
+      "procedure": "Up to 5 incomplete targets in generation order each receive a 200 synthesis response with an honest outcome status and a candidate page bounded to SYNTHESIS_PAGE; zero synthesizable targets is a legitimate live result and never fails the lane.",
+      "startedAt": "2026-08-21T03:44:58.563Z",
+      "endedAt": "2026-08-21T03:45:01.471Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "live synthesis honest aggregation",
+        "value": true,
+        "units": "targets",
+        "sampleCount": 5
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "48894c1f01cb22c26a1f45326aaecc98768ca43734559ee22ae46ffb38122139"
+        },
+        {
+          "path": "raw",
+          "sha256": "none",
+          "metadata": {
+            "targets": 5,
+            "outcomeCounts": {
+              "full": 0,
+              "ambiguous": 0,
+              "partial": 0,
+              "unavailable": 5,
+              "over-limit": 0,
+              "candidate-limit-exceeded": 0
+            }
+          }
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LIVE-REFRESH-UNSET-SECRET",
+      "name": "refresh under the single-user access model",
+      "procedure": "With no refresh secret configured, refresh succeeds and returns a new generation summary (the Azure edge gates the user session).",
+      "startedAt": "2026-08-21T03:44:58.563Z",
+      "endedAt": "2026-08-21T03:45:04.087Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "refresh under the single-user access model",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "48894c1f01cb22c26a1f45326aaecc98768ca43734559ee22ae46ffb38122139"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LIVE-SECRET-EXCLUDED",
+      "name": "credential never surfaces",
+      "procedure": "The runtime key never appears in any API response.",
+      "startedAt": "2026-08-21T03:44:58.563Z",
+      "endedAt": "2026-08-21T03:45:04.087Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "credential never surfaces",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/live-lane.mjs",
+          "sha256": "48894c1f01cb22c26a1f45326aaecc98768ca43734559ee22ae46ffb38122139"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    }
+  ],
+  "summary": {
+    "checks": 6,
+    "passed": 6,
+    "blocked": 0,
+    "failed": 0
+  },
+  "artifacts": [
+    {
+      "path": "scripts/validation/live-lane.mjs",
+      "sha256": "48894c1f01cb22c26a1f45326aaecc98768ca43734559ee22ae46ffb38122139"
+    }
+  ]
+}

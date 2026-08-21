@@ -217,7 +217,15 @@ export function fromGeoJsonLineString(value: unknown): Coordinate[] {
   if (line.type !== "LineString" || !Array.isArray(line.coordinates) || line.coordinates.length < 2 || line.coordinates.length > MAX_ROUTE_POINTS) {
     throw new TypeError("invalid GeoJSON line string");
   }
-  return line.coordinates.map(fromGeoJsonPosition);
+  // Per-position schema failures surface as the same TypeError contract as the
+  // outer shape check, never as a raw ZodError escaping to callers.
+  return line.coordinates.map((position) => {
+    try {
+      return fromGeoJsonPosition(position);
+    } catch (error) {
+      throw error instanceof TypeError ? error : new TypeError("invalid GeoJSON line string");
+    }
+  });
 }
 
 export function toLeafletRoute(points: readonly unknown[]): LeafletRoute {
@@ -229,7 +237,14 @@ export function fromLeafletRoute(value: unknown): Coordinate[] {
   if (typeof value !== "object" || value === null) throw new TypeError("invalid Leaflet route");
   const route = value as { positions?: unknown };
   if (!Array.isArray(route.positions) || route.positions.length < 2 || route.positions.length > MAX_ROUTE_POINTS) throw new TypeError("invalid Leaflet route");
-  return route.positions.map(fromLeafletCoordinate);
+  // Same TypeError contract as the outer shape check for malformed positions.
+  return route.positions.map((position) => {
+    try {
+      return fromLeafletCoordinate(position);
+    } catch (error) {
+      throw error instanceof TypeError ? error : new TypeError("invalid Leaflet route");
+    }
+  });
 }
 
 export function safeParseRouteCandidate(value: unknown): DraftResult<RouteCandidate> {
@@ -294,3 +309,5 @@ export function createRouteCandidate(
     distanceNm,
   });
 }
+
+export * from "./synthesis.ts";

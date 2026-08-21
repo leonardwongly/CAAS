@@ -8,6 +8,8 @@ import { sanitizedAdapter } from "../fixtures/sanitized-caas.ts";
 //   including during an in-flight refresh (the retained generation serves).
 // - state-changing requests carrying a mismatched Origin are rejected 403
 //   (cross-site form POST defense; GET stays read-only).
+// - Opaque ("null") Origin requests fail the cross-origin defense closed
+//   (consolidated from tests/adversarial/sec-r4-0.test.ts).
 
 test("/startup reports started while a refresh is in flight and the retained generation serves", async () => {
   const base = sanitizedAdapter();
@@ -60,6 +62,17 @@ test("a state-changing request with a mismatched Origin header is rejected 403",
 
     const noOrigin = await server.app.inject({ method: "POST", url: "/api/v1/refresh" });
     assert.notEqual(noOrigin.statusCode, 403, "non-browser clients without an Origin header remain allowed (single-user access model)");
+  } finally {
+    await server.app.close();
+  }
+});
+
+test("opaque Origin: null requests fail the cross-origin defense closed", async () => {
+  const server = await createApiServer({ adapter: sanitizedAdapter(), refreshMinIntervalMs: 0 });
+  try {
+    const opaque = await server.app.inject({ method: "POST", url: "/api/v1/refresh", headers: { origin: "null" } });
+    assert.equal(opaque.statusCode, 403, "Origin: null must never skip the origin defense");
+    assert.equal((opaque.json() as { error: { code: string } }).error.code, "CROSS_ORIGIN_DENIED");
   } finally {
     await server.app.close();
   }

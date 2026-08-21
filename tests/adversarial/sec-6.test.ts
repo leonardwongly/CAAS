@@ -2,13 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createApiServer } from "../../apps/api/src/index.ts";
 import type { CaasAdapter, ReferenceDatasetResult, ReferencePoint } from "../../packages/upstream-caas/src/index.ts";
-import { sanitizedAdapter, sanitizedFlights } from "../fixtures/sanitized-caas.ts";
+import { sanitizedAdapter } from "../fixtures/sanitized-caas.ts";
 
 // Security sweep (deferred candidate, fixed by triage): token kinds must never
 // be cross-reusable (a browse cursor is not a flight id, a flight token is not
 // a selection), and the ambiguity-group "duplicate" token must actually be
 // consumable as an explicit selection — minting a token kind nothing validates
 // is a dead issuance surface.
+// (The forged duplicate-kind signature probe lives in
+// tests/route-safety/explicit-selection.test.ts.)
 
 function duplicateAdapter(): CaasAdapter {
   const base = sanitizedAdapter();
@@ -68,21 +70,6 @@ test("the ambiguity-group duplicate token is consumable as an explicit selection
     assert.equal(compared.statusCode, 200, "the selection resolves through the group token at compare time");
     const body = compared.json() as { draft?: { via?: string[] } };
     assert.deepEqual(body.draft?.via, ["DUPX"], "the selected waypoint resolves to the exact chosen coordinate");
-  } finally {
-    await server.app.close();
-  }
-});
-
-test("a forged duplicate-kind token (tampered signature) fails closed at compare time", async () => {
-  const server = await createApiServer({ adapter: duplicateAdapter() });
-  try {
-    const lookup = await server.app.inject({ method: "GET", url: "/api/v1/points/DUPX" });
-    const groupToken = (lookup.json() as { matches?: Array<{ duplicateGroup?: string }> }).matches?.[0]?.duplicateGroup!;
-    const [payload, signature] = groupToken.split(".");
-    const forged = `${payload}.${signature === undefined ? "" : signature.slice(0, -2)}xx`;
-    const compared = await server.app.inject({ method: "POST", url: "/api/v1/drafts/compare", payload: { draft: { origin: "KOR1", destination: "KDS1", via: ["DUPX"], selections: [{ sequence: 0, locationId: forged }] } } });
-    assert.equal(compared.statusCode, 400, "a tampered group token must fail closed at compare time");
-    assert.equal((compared.json() as { error?: { code?: string } }).error?.code, "TOKEN_INVALID");
   } finally {
     await server.app.close();
   }

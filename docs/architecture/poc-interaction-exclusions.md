@@ -106,7 +106,7 @@ operational conformance the data cannot support. A continuous line must never
 cross a gap, and an unresolved point is a diagnostic, never a nearest-neighbor
 choice.
 
-The owner-approved conservative potential layer is not topology: it is a client-only, dotted visual estimate between exact anchors with no span-distance upper limit, with a clearly synthetic unnamed midpoint. It does not alter recorded geometry, source DTOs, completeness, source `distanceNm`, comparison, ranking, export, or the original gap; ambiguous and endpoint-only gaps remain unresolved.
+The owner-approved conservative potential layer is not topology: it was a client-only, dotted visual estimate between exact anchors with no span-distance upper limit; its synthetic unnamed midpoint rendering was retired on 2026-08-20 (ADR-0002), and the estimate survives only as a separate descriptive statistical annotation. It does not alter recorded geometry, source DTOs, completeness, source `distanceNm`, comparison, ranking, export, or the original gap; ambiguous and endpoint-only gaps remain unresolved.
 
 A client-only distance annotation may describe an exact-anchor geometric minimum and, after separate historical release gates pass, a conformal statistical interval. It is not a reconstructed route or a complete-route modeled-distance operand. Consecutive missing records sharing one anchor pair are one corridor; no missing fix, airway, or intermediate topology is inferred. Annotation values are prohibited inputs to route ordering, comparison, preference language, public DTOs, server state, logging, and export. An absent or out-of-support model fails closed to the geometric minimum or unavailable state.
 

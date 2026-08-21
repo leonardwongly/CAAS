@@ -15,18 +15,16 @@ import { sanitizedAdapter } from "../fixtures/sanitized-caas.ts";
 //   the newer attempt aborted/failed installs its snapshot when the store
 //   would otherwise stay cold/failed.
 // - Unauthenticated refresh floods are bounded by a minimum interval.
-// - Opaque ("null") Origin requests fail the cross-origin defense closed.
+//
+// Consolidation note: out-of-range/duplicate-sequence selection rejection is
+// pinned by tests/route-safety/explicit-selection.test.ts, the opaque
+// Origin: null defense by sec-r2-7, and the normalizeDisplayAll regressions
+// by the upstream-caas normalizer tests — removed here as proven duplicates.
 
 test("POST /api/v1/drafts rejects selections no consumer could ever use", async () => {
   const server = await createApiServer({ adapter: sanitizedAdapter() });
   try {
     const base = { origin: "KOR1", destination: "KDS1" };
-    const outOfRange = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { ...base, via: ["MIDPT"], selections: [{ sequence: 5, locationId: "AAAA" }] } });
-    assert.equal(outOfRange.statusCode, 400, "a selection beyond the via list must be rejected at store time");
-    assert.equal((outOfRange.json() as { error: { code: string } }).error.code, "INVALID_DRAFT");
-
-    const duplicate = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { ...base, via: ["MIDPT"], selections: [{ sequence: 0, locationId: "AAAA" }, { sequence: 0, locationId: "BBBB" }] } });
-    assert.equal(duplicate.statusCode, 400, "two selections for one waypoint must be rejected at store time");
 
     const junk = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { ...base, via: ["MIDPT"], selections: [{ sequence: 0, locationId: "AAAA" }] } });
     assert.equal(junk.statusCode, 400, "a forged selection token must be rejected at store time");
@@ -246,74 +244,4 @@ test("route options fails fast with 409 RESPONSE_TOO_LARGE over the 2 MiB cap an
   } finally {
     await under.app.close();
   }
-});
-
-test("opaque Origin: null requests fail the cross-origin defense closed", async () => {
-  const server = await createApiServer({ adapter: sanitizedAdapter(), refreshMinIntervalMs: 0 });
-  try {
-    const opaque = await server.app.inject({ method: "POST", url: "/api/v1/refresh", headers: { origin: "null" } });
-    assert.equal(opaque.statusCode, 403, "Origin: null must never skip the origin defense");
-    assert.equal((opaque.json() as { error: { code: string } }).error.code, "CROSS_ORIGIN_DENIED");
-  } finally {
-    await server.app.close();
-  }
-});
-
-test("normalizers: flat endpoint objects carrying only locationId resolve, and one bad seqNum never drops a flight", async () => {
-  const { normalizeDisplayAll } = await import("../../packages/upstream-caas/src/normalizers.ts");
-  const body = JSON.stringify({
-    flights: [
-      {
-        aircraftIdentification: "SQ321",
-        departure: { locationId: "WSSS" },
-        arrival: { locationId: "WMKK" },
-        routeElements: [
-          { seqNum: 0, identifier: "A" },
-          { identifier: "B" }, // missing seqNum → index fallback collides with the next explicit value
-          { seqNum: 1, identifier: "C" },
-        ],
-      },
-    ],
-  });
-  const result = normalizeDisplayAll(body);
-  assert.equal(result.records.length, 1, "the flight must survive its anomalous route metadata");
-  const record = result.records[0] as FlightPlanRecord & { routeElements?: { sequence: number; identifier?: string }[] };
-  assert.equal(record.departure, "WSSS", "locationId-only departure must resolve");
-  assert.equal(record.destination, "WMKK", "locationId-only destination must resolve");
-  assert.deepEqual(record.routeElements?.map((element) => element.sequence), [0, 1, 2], "array order renumbers the anomalous sequences");
-});
-
-test("normalizers: invalid seqNums fall back, asserted orders are honored, contradictions are rejected", async () => {
-  const { normalizeDisplayAll } = await import("../../packages/upstream-caas/src/normalizers.ts");
-  const wrap = (records: unknown) => normalizeDisplayAll(JSON.stringify({ flights: records }));
-
-  // A negative, float, or over-range seqNum must not erase the flight: the
-  // element falls back to its array index.
-  const invalid = wrap([{ aircraftIdentification: "SQ1", departure: "WSSS", arrival: "WMKK", routeElements: [{ seqNum: -1, identifier: "A" }, { seqNum: 1.5, identifier: "B" }, { seqNum: 255, identifier: "C" }] }]);
-  assert.equal(invalid.records.length, 1, "one invalid seqNum must not erase the whole flight");
-  assert.deepEqual(invalid.records[0]!.routeElements?.map((element) => element.sequence), [0, 1, 2], "invalid seqNums fall back to array order");
-
-  // Unique asserted seqNums that disagree with array order: the asserted
-  // order is honored by sorting — never silently reversed.
-  const reversed = wrap([{ aircraftIdentification: "SQ2", departure: "WSSS", arrival: "WMKK", routeElements: [{ seqNum: 1, identifier: "BBBB" }, { seqNum: 0, identifier: "AAAA" }] }]);
-  assert.equal(reversed.records.length, 1);
-  assert.deepEqual(reversed.records[0]!.routeElements?.map((element) => element.identifier), ["AAAA", "BBBB"], "asserted seqNum order is honored");
-
-  // Contradictory explicit seqNums (duplicates) are rejected, never fabricated.
-  const duplicate = wrap([{ aircraftIdentification: "SQ3", departure: "WSSS", arrival: "WMKK", routeElements: [{ seqNum: 0, identifier: "A" }, { seqNum: 0, identifier: "B" }] }]);
-  assert.equal(duplicate.records.length, 0, "contradictory asserted sequences reject the record");
-
-  // Contradictory endpoint sources are REJECTED, never arbitrated — in
-  // either direction. No junk value silently shadows a valid one.
-  const nestedJunk = wrap([{ aircraftIdentification: "SQ5", departureAirport: "KOR1", departure: { departureAerodrome: { locationId: "JUNK" } }, arrival: "WMKK", routeElements: [{ seqNum: 0, identifier: "A" }] }]);
-  assert.equal(nestedJunk.records.length, 0, "junk nested child value conflicting with a valid legacy field rejects the record");
-  assert.equal(nestedJunk.evidence.rejectedRecords, 1, "the conflict is surfaced in evidence");
-  const legacyJunk = wrap([{ aircraftIdentification: "SQ6", departure: { locationId: "WSSS" }, departureAirport: "TBD", arrival: "WMKK", routeElements: [{ seqNum: 0, identifier: "A" }] }]);
-  assert.equal(legacyJunk.records.length, 0, "junk legacy value conflicting with a valid nested parent rejects the record");
-  const parentJunk = wrap([{ aircraftIdentification: "SQ4", departure: { locationId: "TBD" }, departureAirport: "KOR1", arrival: { locationId: "KDS1" } }]);
-  assert.equal(parentJunk.records.length, 0, "junk parent-direct value conflicting with a valid legacy field rejects the record");
-
-  // Whitespace-padded digit seqNums are recovered, not flight-erasing.
-  const padded = wrap([{ aircraftIdentification: "SQ7", departure: "WSSS", arrival: "WMKK", routeElements: [{ seqNum: "3 ", identifier: "A" }, { seqNum: 0, identifier: "B" }] }]);
-  assert.equal(padded.records.length, 1, "a whitespace-padded seqNum must fall back, never erase the flight");
 });

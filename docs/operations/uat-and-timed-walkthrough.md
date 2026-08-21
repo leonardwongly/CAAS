@@ -50,6 +50,12 @@ deployed digest (or, before deployment authorization, the exact local subject):
 | 7 | Safety wording | The safety copy is exactly: "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated."; no candidate called valid/recommended/safe/cleared/best | Exact strings recorded |
 | 8 | Errors and failure states | Cold-start/refresh failure, stale generation, cursor expiry, capacity errors surface as bounded fail-closed errors; no silent truncation | Error codes observed |
 | 9 | Limitations walkthrough | The presenter explains descriptive modeled distance, neutral ordering, non-official airport metadata, historical evidence limits, and the absence of deployment/data-sharing authority | Notes |
+| 10 | Donor-subpath synthesis (additive, 2026-08-18) | Select an incomplete route and open the on-demand synthesis chooser; candidate page returns a fail-closed status (`not-needed`/`full`/`ambiguous`/`partial`/`unavailable`/`over-limit`/`candidate-limit-exceeded`) with at most 5 candidates; borrowed geometry renders dotted over solid recorded geometry with provenance copy and aggregate donor counts only; a `proofIds` token resolves via `source-occurrences` to the donor's observed occurrences; the source route DTO (occurrences, gaps, distance, signature, comparison eligibility, ordering) is unchanged after synthesis; no donor callsign or identifier appears in URLs or responses | Status observed, candidate count, screenshots, proof resolution transcript, before/after source DTO comparison |
+
+Synthesis demonstration fits inside the existing fixed walkthrough segments
+(no new segment or timing): segment 4 (gaps and descriptive distance) is the
+natural home for the chooser. The timed 20+10 minute format is unchanged; a
+synthesis rehearsal that overruns a segment is a timing defect like any other.
 
 ## 4. Timed walkthrough record (template)
 
