@@ -1,0 +1,178 @@
+{
+  "recordKind": "lane-results",
+  "lane": "live-five-family-container-lane",
+  "subject": {
+    "type": "oci",
+    "identifiers": {
+      "digest": "unbound",
+      "commit": "16ee08a8bd77"
+    },
+    "environment": "container-live-pending"
+  },
+  "startedAt": "2026-08-21T02:45:58.266Z",
+  "endedAt": "2026-08-21T02:45:58.269Z",
+  "mode": "pending-authorized-execution",
+  "credentialHandling": "no credential present; no container was started and no live origin call was attempted",
+  "procedure": "Authorized run: `apikey=<authorized-key> node scripts/validation/container-live-lane.mjs --subject-digest <sha256:...> --subject-commit <sha>` against the loaded CI-built image.",
+  "checks": [
+    {
+      "checkId": "CONTAINER-LIVE-CREDENTIAL-ABSENT",
+      "name": "no credential configured",
+      "procedure": "No CAAS apikey is present in the environment or root .env, so no container run or live call was attempted.",
+      "startedAt": "2026-08-21T02:45:58.266Z",
+      "endedAt": "2026-08-21T02:45:58.268Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "no credential configured",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/container-live-lane.mjs",
+          "sha256": "f80cf90d20acdcbbf6b2740ebd4f9de423f9e6d777caa5579c2c2be972f27949"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "CONTAINER-LIVE-EXACT-SUBJECT",
+      "name": "exact subject digest",
+      "procedure": "Pending authorized execution: the loaded image ID must equal --subject-digest (the authoritative CI-built digest).",
+      "startedAt": "2026-08-21T02:45:58.266Z",
+      "endedAt": "2026-08-21T02:45:58.269Z",
+      "result": "blocked",
+      "measurement": {
+        "summary": "pending authorized execution",
+        "value": null,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/container-live-lane.mjs",
+          "sha256": "f80cf90d20acdcbbf6b2740ebd4f9de423f9e6d777caa5579c2c2be972f27949"
+        }
+      ],
+      "failureFallback": "PG-03 cannot lift until an authorized container run on the exact digest records a real pass."
+    },
+    {
+      "checkId": "CONTAINER-LIVE-LIVENESS",
+      "name": "container liveness",
+      "procedure": "Pending authorized execution: GET /api/v1/health/live on the running container returns 200.",
+      "startedAt": "2026-08-21T02:45:58.266Z",
+      "endedAt": "2026-08-21T02:45:58.269Z",
+      "result": "blocked",
+      "measurement": {
+        "summary": "pending authorized execution",
+        "value": null,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/container-live-lane.mjs",
+          "sha256": "f80cf90d20acdcbbf6b2740ebd4f9de423f9e6d777caa5579c2c2be972f27949"
+        }
+      ],
+      "failureFallback": "PG-03 cannot lift until an authorized container run on the exact digest records a real pass."
+    },
+    {
+      "checkId": "CONTAINER-LIVE-FIVE-FAMILY",
+      "name": "container five-family acquisition",
+      "procedure": "Pending authorized execution: the container acquires and validates all five families from the real origin.",
+      "startedAt": "2026-08-21T02:45:58.266Z",
+      "endedAt": "2026-08-21T02:45:58.269Z",
+      "result": "blocked",
+      "measurement": {
+        "summary": "pending authorized execution",
+        "value": null,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/container-live-lane.mjs",
+          "sha256": "f80cf90d20acdcbbf6b2740ebd4f9de423f9e6d777caa5579c2c2be972f27949"
+        }
+      ],
+      "failureFallback": "PG-03 cannot lift until an authorized container run on the exact digest records a real pass."
+    },
+    {
+      "checkId": "CONTAINER-LIVE-BROWSE-EXACT-ONCE",
+      "name": "container browse exact-once",
+      "procedure": "Pending authorized execution: cursor traversal returns every flight exactly once.",
+      "startedAt": "2026-08-21T02:45:58.266Z",
+      "endedAt": "2026-08-21T02:45:58.269Z",
+      "result": "blocked",
+      "measurement": {
+        "summary": "pending authorized execution",
+        "value": null,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/container-live-lane.mjs",
+          "sha256": "f80cf90d20acdcbbf6b2740ebd4f9de423f9e6d777caa5579c2c2be972f27949"
+        }
+      ],
+      "failureFallback": "PG-03 cannot lift until an authorized container run on the exact digest records a real pass."
+    },
+    {
+      "checkId": "CONTAINER-LIVE-SYNTHESIS-AGGREGATE",
+      "name": "container synthesis honest aggregation",
+      "procedure": "Pending authorized execution: up to 5 incomplete targets in generation order each receive a bounded, honest synthesis outcome and the aggregate counts are recorded. Zero synthesizable targets is a legitimate live result.",
+      "startedAt": "2026-08-21T02:45:58.266Z",
+      "endedAt": "2026-08-21T02:45:58.269Z",
+      "result": "blocked",
+      "measurement": {
+        "summary": "pending authorized execution",
+        "value": null,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/container-live-lane.mjs",
+          "sha256": "f80cf90d20acdcbbf6b2740ebd4f9de423f9e6d777caa5579c2c2be972f27949"
+        }
+      ],
+      "failureFallback": "PG-03 cannot lift until an authorized container run on the exact digest records a real pass."
+    },
+    {
+      "checkId": "CONTAINER-LIVE-SECRET-EXCLUDED",
+      "name": "credential never surfaces",
+      "procedure": "Pending authorized execution: the runtime key never appears in any API response.",
+      "startedAt": "2026-08-21T02:45:58.266Z",
+      "endedAt": "2026-08-21T02:45:58.269Z",
+      "result": "blocked",
+      "measurement": {
+        "summary": "pending authorized execution",
+        "value": null,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/container-live-lane.mjs",
+          "sha256": "f80cf90d20acdcbbf6b2740ebd4f9de423f9e6d777caa5579c2c2be972f27949"
+        }
+      ],
+      "failureFallback": "PG-03 cannot lift until an authorized container run on the exact digest records a real pass."
+    }
+  ],
+  "summary": {
+    "checks": 7,
+    "passed": 1,
+    "blocked": 6,
+    "failed": 0
+  },
+  "artifacts": [
+    {
+      "path": "scripts/validation/container-live-lane.mjs",
+      "sha256": "f80cf90d20acdcbbf6b2740ebd4f9de423f9e6d777caa5579c2c2be972f27949"
+    }
+  ]
+}

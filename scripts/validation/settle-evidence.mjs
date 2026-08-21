@@ -143,8 +143,46 @@ export async function validateSerially() {
   return result;
 }
 
+// Recovery after a failed apply: when every planned root record is already
+// archived but the audit record is missing (e.g. serial validation failed
+// after the archives moved), write the audit from the on-disk reality.
+async function writeRecoveryAudit(plan) {
+  if (plan.review?.status !== "approved") throw new Error("recovery requires plan.review.status=approved after human review");
+  const archived = [];
+  for (const candidate of plan.candidates) {
+    const archivedBytes = await readFile(resolve(archiveDirectory, candidate.name));
+    if (sha256Hex(archivedBytes) !== candidate.sourceSha256) throw new Error(`archived bytes differ from the reviewed plan: ${candidate.name}`);
+    if (await lstat(resolve(evidenceDirectory, candidate.name)).then(() => true, () => false)) throw new Error(`root record still present: ${candidate.name}`);
+    archived.push({ name: candidate.name, sha256: candidate.sourceSha256, byteLength: archivedBytes.byteLength });
+  }
+  const validation = await validateSerially();
+  const audit = {
+    schemaVersion: 1,
+    recordKind: "settlement-results",
+    planKind: SETTLEMENT_VERSION,
+    subject: { type: "commit", identifiers: { commit: plan.subject }, environment: "local-settlement" },
+    completedAt: new Date().toISOString(),
+    archived,
+    regenerated: ["docs/evidence/loopback-lane-local-" + plan.subject.slice(0, 12) + ".json"],
+    validation: { mode: "serial-after-regeneration", gateCount: validation.gateCount, laneCount: validation.laneCount },
+    recovery: "audit written after a mid-apply validation failure; archives were verified byte-for-byte against the reviewed plan",
+    azure: "untouched",
+    production: "prohibited",
+  };
+  const auditPath = resolve(archiveDirectory, `settlement-${plan.subject.slice(0, 12)}.json`);
+  await writeFile(auditPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
+  return { archived, validation, auditPath };
+}
+
 async function applySettlement(plan) {
   if (plan.review?.status !== "approved") throw new Error("apply requires plan.review.status=approved after human review");
+  const auditPath = resolve(archiveDirectory, `settlement-${plan.subject.slice(0, 12)}.json`);
+  try {
+    await readFile(auditPath);
+    throw new Error("settlement audit already exists; this plan was already applied");
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
   await assertPlanUnchanged(plan);
   const archived = [];
   for (const candidate of plan.candidates) archived.push(await archiveRecordByteForByte(candidate.name, candidate.sourceSha256));
@@ -162,13 +200,12 @@ async function applySettlement(plan) {
     azure: "untouched",
     production: "prohibited",
   };
-  const auditPath = resolve(archiveDirectory, `settlement-${plan.subject.slice(0, 12)}.json`);
   await writeFile(auditPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
   return { archived, validation, auditPath };
 }
 
 function usage() {
-  console.log(`Usage:\n  node scripts/validation/settle-evidence.mjs [--write-plan <path>]\n  node scripts/validation/settle-evidence.mjs --apply --plan-file <path> --approve\n\nDefault is a read-only plan. Apply requires a reviewed plan with review.status=approved; it archives byte-for-byte, regenerates loopback evidence, then validates serially.`);
+  console.log(`Usage:\n  node scripts/validation/settle-evidence.mjs [--write-plan <path>]\n  node scripts/validation/settle-evidence.mjs --apply --plan-file <path> --approve\n  node scripts/validation/settle-evidence.mjs --apply --recover --plan-file <path> --approve\n\nDefault is a read-only plan. Apply requires a reviewed plan with review.status=approved; it archives byte-for-byte, regenerates loopback evidence, then validates serially. --recover writes only the missing audit after a mid-apply failure, verifying each archived record byte-for-byte against the reviewed plan.`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
@@ -182,9 +219,15 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     const planIndex = process.argv.indexOf("--plan-file");
     if (planIndex < 0 || !process.argv[planIndex + 1] || !process.argv.includes("--approve")) throw new Error("apply requires --plan-file <path> --approve");
     const plan = JSON.parse(await readFile(resolve(root, process.argv[planIndex + 1]), "utf8"));
-    const result = await applySettlement(plan);
-    console.log(`Settlement applied: ${result.archived.length} root record(s) archived byte-for-byte; current loopback subject regenerated; semantic validation passed serially.`);
-    console.log(`Audit: ${result.auditPath.replace(`${root}/`, "")}`);
+    if (process.argv.includes("--recover")) {
+      const result = await writeRecoveryAudit(plan);
+      console.log(`Settlement recovery: ${result.archived.length} archived record(s) verified byte-for-byte against the reviewed plan; semantic validation passed serially.`);
+      console.log(`Audit: ${result.auditPath.replace(`${root}/`, "")}`);
+    } else {
+      const result = await applySettlement(plan);
+      console.log(`Settlement applied: ${result.archived.length} root record(s) archived byte-for-byte; current loopback subject regenerated; semantic validation passed serially.`);
+      console.log(`Audit: ${result.auditPath.replace(`${root}/`, "")}`);
+    }
   } else {
     const plan = await buildSettlementPlan();
     if (writeIndex >= 0) {

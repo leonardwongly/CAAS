@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "recordKind": "settlement-results",
+  "planKind": "evidence-settlement-v1",
+  "subject": {
+    "type": "commit",
+    "identifiers": {
+      "commit": "be2a61cd423767a069493d66cac63a03c3e3e317"
+    },
+    "environment": "local-settlement"
+  },
+  "completedAt": "2026-08-21T04:02:40.285Z",
+  "archived": [
+    {
+      "name": "container-live-lane-16ee08a8bd77.json",
+      "sha256": "5b46c20b4c9f328a4b44f172e5ee02ba31201ca12bf7db57a9ff14943f068cc2",
+      "byteLength": 6821
+    },
+    {
+      "name": "container-live-lane-afe29166ac21.json",
+      "sha256": "5097b14dad0844b63d3147c26fbcd15dad652d6fc2233a3d979c0f7375c1be03",
+      "byteLength": 4797
+    },
+    {
+      "name": "container-live-lane-bbd6065f6caa.json",
+      "sha256": "53cdad98c3e9d7bcb4ed255483e2c0170756f7edecc19100c4ff83bcac72dd1c",
+      "byteLength": 4792
+    },
+    {
+      "name": "live-lane-116a84d608f3.json",
+      "sha256": "eaba50a478f7e8173ce82dca1548351390135306dca0827da83233629ce86c59",
+      "byteLength": 4530
+    },
+    {
+      "name": "live-lane-16ee08a8bd77.json",
+      "sha256": "44c25d2016c936bb2d192f783eb02c42b88978c99156bebd2968155a7370f875",
+      "byteLength": 5418
+    },
+    {
+      "name": "live-lane-389bd78bd6e7.json",
+      "sha256": "181680e1322554f7a9b5a02af348b2f44ee4927d7c4b4595e0678f5a42cd58d6",
+      "byteLength": 4530
+    },
+    {
+      "name": "live-lane-475dfdcff7ea.json",
+      "sha256": "7c0dc3e72d5f44ea539deb3de2d054220b46da6abcb9b485525ebb85dcfa4058",
+      "byteLength": 4530
+    },
+    {
+      "name": "live-lane-b5f2c4c151a1.json",
+      "sha256": "c09da9468b57f299fda259eab77d3944cebf5c040186f2ef8b5de92c847bdb0d",
+      "byteLength": 4530
+    },
+    {
+      "name": "performance-local-116a84d608f3.json",
+      "sha256": "93c12330fc9fdfb65ea5acae34de23ac07fb6bf9acfbf666bbd4f0eda044a5dc",
+      "byteLength": 9620
+    },
+    {
+      "name": "performance-local-16ee08a8bd77.json",
+      "sha256": "31de12773175354d6f95c9a367dd929a36cca465c5a4c50a11dd42b8371a313e",
+      "byteLength": 13863
+    },
+    {
+      "name": "performance-local-389bd78bd6e7.json",
+      "sha256": "a810b1658db5882188fd65254af36aa5b4a7bc2380e62367de8f801cc94778bc",
+      "byteLength": 9620
+    },
+    {
+      "name": "performance-local-475dfdcff7ea.json",
+      "sha256": "479a1a34a9192a5552e18d28acc25e5d421b88b5bd583449c4e161c3611c04ba",
+      "byteLength": 9620
+    },
+    {
+      "name": "performance-local-9679c00d11f7.json",
+      "sha256": "52239c9536fc25534e74594db8add85fd2f399a02dc10ead11179afc07fbebaf",
+      "byteLength": 13863
+    },
+    {
+      "name": "performance-local-b5f2c4c151a1.json",
+      "sha256": "635e29554a7d76114cfbca339cad50afda9505d228fed84087801d8517548032",
+      "byteLength": 9620
+    }
+  ],
+  "regenerated": [
+    "docs/evidence/loopback-lane-local-be2a61cd4237.json"
+  ],
+  "validation": {
+    "mode": "serial-after-regeneration",
+    "gateCount": 1,
+    "laneCount": 30
+  },
+  "recovery": "audit written after a mid-apply validation failure; archives were verified byte-for-byte against the reviewed plan",
+  "azure": "untouched",
+  "production": "prohibited"
+}
