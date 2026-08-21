@@ -115,8 +115,13 @@ repository. Secretless CI executes on pull requests (evidence validation,
 Semgrep, gitleaks secret scan, dependency audit, image build with Trivy scan);
 the CI-built subject digest is retained at
 [`docs/evidence/oci-digest-bundle-0962c7fedb67.json`](evidence/oci-digest-bundle-0962c7fedb67.json)
-(`sha256:ae5dc6d1…`). **`PG-03` passed on 2026-08-15**: the exact CI subject
-ran the loopback-only real-data container lane 5/5
-([`docs/evidence/container-live-lane-afe29166ac21.json`](evidence/container-live-lane-afe29166ac21.json))
-and the gate manifest records `pass` (4/4 checks). Azure, production, and UAT
-execution remain un-evidenced.
+(`sha256:ae5dc6d1…`). **`PG-03` passed on 2026-08-15** for that pre-synthesis
+subject: the exact CI subject ran the loopback-only real-data container lane
+5/5, a run now archived byte-for-byte at
+[`docs/evidence/archived/container-live-lane-afe29166ac21.json`](evidence/archived/container-live-lane-afe29166ac21.json).
+The container lane has since gained the sixth synthesis-aggregation check for
+donor-subpath synthesis, so the 2026-08-21 evidence settlement re-derived the
+gate manifest and it now honestly records `blocked` (`PG03-EXACT-DIGEST` and
+`PG03-LOOPBACK-REAL-DATA` blocked) until an authorized run on a CI-built
+subject containing the synthesis endpoints passes all six checks. Azure,
+production, and UAT execution remain un-evidenced.

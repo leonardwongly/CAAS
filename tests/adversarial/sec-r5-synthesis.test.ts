@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApiServer } from "../../apps/api/src/index.ts";
+import { scopedToken } from "../../apps/api/src/snapshot.ts";
 import type { CaasAdapter, FlightPlanRecord, ReferenceDatasetResult } from "../../packages/upstream-caas/src/index.ts";
 import { SYNTHESIS_COORDS, synthesisAdapter } from "../fixtures/synthesis-caas.ts";
 
@@ -9,8 +10,8 @@ import { SYNTHESIS_COORDS, synthesisAdapter } from "../fixtures/synthesis-caas.t
 //   identity: upstream flight ids (synth-r1…synth-r7) are fixture-internal
 //   only, donor callsigns never surface in proof responses, no airway value
 //   or internal scoring field ("rank", "operationalProxy") is emitted.
-// - Forged/tampered and cross-generation donor proofs fail closed with
-//   PROOF_INVALID.
+// - Forged/tampered, expired, and cross-generation donor proofs fail closed
+//   with PROOF_INVALID.
 // - A synthesis cursor binds `${flightIndex}|algorithmVersion`: a cursor
 //   minted for one flight cannot offset another flight's candidate pages.
 // - Body allow-list and empty-query hygiene fail closed on both endpoints.
@@ -116,6 +117,27 @@ test("forged, tampered, and cross-generation donor proofs fail closed with PROOF
   assert.equal((crossGeneration.json() as { error: { code: string } }).error.code, "PROOF_INVALID");
 
   // Sanity: the genuine proof still resolves on its own server.
+  const genuine = await server.app.inject({ method: "POST", url: "/api/v1/routes/source-occurrences", payload: { proofId } });
+  assert.equal(genuine.statusCode, 200);
+});
+
+test("an expired donor proof fails closed with PROOF_INVALID even when correctly signed", async (t) => {
+  const server = await createApiServer({ adapter: synthesisAdapter() });
+  t.after(() => server.app.close());
+  const ids = await flightIds(server);
+  const proofId = await firstProofId(server, ids);
+
+  // Mint a correctly signed proof for the same donor range whose expiry is
+  // already in the past: a valid HMAC must not rescue an expired token.
+  const snapshot = server.store.requireSnapshot();
+  const decoded = JSON.parse(Buffer.from(proofId.split(".")[0]!, "base64url").toString("utf8")) as { i: number; f: number; u: number };
+  const expiredProof = scopedToken(snapshot, "donor-proof", { i: decoded.i, f: decoded.f, u: decoded.u }, Date.now() - 60_000);
+  const expired = await server.app.inject({ method: "POST", url: "/api/v1/routes/source-occurrences", payload: { proofId: expiredProof } });
+  assert.equal(expired.statusCode, 400, "an expired proof must fail closed");
+  assert.equal((expired.json() as { error: { code: string } }).error.code, "PROOF_INVALID");
+
+  // Sanity: the same range with a live expiry is exactly what the service
+  // issues, and the genuine proof still resolves.
   const genuine = await server.app.inject({ method: "POST", url: "/api/v1/routes/source-occurrences", payload: { proofId } });
   assert.equal(genuine.statusCode, 200);
 });

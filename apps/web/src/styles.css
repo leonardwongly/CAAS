@@ -406,9 +406,7 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
 /* Observed-donor synthesis layer: borrowed geometry is dotted amber and comes
    exclusively from the synthesis API; the source record renders solid. It
    remains distinct from recorded geometry and legible without color alone. */
-.route-path-potential-known { fill: none; stroke: rgba(217, 230, 242, .74); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; }
 .route-path-potential { fill: none; stroke: var(--amber); stroke-dasharray: 4 7; stroke-linecap: round; stroke-linejoin: round; stroke-width: 3.5; }
-.potential-derived-point circle { fill: #07131f; stroke: var(--amber); stroke-dasharray: 2 2; stroke-width: 2; }
 .legend-line-potential { background: repeating-linear-gradient(90deg, var(--amber) 0 5px, transparent 5px 9px); }
 .potential-route-prompt { align-items: center; border-left: 3px dashed var(--amber); color: var(--muted); display: flex; gap: 12px; justify-content: space-between; padding: 4px 0 4px 10px; }
 .potential-route-prompt .eyebrow { color: var(--amber); margin-bottom: 3px; }.potential-route-prompt strong { color: #eff8ff; display: block; font-size: .72rem; }.potential-route-prompt p { font-size: .64rem; line-height: 1.35; margin: 3px 0 0; }
@@ -417,7 +415,7 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
 .potential-route-options button:hover { background: rgba(242, 186, 107, .1); border-color: var(--amber); }.potential-route-options button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .potential-route-options strong, .potential-route-options small { display: block; }.potential-route-options strong { color: #eff8ff; font-size: .78rem; }.potential-route-options small, .potential-route-options > button > span:last-child { color: var(--muted); font-size: .66rem; }
 @media (max-width: 760px) { .potential-route-prompt { align-items: flex-start; flex-direction: column; gap: 8px; }.potential-route-options button { align-items: flex-start; flex-direction: column; gap: 4px; } }
-@media (forced-colors: active) { .route-path-potential-known { stroke: GrayText; }.route-path-potential { stroke: Highlight; }.potential-derived-point circle { fill: Canvas; stroke: Highlight; }.legend-line-potential { background: repeating-linear-gradient(90deg, CanvasText 0 5px, transparent 5px 9px); } }
+@media (forced-colors: active) { .route-path-potential { stroke: Highlight; }.legend-line-potential { background: repeating-linear-gradient(90deg, CanvasText 0 5px, transparent 5px 9px); } }
 .synthesis-status { border-left: 3px solid var(--blue); padding: 4px 0 4px 10px; color: var(--muted); font-size: .68rem; line-height: 1.4; }
 .synthesis-status.synthesis-unavailable { border-left-color: var(--amber); }
 .synthesis-candidates { display: grid; gap: 8px; }

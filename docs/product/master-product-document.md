@@ -233,7 +233,7 @@ Map and table parity is required because geometry alone is neither sufficiently 
 
 An incomplete recorded route may be opened in an explicit **Estimated gap preview** layer. The recorded route remains unchanged: its gaps, completeness, distance, comparison eligibility, ranking, export behavior, DTO, and server projection are never repaired or replaced.
 
-The layer may draw a dotted visual span only when both anchors are exact normalized coordinates and at least one anchor is adjacent to a recorded component; it has no span-distance upper limit. It displays one clearly synthetic, unnamed geographic midpoint solely to make the estimate inspectable. Endpoint-only routes, ambiguous anchors, and unproven airway relationships remain visibly unresolved. The visual geometry never creates a named fix, airway, route topology, operational recommendation, or complete-route modeled-distance claim.
+The layer drew a dotted visual span only when both anchors were exact normalized coordinates and at least one anchor was adjacent to a recorded component; its synthetic midpoint rendering was retired on 2026-08-20 (ADR-0002). The estimate now survives strictly as a separate descriptive statistical annotation, while donor-subpath synthesis provides the inspectable borrowed-geometry view. Endpoint-only routes, ambiguous anchors, and unproven airway relationships remain visibly unresolved. The visual geometry never creates a named fix, airway, route topology, operational recommendation, or complete-route modeled-distance claim.
 
 This exact-anchor overlay gives an analyst visual continuity without silently rewriting source data. The exact-anchor rule remains fail-closed: absent or ambiguous evidence leaves the original gap intact.
 
@@ -404,7 +404,7 @@ The selected recorded route appears first. Remaining routes preserve immutable u
 
 A bounded incomplete route may expose a client-derived geometric minimum and, when a separately trained artifact passes release gates, a non-operational statistical annotation. Neither value is the complete-route modeled distance defined in Section 9.1. The server continues to omit total `distanceNm` for incomplete routes, and comparison, ordering, ranking, export, topology, and source DTO behavior continue to treat the route as incomplete.
 
-The geometric minimum uses the same full-precision Haversine convention as source legs. The statistical target is excess path length expressed as log circuity; it is learned only from masked complete historical routes with route-group-held-out validation. Screen geometry and synthetic midpoint pixels are never distance inputs.
+The geometric minimum uses the same full-precision Haversine convention as source legs. The statistical target is excess path length expressed as log circuity; it is learned only from masked complete historical routes with route-group-held-out validation. Screen geometry and synthetic preview pixels are never distance inputs.
 
 ## 10. Data behavior
 

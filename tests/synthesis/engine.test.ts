@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { MAX_ROUTE_POINTS } from "../../packages/contracts/src/index.ts";
 import { buildSynthesisIndex, targetCorridors, findDonorSlices, assembleSynthesisCandidates, type ObservedRoute } from "../../packages/route-engine/src/synthesis.ts";
 
 const pt = (ordinal: number, referenceId: string, lat: number, lon: number) =>
@@ -91,6 +92,40 @@ test("candidate-limit-exceeded fails closed with no candidates", () => {
   const outcome = assembleSynthesisCandidates(buildSynthesisIndex([...donors, r3]), r3);
   assert.equal(outcome.status, "candidate-limit-exceeded");
   assert.equal(outcome.candidates.length, 0);
+});
+
+test("single-geometry full coverage reports full; donor-less corridor reports unavailable", () => {
+  // Exactly one donor geometry for the D->E corridor: covered, bounded edges,
+  // every gap covered, no alternative geometry -> "full", never ranked.
+  const full = assembleSynthesisCandidates(buildSynthesisIndex([r2, r3]), r3);
+  assert.equal(full.status, "full");
+  assert.equal(full.candidates.length, 1);
+  assert.equal(full.corridorsCovered, full.corridorCount);
+  assert.ok(full.candidates[0]!.estimatedTotalDistanceNm !== undefined, "full coverage must emit the reproducible estimated total");
+
+  // R1 reaches D but never E: the corridor exists yet no donor slice covers
+  // it, so synthesis honestly reports unavailable with no candidates.
+  const unavailable = assembleSynthesisCandidates(buildSynthesisIndex([r1, r3]), r3);
+  assert.equal(unavailable.status, "unavailable");
+  assert.equal(unavailable.corridorsCovered, 0);
+  assert.equal(unavailable.candidates.length, 0);
+});
+
+test("over-limit: every assembled candidate beyond the point cap is rejected, never truncated", () => {
+  // One donor whose D->E slice is the longest the lookup will ever return
+  // (start position + MAX_ROUTE_POINTS - 1): assembling it onto the target's
+  // recorded points exceeds MAX_ROUTE_POINTS, so the single candidate is
+  // rejected and the outcome is over-limit (an honest status, not an error).
+  const interiorCount = MAX_ROUTE_POINTS - 2; // slice = anchors + interior = 256 points
+  const hugeDonor = route("donor-huge", [
+    pt(0, "D", 10, 20),
+    ...Array.from({ length: interiorCount }, (_, index) => ({ ordinal: index + 1, referenceId: undefined, coordinate: { lat: 20 + index * 0.001, lon: 30 }, label: `H${index}` })),
+    pt(interiorCount + 1, "E", 10, 40),
+  ]);
+  const outcome = assembleSynthesisCandidates(buildSynthesisIndex([hugeDonor, r3]), r3);
+  assert.equal(outcome.status, "over-limit");
+  assert.equal(outcome.candidates.length, 0, "over-limit candidates are rejected, never truncated");
+  assert.equal(outcome.corridorsCovered, 1, "the corridor was covered; only the point cap rejected it");
 });
 
 test("synthesized output is never accepted as index input (type boundary)", () => {
