@@ -126,7 +126,7 @@ function borrowedSegmentProvenanceCopy(segment: SynthesisSegment): string {
   return `Observed subpath copied without modification from ${segment.donorCount} donor route(s); match by ${segment.matchMethod === "reference" ? "exact reference identity" : "exact coordinate"}${segment.donorTruncated ? "; additional donors not listed" : ""}.`;
 }
 
-/** Best-effort statistical annotation copy; kept strictly separate from synthesis candidate totals. */
+/** Descriptive statistical annotation copy; kept strictly separate from synthesis candidate totals. */
 function statisticalAnnotationNote(analysis: IncompleteRouteDistanceAnalysis | undefined): string | undefined {
   if (!analysis) return undefined;
   if (analysis.status === "unavailable") return analysis.message ?? "The statistical annotation is unavailable for this source route.";
@@ -507,7 +507,7 @@ function App() {
   }, [overview, search.query]);
 
   const incompleteOverview = useMemo(() => filteredOverview.filter((route) => !isCompleteRoute(route)), [filteredOverview]);
-  // Statistical annotation survives as a separate, best-effort descriptor: the
+  // Statistical annotation survives as a separate, descriptive-only artifact: the
   // old endpoint coordinates were client midpoint artifacts, so it now runs
   // with an empty endpoint object and keeps its existing semantics.
   const statisticalAnnotation = useMemo(
