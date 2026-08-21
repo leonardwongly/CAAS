@@ -5,6 +5,10 @@
 //   PERF-WARM-LIVE   warm p95 over 100 sampled GET /api/v1/health/live requests
 //                    after 10 warmup requests (2s objective, 5s hard).
 //   PERF-WARM-BROWSE warm p95 over 100 sampled GET /api/v1/routes?limit=20 pages.
+//   PERF-SYNTHESIS-INDEX one synthesis index build over the fixture generation
+//                    (duration only, no identifiers; 1s hard).
+//   PERF-SYNTHESIS-WARM warm p95 over 50 sampled POST /api/v1/routes/synthesis
+//                    requests after a warmup (inherits the 5s warm hard bound).
 //   PERF-MEMORY-PEAK peak RSS sampled at 1 Hz during the warm window
 //                    (1.5 GiB target, 2 GiB hard).
 //
@@ -68,6 +72,12 @@ collector.pass("PERF-WARM-LIVE", "warm p95 health/live latency", "100 sampled re
 collector.pass("PERF-WARM-BROWSE", "warm p95 browse page latency", "100 sampled GET /api/v1/routes?limit=20 pages after warmup.", startedAt, isoNow(),
   warm.browse.p95Ms, "milliseconds", warm.browse.samples,
   artifactsFor([{ path: "raw", sha256: "none", metadata: { p95Ms: warm.browse.p95Ms, maxMs: warm.browse.maxMs, samples: warm.browse.samples } }]));
+collector.pass("PERF-SYNTHESIS-INDEX", "synthesis index build over the generation", "One buildSynthesisIndex pass over the fixture generation's observed routes; measured once per generation, duration only (no identifiers).", startedAt, isoNow(),
+  warm.synthesisIndex.buildMs, "milliseconds", 1,
+  artifactsFor([{ path: "raw", sha256: "none", metadata: { buildMs: warm.synthesisIndex.buildMs, flightCount: warm.synthesisIndex.flightCount } }]));
+collector.pass("PERF-SYNTHESIS-WARM", "warm p95 synthesis latency", "50 sampled POST /api/v1/routes/synthesis requests against the first incomplete target in generation order, after 1 warmup; aggregates are request count, latency, and response bytes only (never request bodies).", startedAt, isoNow(),
+  warm.synthesis.p95Ms, "milliseconds", warm.synthesis.samples,
+  artifactsFor([{ path: "raw", sha256: "none", metadata: { p95Ms: warm.synthesis.p95Ms, maxMs: warm.synthesis.maxMs, samples: warm.synthesis.samples, responseBytes: warm.synthesis.responseBytes } }]));
 collector.pass("PERF-MEMORY-PEAK", "peak RSS during warm window", "Peak resident set sampled at 1 Hz during the warm measurement; policy 1536 MiB target, 2048 MiB hard.", startedAt, isoNow(),
   warm.rssPeakMb, "MiB", 1,
   artifactsFor([{ path: "raw", sha256: "none", metadata: { rssPeakMb: warm.rssPeakMb } }]));
@@ -78,6 +88,8 @@ const policy = [
   { checkId: "PERF-COLD-START-HARD", limit: 180000, measured: coldStartMs },
   { checkId: "PERF-WARM-LIVE-HARD", limit: 5000, measured: warm.live.p95Ms },
   { checkId: "PERF-WARM-BROWSE-HARD", limit: 5000, measured: warm.browse.p95Ms },
+  { checkId: "PERF-SYNTHESIS-INDEX-HARD", limit: 1000, measured: warm.synthesisIndex.buildMs },
+  { checkId: "PERF-SYNTHESIS-WARM-HARD", limit: 5000, measured: warm.synthesis.p95Ms },
   { checkId: "PERF-MEMORY-HARD", limit: 2048, measured: warm.rssPeakMb },
 ];
 for (const entry of policy) {
@@ -107,5 +119,5 @@ const record = {
 };
 const fileSha = await writeJsonRecord(recordPath, record);
 console.log(`Performance record written to ${recordPath} (sha256 ${fileSha})`);
-console.log(`Cold start (worst of 3): ${coldStartMs} ms | warm p95 live: ${warm.live.p95Ms} ms | warm p95 browse: ${warm.browse.p95Ms} ms | peak RSS: ${warm.rssPeakMb} MiB`);
+console.log(`Cold start (worst of 3): ${coldStartMs} ms | warm p95 live: ${warm.live.p95Ms} ms | warm p95 browse: ${warm.browse.p95Ms} ms | synthesis index build: ${warm.synthesisIndex.buildMs} ms | warm p95 synthesis: ${warm.synthesis.p95Ms} ms | peak RSS: ${warm.rssPeakMb} MiB`);
 reportAndExit(collector, "PERFORMANCE MEASUREMENT (fixture-backed loopback)");
