@@ -12,6 +12,7 @@
 // The fixture apikey is consumed only by the deterministic mock transport; no
 // live CAAS origin call is made by this measurement.
 import { createApiServer } from "../../apps/api/src/index.ts";
+import { observedRouteFromProjection } from "../../apps/api/src/server.ts";
 import { overviewProjection } from "../../apps/api/src/projection.ts";
 import { createCaasAdapter } from "../../packages/upstream-caas/src/index.ts";
 import { buildSynthesisIndex } from "../../packages/route-engine/src/index.ts";
@@ -53,22 +54,12 @@ if (mode === "cold") {
 }
 
 // Synthesis index build over the active generation, measured once. This
-// mirrors the server's own lazy build (server.ts synthesize): the same
-// overview projections reduced to observed-route inputs, then one
-// buildSynthesisIndex pass. Duration only — no flight identifiers are ever
-// printed or recorded.
-function observedRoute(snapshot, flight) {
-  const projection = overviewProjection(snapshot, flight);
-  return {
-    flightKey: String(flight.index),
-    occurrences: projection.occurrences.map((occurrence) => "gap" in occurrence
-      ? { ordinal: occurrence.gap.ordinal, gapReason: occurrence.gap.reason }
-      : { ordinal: occurrence.point.ordinal, ...(occurrence.point.referenceId ? { referenceId: occurrence.point.referenceId } : {}), coordinate: occurrence.point.coordinate, label: occurrence.point.label }),
-  };
-}
+// reuses the server's exact reduction (observedRouteFromProjection) so the
+// measured build is the build the server performs — duration only, no flight
+// identifiers are ever printed or recorded.
 const snapshot = server.store.readiness().snapshot;
 const indexStartedAt = Date.now();
-buildSynthesisIndex(snapshot.flights.map((flight) => observedRoute(snapshot, flight)));
+buildSynthesisIndex(snapshot.flights.map((flight) => observedRouteFromProjection(overviewProjection(snapshot, flight))));
 const synthesisIndexBuildMs = Date.now() - indexStartedAt;
 
 // Warm mode: 10 warmup requests, then 100 samples per endpoint with 1 Hz RSS
@@ -115,7 +106,8 @@ let firstFlightId;
 let firstIncompleteId;
 let overviewCursor;
 let overviewPages = 0;
-while (overviewPages < 100 && firstIncompleteId === undefined) {
+const MAX_BROWSE_PAGES = 100;
+while (overviewPages < MAX_BROWSE_PAGES && firstIncompleteId === undefined) {
   const page = await postJson("/api/v1/routes/overview", overviewCursor === undefined ? { limit: 100 } : { limit: 100, cursor: overviewCursor });
   if (page.status !== 200) throw new Error(`overview paging failed with ${page.status}`);
   const parsed = page.json();
@@ -127,12 +119,16 @@ while (overviewPages < 100 && firstIncompleteId === undefined) {
 }
 const synthesisTarget = firstIncompleteId ?? firstFlightId;
 if (!synthesisTarget) throw new Error("the fixture generation has no flights to synthesize");
-await postJson("/api/v1/routes/synthesis", { flightId: synthesisTarget });
+// Warmup also triggers the server's lazy index build; a non-200 here means
+// the measured window would sample error paths, so fail loudly instead.
+const synthesisWarmup = await postJson("/api/v1/routes/synthesis", { flightId: synthesisTarget });
+if (synthesisWarmup.status !== 200) throw new Error(`synthesis warmup failed with ${synthesisWarmup.status}`);
 const synthesisLatencies = [];
 let synthesisResponseBytes = 0;
 for (let i = 0; i < 50; i += 1) {
   const sampleStarted = Date.now();
   const response = await postJson("/api/v1/routes/synthesis", { flightId: synthesisTarget });
+  if (response.status !== 200) throw new Error(`sampled synthesis request failed with ${response.status}`);
   synthesisLatencies.push(Date.now() - sampleStarted);
   synthesisResponseBytes += Buffer.byteLength(response.text, "utf8");
 }

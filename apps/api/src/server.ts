@@ -485,7 +485,7 @@ export function flightId(snapshot: Snapshot, flightIndex: number): string {
  * endpoint-inclusive ordinals and exact join identities only. Donor/target
  * flight identities travel as opaque generation-order keys, never upstream ids.
  */
-function observedRouteFromProjection(projection: RouteProjection<ProjectionEndpoint>): ObservedRoute {
+export function observedRouteFromProjection(projection: RouteProjection<ProjectionEndpoint>): ObservedRoute {
   return {
     flightKey: String(projection.flight.index),
     occurrences: projection.occurrences.map((occurrence) => "gap" in occurrence

@@ -229,7 +229,11 @@ try {
   // synthesizable target exists (live data may legitimately produce zero).
   // This check is new evidence for the feature commit; pre-feature lane
   // records are never reused as proof.
-  const SYNTHESIS_OUTCOMES = ["full", "ambiguous", "partial", "unavailable", "candidate-limit-exceeded"];
+  // Every status the engine can honestly return for an incomplete target is
+  // accepted, including "over-limit" (every assembled candidate exceeds the
+  // point cap); "not-needed" cannot occur because targets are filtered on
+  // complete === false.
+  const SYNTHESIS_OUTCOMES = ["full", "ambiguous", "partial", "unavailable", "over-limit", "candidate-limit-exceeded"];
   const post = async (path, payload) => {
     const response = await fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
     const body = await response.text();

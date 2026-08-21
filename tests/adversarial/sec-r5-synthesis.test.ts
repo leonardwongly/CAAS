@@ -64,9 +64,11 @@ test("synthesis and source-occurrences responses never serialize upstream identi
   t.after(() => server.app.close());
   const ids = await flightIds(server);
 
-  // The incomplete target (R3) and the complete route (R1) both fail the
-  // identity sweep: opaque tokens, borrowed geometry, and distances only.
-  for (const callsign of ["SYNTH3", "SYNTH1"]) {
+  // Every fixture flight fails the identity sweep: the seven routes serialize
+  // distinct shapes (not-needed, donor, ambiguous target, reverse-only,
+  // discontinuous, distinct alternative, duplicate provenance), so each code
+  // path is swept — opaque tokens, borrowed geometry, and distances only.
+  for (const callsign of UPSTREAM_CALLSIGNS) {
     const synthesis = await server.app.inject({ method: "POST", url: "/api/v1/routes/synthesis", payload: { flightId: ids.get(callsign) } });
     assert.equal(synthesis.statusCode, 200);
     assertNoUpstreamIdentity(synthesis.body, `synthesis response for ${callsign}`);
