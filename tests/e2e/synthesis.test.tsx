@@ -49,7 +49,7 @@ describe("observed-donor synthesis e2e", () => {
 
     // Candidate chooser group with provenance wording on every button.
     const candidates = within(drawer).getByRole("group", { name: "Synthesis candidates" });
-    const candidate = within(candidates).getByRole("button", { name: /Candidate candidate-1/ });
+    const candidate = within(candidates).getByRole("button", { name: /^Candidate 1(?!\d)/ });
     expect(within(candidate).getByText(/Observed on 1 donor route\(s\) · borrowed 32\.4 NM/)).toBeTruthy();
     expect(within(candidate).getByText("1 corridor covered")).toBeTruthy();
 

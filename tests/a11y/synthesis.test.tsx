@@ -132,8 +132,8 @@ describe("synthesis drawer accessibility", () => {
     const drawer = await openSynthesisDrawer(user);
     await selectIncompleteRoute(user, drawer);
     const group = await within(drawer).findByRole("group", { name: "Synthesis candidates" });
-    const first = within(group).getByRole("button", { name: /Candidate candidate-1/ });
-    const second = within(group).getByRole("button", { name: /Candidate candidate-2/ });
+    const first = within(group).getByRole("button", { name: /^Candidate 1(?!\d)/ });
+    const second = within(group).getByRole("button", { name: /^Candidate 2(?!\d)/ });
     // The first candidate is auto-selected; the chooser stays neutral.
     expect(first.getAttribute("aria-pressed")).toBe("true");
     expect(second.getAttribute("aria-pressed")).toBe("false");
