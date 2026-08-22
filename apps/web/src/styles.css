@@ -173,7 +173,7 @@ h3 { color: var(--ink); font-size: .95rem; }
 .route-line-selected.is-drawing .route-path { animation: dispatch-route-draw 420ms ease-out; }
 .search-block.is-active .search-button { animation: dispatch-search-ring 360ms ease-out 1; }
 .gap-boundary circle { animation: dispatch-row-in 200ms ease-out 420ms backwards; }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-delay: -.01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
 
 
 /* Advisory Band: full-width strip, sheet background, 3px signal-orange left rule. */
