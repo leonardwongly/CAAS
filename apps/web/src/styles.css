@@ -252,15 +252,15 @@ h3 { color: var(--ink); font-size: .95rem; }
 .toolbar-flight.has-selection .selected-route-label strong { display: block; margin-top: 2px; }
 .toolbar-flight.has-selection strong { color: var(--ink); font-size: .98rem; letter-spacing: .01em; }
 .toolbar-flight.has-selection span:not(.selection-kicker), .toolbar-flight.has-selection small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.map-workspace { min-height: min(780px, calc(100vh - 126px)); }.map-first-panel { background: var(--sheet); border: 1px solid var(--line); border-radius: 2px; min-height: inherit; overflow: hidden; position: relative; }.map-first-panel .map-stage { height: min(780px, calc(100vh - 270px)); min-height: 500px; }.map-first-panel .map-fallback-banner { bottom: 58px; left: auto; right: 20px; top: auto; }.map-first-panel .map-endpoints { bottom: 37px; left: auto; right: 20px; }.map-first-panel .map-attribution { bottom: 14px; }
+.map-first-panel { background: var(--sheet); border: 1px solid var(--line); border-radius: 2px; min-height: inherit; overflow: hidden; position: relative; }.map-first-panel .map-stage { height: min(780px, calc(100vh - 270px)); min-height: 500px; }.map-first-panel .map-fallback-banner { bottom: 58px; left: auto; right: 20px; top: auto; }.map-first-panel .map-endpoints { bottom: 37px; left: auto; right: 20px; }.map-first-panel .map-attribution { bottom: 14px; }
 .map-hud { background: var(--sheet); border: 1px solid var(--hairline); border-radius: 2px; display: grid; gap: 3px; left: 20px; max-width: min(390px, calc(100% - 120px)); padding: 10px 12px; position: absolute; top: 18px; z-index: 3; }.map-hud .eyebrow { margin: 0; }.map-hud strong { color: var(--ink); font-size: .84rem; }.map-hud > span:last-child { color: var(--muted); font-size: .69rem; line-height: 1.35; }
 .rail-entry { position: relative; }
 .rail-count { align-items: center; background: var(--blue); border: 2px solid #07131f; border-radius: 99px; color: #062033; display: inline-flex; font-size: .62rem; font-weight: 800; height: 18px; justify-content: center; line-height: 1; min-width: 18px; padding: 0 4px; pointer-events: none; position: absolute; right: -8px; top: -8px; z-index: 1; }
-.map-left-stack { bottom: 58px; display: flex; flex-direction: column; gap: 10px; left: 18px; min-height: 0; position: absolute; top: 92px; width: min(330px, 28vw); z-index: 4; }.map-left-stack.has-route-legs { grid-template-rows: minmax(120px, .8fr) minmax(220px, 1.2fr); display: grid; }.map-left-stack .flight-overview-list { min-height: 0; }.route-leg-panel { background: var(--sheet); border: 1px solid var(--blue); border-radius: 2px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding: 10px; }.route-leg-panel-heading { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 10px; justify-content: space-between; padding: 2px 3px 8px; }.route-leg-panel-heading .eyebrow { margin-bottom: 3px; }.route-leg-panel-heading h2 { color: var(--ink); font-size: .82rem; margin: 0; }.route-leg-panel-heading > span { color: var(--muted); font-size: .66rem; white-space: nowrap; }.route-leg-panel .table-scroll { flex: 1; margin-top: 9px; min-height: 0; overflow: auto; }.drawer-header { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; margin-bottom: 14px; padding-bottom: 11px; }.drawer-header .eyebrow { margin: 0; }.drawer-header .quiet-button { padding: 6px 9px; }
+.map-left-stack { bottom: 58px; display: flex; flex-direction: column; gap: 10px; left: 18px; min-height: 0; position: absolute; top: 92px; width: min(330px, 28vw); z-index: 4; }.route-leg-panel { background: var(--sheet); border: 1px solid var(--blue); border-radius: 2px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding: 10px; }.route-leg-panel-heading { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 10px; justify-content: space-between; padding: 2px 3px 8px; }.route-leg-panel-heading .eyebrow { margin-bottom: 3px; }.route-leg-panel-heading h2 { color: var(--ink); font-size: .82rem; margin: 0; }.route-leg-panel-heading > span { color: var(--muted); font-size: .66rem; white-space: nowrap; }.route-leg-panel .table-scroll { flex: 1; margin-top: 9px; min-height: 0; overflow: auto; }.drawer-header { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; margin-bottom: 14px; padding-bottom: 11px; }.drawer-header .eyebrow { margin: 0; }.drawer-header .quiet-button { padding: 6px 9px; }
 .map-drawer .options-section, .map-drawer .details-section, .map-drawer .draft-section, .map-drawer .empty-options { background: transparent; border: 0; border-radius: 0; padding: 0; }.map-drawer .section-title { margin-bottom: 15px; }.map-drawer .detail-actions .opaque-id { display: none; }.map-drawer .metric-grid { grid-template-columns: repeat(2, 1fr); margin-bottom: 16px; }.map-drawer .metric { min-height: 76px; padding: 12px; }.map-drawer .metric:nth-child(2) { border-right: 0; }.map-drawer .metric:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }.map-drawer .detail-columns { grid-template-columns: 1fr; }.map-drawer .evidence-stack { margin-top: 14px; }.map-drawer .option-grid { grid-template-columns: 1fr; }.map-drawer .route-card-distance { font-size: 1.15rem; margin: 9px 0 3px; }.map-drawer .route-card { padding: 12px; }.map-drawer .draft-section { margin: 0; }.map-drawer .draft-result { grid-template-columns: repeat(2, 1fr); }
 .map-first-panel > .map-legend { background: var(--sheet); border-top: 1px solid var(--line); bottom: 0; left: 0; padding: 11px 20px; position: absolute; right: 0; z-index: 3; }
 @media (max-width: 1100px) { .map-topbar { grid-template-columns: auto minmax(220px, 1fr) auto; }.toolbar-flight { display: none; }.map-first-panel .map-stage { min-height: 560px; } }
-@media (max-width: 760px) { .map-first-shell { padding: 10px; }.map-topbar { grid-template-columns: 1fr auto; }.product-mark { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }.toolbar-search { grid-column: 1 / 2; }.toolbar-clear { grid-column: 2; grid-row: 1; }.map-workspace { min-height: 640px; }.map-first-panel .map-stage { height: calc(100vh - 150px); min-height: 560px; }.map-hud { max-width: calc(100% - 102px); }.map-drawer { bottom: 44px; left: 8px; max-width: none; top: auto; width: calc(100% - 16px); max-height: 58%; }.map-first-panel > .map-legend { font-size: .6rem; gap: 10px; padding: 9px 12px; }.map-first-panel .map-endpoints { bottom: 46px; left: 12px; right: auto; }.map-first-panel .map-fallback-banner { bottom: 98px; left: 12px; right: 12px; }.map-endpoint span { max-width: 160px; } }
+@media (max-width: 760px) { .map-first-shell { padding: 10px; }.map-topbar { grid-template-columns: 1fr auto; }.product-mark { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }.toolbar-search { grid-column: 1 / 2; }.toolbar-clear { grid-column: 2; grid-row: 1; }.map-first-panel .map-stage { height: calc(100vh - 150px); min-height: 560px; }.map-hud { max-width: calc(100% - 102px); }.map-drawer { bottom: 44px; left: 8px; max-width: none; top: auto; width: calc(100% - 16px); max-height: 58%; }.map-first-panel > .map-legend { font-size: .6rem; gap: 10px; padding: 9px 12px; }.map-first-panel .map-endpoints { bottom: 46px; left: 12px; right: auto; }.map-first-panel .map-fallback-banner { bottom: 98px; left: 12px; right: 12px; }.map-endpoint span { max-width: 160px; } }
 
 /* Audit remediation: convey safety without color, keep dense data usable, and make recoverable errors obvious. */
 .retry-button { align-self: flex-start; background: transparent; border: 1px solid var(--alert-red); border-radius: 2px; color: var(--alert-red); font-size: .7rem; font-weight: 750; margin-top: 4px; padding: 6px 8px; }
@@ -364,7 +364,6 @@ h3 { color: var(--ink); font-size: .95rem; }
 /* Let the map occupy the available desktop viewport instead of reserving
    excess vertical space for the page shell. */
 @media (min-width: 761px) {
-  .map-workspace { min-height: calc(100vh - 135px); }
   .map-first-panel .map-stage { height: min(900px, calc(100vh - 185px)); min-height: 560px; }
 }
 
@@ -438,15 +437,16 @@ h3 { color: var(--ink); font-size: .95rem; }
    overrides the earlier bottom-sheet experiment: route legs never collapse
    when a transient route drawer opens. */
 .map-first-panel .map-left-stack { bottom: 58px; display: flex; flex-direction: column; gap: 10px; left: 18px; min-height: 0; position: absolute; top: 122px; width: min(330px, 28vw); z-index: 4; }
-.map-first-panel .map-left-stack.has-route-legs { display: grid; grid-template-rows: minmax(120px, .8fr) minmax(220px, 1.2fr); }
 @media (max-width: 760px) {
   .map-first-panel .map-left-stack { bottom: 44px; left: 10px; right: 10px; top: 100px; width: auto; }
-  .map-first-panel .map-left-stack.has-route-legs { grid-template-rows: minmax(110px, .8fr) minmax(170px, 1.2fr); }
 }
 
 /* DISPATCH docked frame: command strip · manifest · map · workbench · footer. */
 .dispatch-shell { display: flex; flex-direction: column; min-height: 100vh; padding: 0; }
-.command-strip { align-items: center; background: var(--sheet); border-bottom: 1px solid var(--hairline); display: flex; flex-wrap: wrap; gap: 10px 18px; height: auto; min-height: 56px; padding: 8px 18px; }
+/* Height containment applies only when the docked briefing frame is present;
+   the API-data page renders outside .briefing-frame and keeps document flow. */
+.dispatch-shell:has(.briefing-frame) { height: 100vh; }
+.command-strip { align-items: center; background: var(--sheet); border-bottom: 1px solid var(--hairline); display: flex; flex-wrap: wrap; gap: 10px 18px; min-height: 56px; padding: 8px 18px; }
 .command-strip .product-mark h1 { font-size: 1.05rem; margin: 0; white-space: nowrap; }
 .strip-gen { align-items: center; display: flex; gap: 10px; margin-left: auto; }
 .gen-stamp { white-space: nowrap; }
@@ -455,7 +455,7 @@ h3 { color: var(--ink); font-size: .95rem; }
    docked map stays so wide at the 1280px test viewport that the pinned
    drag-pan tile assertions stop crossing a tile boundary, so the spine sits
    outside the panel width and the map narrows to one that does. */
-.briefing-frame { display: grid; flex: 1; grid-template-columns: 280px minmax(0, 1fr) 424px; min-height: 0; }
+.briefing-frame { display: grid; flex: 1; grid-template-columns: 280px minmax(0, 1fr) 424px; grid-template-rows: minmax(0, 1fr); min-height: 0; }
 .briefing-frame.no-workbench { grid-template-columns: 280px minmax(0, 1fr); }
 .briefing-frame.no-workbench .map-cell { grid-column: 1 / -1; }
 .briefing-frame.workbench-closed { grid-template-columns: 280px minmax(0, 1fr) 44px; }

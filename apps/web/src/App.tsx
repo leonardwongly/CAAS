@@ -38,6 +38,16 @@ import { analyzeIncompleteRouteDistance, type IncompleteRouteDistanceAnalysis } 
 import { BUNDLED_GAP_DISTANCE_MODEL } from "./gapDistanceModel";
 
 type Surface = "none" | "routes" | "route-data" | "editor" | "compare" | "synthesis";
+// Workbench region label + drawer eyebrow per surface; tests pin these strings
+// byte-for-byte, so keep values identical when editing.
+const WORKBENCH_SURFACES: Record<Surface, { label: string; eyebrow: string }> = {
+  none: { label: "Workbench", eyebrow: "" },
+  routes: { label: "Route chooser", eyebrow: "COMPARE RECORDED ROUTES" },
+  "route-data": { label: "Flight and route data", eyebrow: "INSPECT ROUTE" },
+  editor: { label: "Explore a route variation", eyebrow: "EXPLORE VARIATION" },
+  compare: { label: "Route comparison", eyebrow: "COMPARE ROUTES" },
+  synthesis: { label: "Observed-donor synthesis", eyebrow: "OBSERVED-DONOR SYNTHESIS" },
+};
 type SearchState = { query: string; matches: CallsignMatch[]; loading: boolean; searched: boolean; error?: string | undefined };
 const emptySearch: SearchState = { query: "", matches: [], loading: false, searched: false };
 // Type-ahead settles this long after the last keystroke; Enter fires a search
@@ -550,7 +560,7 @@ function App() {
           <h2 className="sr-only" id="map-heading">Global route map</h2>
           <RouteMap routes={filteredOverview} selectedRoute={selectedRoute} synthesisRoute={synthesisRoute} selectedCandidate={selectedCandidate} callsign={selectedFlight?.callsign} onSelectRoute={chooseOverviewRoute} />
           <div className="map-hud">{selectedRoute ? <><span className="eyebrow">SELECTED SOURCE ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? formatDistance(selectedRoute.distanceNm) : "No complete source route available"}</span></> : synthesisRoute ? <><span className="eyebrow">OBSERVED-DONOR SYNTHESIS</span><strong>{synthesisRoute.label ?? synthesisRoute.callsign}</strong><span>Dotted segments were observed on other recorded routes in this generation—not estimates or suggestions.</span></> : <><span className="eyebrow">SOURCE ROUTE OVERVIEW</span><strong>{overviewLoading ? "Loading source route records…" : `${filteredOverview.length} of ${overview.length} source route records shown`}</strong><span>{overviewError ?? "Refreshed source data, not real-time tracking. Select a route from the map or list."}</span></>}</div>
-          {!mapOnly && selectedRoute && primarySurface !== "route-data" && <div className="map-left-stack has-route-legs"><RouteLegPanel route={selectedRoute} /></div>}
+          {!mapOnly && selectedRoute && primarySurface !== "route-data" && <div className="map-left-stack"><RouteLegPanel route={selectedRoute} /></div>}
           {mapOnly && <button ref={restoreControlsRef} className="restore-controls" type="button" onClick={leaveMapOnly} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leaveMapOnly(); } }}>Restore controls</button>}
           {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected source route</span><span><i className="legend-line legend-line-alt" /> Alternate source route</span><span><i className="legend-line legend-line-potential" /> Dotted segments: observed on another recorded route (same generation)</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
         </section>
@@ -565,9 +575,9 @@ function App() {
             <button type="button" aria-pressed={primarySurface === "synthesis"} onClick={() => setPrimarySurface((surface) => surface === "synthesis" ? "none" : "synthesis")}>Synthesis</button>
             <button ref={editorTriggerRef} type="button" aria-pressed={primarySurface === "editor"} onClick={() => { if (!selectedRoute) return; setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} disabled={!selectedRoute}>Explore variation</button>
           </nav>
-          <div className="map-drawer workbench-panel" role="region" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : primarySurface === "compare" ? "Route comparison" : primarySurface === "synthesis" ? "Observed-donor synthesis" : primarySurface === "editor" ? "Explore a route variation" : "Workbench"}>
+          <div className="map-drawer workbench-panel" role="region" aria-label={WORKBENCH_SURFACES[primarySurface].label}>
             {primarySurface === "none" && <div className="workbench-empty"><span aria-hidden="true">⌖</span><strong>NO PANEL OPEN</strong><p>Select a route, then open Routes, Data, Compare, Synthesis, or Draft.</p></div>}
-            {primarySurface !== "none" && <div className="drawer-header"><p className="eyebrow">{primarySurface === "compare" ? "COMPARE ROUTES" : primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : primarySurface === "synthesis" ? "OBSERVED-DONOR SYNTHESIS" : "EXPLORE VARIATION"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>}
+            {primarySurface !== "none" && <div className="drawer-header"><p className="eyebrow">{WORKBENCH_SURFACES[primarySurface].eyebrow}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>}
             {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} onRetry={() => { setRouteReload((current) => current + 1); requestAnimationFrame(() => document.getElementById("options-heading")?.focus()); }} onSelect={(option) => { resetDraftState(); chooseOverviewRoute(option); setStatus(`Selected flight ${option.callsign} from the neutral route comparison.`); closeSurface("routes"); }} />}
             {primarySurface === "synthesis" && <SynthesisExplorer routes={incompleteOverview} selected={synthesisRoute} synthesis={synthesis} selectedCandidate={selectedCandidate} loading={synthesisLoading} error={synthesisError} statisticalNote={statisticalNote} onSelect={chooseSynthesisTarget} onChooseCandidate={setSelectedCandidate} onRetry={() => { if (synthesisRoute) void loadSynthesis(synthesisRoute); }} />}
             {primarySurface === "compare" && selectedRoute && <RouteCompare baseline={selectedRoute} options={options} onSelect={(option) => { chooseOverviewRoute(option); setStatus(`Comparing ${selectedRoute.label ?? "route"} with ${option.label ?? "route option"}.`); }} />}

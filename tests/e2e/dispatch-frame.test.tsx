@@ -22,6 +22,10 @@ describe("DISPATCH briefing frame", () => {
 
     expect(screen.getByRole("banner", { name: "Command strip" })).toBeTruthy();
     expect(document.querySelector(".briefing-frame")).toBeTruthy();
+    // DOM order pin: the command strip precedes the advisory band.
+    const strip = screen.getByRole("banner", { name: "Command strip" });
+    const advisory = screen.getByRole("region", { name: "Safety notice" });
+    expect(strip.compareDocumentPosition(advisory) & document.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(document.querySelector(".manifest")).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Route workspace controls" })).toBeTruthy();
     expect(screen.getByText("SPEC-FRE-002")).toBeTruthy();
