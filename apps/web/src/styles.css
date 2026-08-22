@@ -145,6 +145,34 @@ h3 { color: var(--ink); font-size: .95rem; }
 .skip-link:focus { transform: translateY(0); }
 @media (max-width: 950px) { .app-shell { padding: 25px 20px 55px; }.workspace { grid-template-columns: 1fr; }.control-panel { display: grid; gap: 0 18px; grid-template-columns: 1fr 1fr; }.control-panel .panel-heading, .privacy-note, .sr-status { grid-column: 1 / -1; }.map-panel { min-height: 500px; }.map-stage { height: 410px; } }
 @media (max-width: 650px) { .app-shell { padding: 20px 13px 40px; }.topbar { flex-direction: column; gap: 17px; margin-bottom: 20px; }.topbar .quiet-button { align-self: flex-start; }.control-panel { display: block; padding: 0 17px 18px; }.panel-heading { padding-left: 17px; padding-right: 17px; }.map-panel { min-height: 430px; }.map-stage { height: 335px; min-height: 300px; }.map-fallback-banner { left: 12px; right: 12px; top: 12px; }.map-attribution { bottom: 9px; font-size: .56rem; right: 10px; }.metric-grid { grid-template-columns: repeat(2, 1fr); }.metric:nth-child(2) { border-right: 0; }.metric:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }.detail-columns { grid-template-columns: 1fr; }.options-section, .details-section { padding: 18px 15px; }.empty-options { padding: 18px 15px; }.status-chip { font-size: .6rem; }.section-title { align-items: flex-start; gap: 10px; }.opaque-id { max-width: 120px; } }
+/* DISPATCH motion: dasharray lives inside the draw keyframes only, and App.tsx
+   removes .is-drawing after 460ms, so the steady-state computed
+   stroke-dasharray of the selected route stays `none`. The reduced-motion
+   block below collapses every duration/transition for that preference. */
+@keyframes dispatch-strip-in { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+@keyframes dispatch-row-in { from { opacity: 0; } to { opacity: 1; } }
+/* Transform-only variant of the row entrance for the manifest: the axe lane
+   samples the flight list ~100ms after it mounts, mid-opacity-fade, and the
+   blended foreground falls under the 4.5:1 AA threshold. A shift keeps the
+   staggered entrance deterministic for contrast audits. */
+@keyframes dispatch-row-shift { from { transform: translateX(-4px); } to { transform: translateX(0); } }
+@keyframes dispatch-map-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dispatch-route-draw { from { stroke-dasharray: 1 1; stroke-dashoffset: 1; } to { stroke-dasharray: 1 1; stroke-dashoffset: 0; } }
+@keyframes dispatch-search-ring { from { box-shadow: 0 0 0 0 rgba(30, 42, 56, .35); } to { box-shadow: 0 0 0 8px rgba(30, 42, 56, 0); } }
+.command-strip { animation: dispatch-strip-in 160ms ease-out; }
+.manifest .overview-flight-buttons button { animation: dispatch-row-shift 180ms ease-out backwards; }
+.manifest .overview-flight-buttons button:nth-child(1) { animation-delay: 0ms; }
+.manifest .overview-flight-buttons button:nth-child(2) { animation-delay: 24ms; }
+.manifest .overview-flight-buttons button:nth-child(3) { animation-delay: 48ms; }
+.manifest .overview-flight-buttons button:nth-child(4) { animation-delay: 72ms; }
+.manifest .overview-flight-buttons button:nth-child(5) { animation-delay: 96ms; }
+.manifest .overview-flight-buttons button:nth-child(6) { animation-delay: 120ms; }
+.manifest .overview-flight-buttons button:nth-child(7) { animation-delay: 144ms; }
+.manifest .overview-flight-buttons button:nth-child(8) { animation-delay: 168ms; }
+.map-stage { animation: dispatch-map-in 240ms ease-out; }
+.route-line-selected.is-drawing .route-path { animation: dispatch-route-draw 420ms ease-out; }
+.search-block.is-active .search-button { animation: dispatch-search-ring 360ms ease-out 1; }
+.gap-boundary circle { animation: dispatch-row-in 200ms ease-out 420ms backwards; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
 
 

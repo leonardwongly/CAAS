@@ -61,6 +61,38 @@ function formatDistance(value: number | undefined): string {
   return value === undefined ? "Not supplied" : `${value.toFixed(1)} NM`;
 }
 
+/** Instrument count-up for headline distance figures: rAF from 0 → value over
+ * 320ms, re-run on value change, rAF cancelled on unmount/change. Reduced
+ * motion (or environments without matchMedia, e.g. jsdom) renders the final
+ * value directly. Thousands separator is a plain space inserted before the
+ * last three integer digits — U+202F is not in the vendored latin font
+ * subsets and would break tabular-nums alignment. */
+function formatTickValue(value: number): string {
+  const fixed = value.toFixed(1);
+  if (value < 1000) return fixed;
+  const [integer, decimal] = fixed.split(".");
+  return `${(integer ?? "").replace(/\B(?=(\d{3})+(?!\d))/g, " ")}.${decimal ?? "0"}`;
+}
+
+function DistanceTick({ nm }: { nm: number | undefined }) {
+  const reducedMotion = typeof window.matchMedia !== "function" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const [display, setDisplay] = useState<number>(nm ?? 0);
+  useEffect(() => {
+    const target = nm ?? 0;
+    if (reducedMotion) { setDisplay(target); return; }
+    let frame = 0;
+    const start = performance.now();
+    const step = (now: number) => {
+      const progress = Math.min(1, (now - start) / 320);
+      setDisplay(target * progress);
+      if (progress < 1) frame = window.requestAnimationFrame(step);
+    };
+    frame = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(frame);
+  }, [nm, reducedMotion]);
+  return <>{nm === undefined ? "Not supplied" : `${formatTickValue(display)} NM`}</>;
+}
+
 function isCompleteRoute(route: RouteOption): boolean {
   return route.complete && route.gaps.length === 0;
 }
@@ -534,7 +566,7 @@ function App() {
         <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Dispatch briefing</h1></div>
         {page === "map" && <div className="toolbar-search"><SearchBox selected={selectedFlight} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={(match) => chooseFlight(match, true)} onCancelSearch={cancelSearch} /></div>}
         <div className={`toolbar-flight ${selectedFlight ? "has-selection" : ""}`} role="group" aria-label="Selected flight">
-          {selectedFlight ? <><div className="selected-route-label"><span className="selection-kicker">SELECTED ROUTE</span><strong>{selectedFlight.callsign}</strong></div><div className="selected-route-endpoints">{selectedFlight.departure} → {selectedFlight.destination}</div><div className="selected-route-distance">{selectedRoute?.complete ? formatDistance(selectedRoute.distanceNm) : "No complete recorded route available"}</div></> : <span>{overviewLoading ? "Loading the all-flight overview…" : `${filteredOverview.length} source flight record${filteredOverview.length === 1 ? "" : "s"} available. Select a route from the map or list.`}</span>}
+          {selectedFlight ? <><div className="selected-route-label"><span className="selection-kicker">SELECTED ROUTE</span><strong>{selectedFlight.callsign}</strong></div><div className="selected-route-endpoints">{selectedFlight.departure} → {selectedFlight.destination}</div><div className="selected-route-distance">{selectedRoute?.complete ? <DistanceTick nm={selectedRoute.distanceNm} /> : "No complete recorded route available"}</div></> : <span>{overviewLoading ? "Loading the all-flight overview…" : `${filteredOverview.length} source flight record${filteredOverview.length === 1 ? "" : "s"} available. Select a route from the map or list.`}</span>}
         </div>
         {(generation || refreshError || readinessError) && (
           <div className="strip-gen" role="region" aria-label="Source data controls">
@@ -559,7 +591,7 @@ function App() {
         <section className="map-panel map-first-panel map-cell" aria-labelledby="map-heading">
           <h2 className="sr-only" id="map-heading">Global route map</h2>
           <RouteMap routes={filteredOverview} selectedRoute={selectedRoute} synthesisRoute={synthesisRoute} selectedCandidate={selectedCandidate} callsign={selectedFlight?.callsign} onSelectRoute={chooseOverviewRoute} />
-          <div className="map-hud">{selectedRoute ? <><span className="eyebrow">SELECTED SOURCE ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? formatDistance(selectedRoute.distanceNm) : "No complete source route available"}</span></> : synthesisRoute ? <><span className="eyebrow">OBSERVED-DONOR SYNTHESIS</span><strong>{synthesisRoute.label ?? synthesisRoute.callsign}</strong><span>Dotted segments were observed on other recorded routes in this generation—not estimates or suggestions.</span></> : <><span className="eyebrow">SOURCE ROUTE OVERVIEW</span><strong>{overviewLoading ? "Loading source route records…" : `${filteredOverview.length} of ${overview.length} source route records shown`}</strong><span>{overviewError ?? "Refreshed source data, not real-time tracking. Select a route from the map or list."}</span></>}</div>
+          <div className="map-hud">{selectedRoute ? <><span className="eyebrow">SELECTED SOURCE ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? <DistanceTick nm={selectedRoute.distanceNm} /> : "No complete source route available"}</span></> : synthesisRoute ? <><span className="eyebrow">OBSERVED-DONOR SYNTHESIS</span><strong>{synthesisRoute.label ?? synthesisRoute.callsign}</strong><span>Dotted segments were observed on other recorded routes in this generation—not estimates or suggestions.</span></> : <><span className="eyebrow">SOURCE ROUTE OVERVIEW</span><strong>{overviewLoading ? "Loading source route records…" : `${filteredOverview.length} of ${overview.length} source route records shown`}</strong><span>{overviewError ?? "Refreshed source data, not real-time tracking. Select a route from the map or list."}</span></>}</div>
           {!mapOnly && selectedRoute && primarySurface !== "route-data" && <div className="map-left-stack"><RouteLegPanel route={selectedRoute} /></div>}
           {mapOnly && <button ref={restoreControlsRef} className="restore-controls" type="button" onClick={leaveMapOnly} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leaveMapOnly(); } }}>Restore controls</button>}
           {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected source route</span><span><i className="legend-line legend-line-alt" /> Alternate source route</span><span><i className="legend-line legend-line-potential" /> Dotted segments: observed on another recorded route (same generation)</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
@@ -887,6 +919,17 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
     return { route, projection: tilesOn ? projectWorldSegmentsMercator(sourceSegments, view, stageSize) : projectWorldSegments(sourceSegments) };
   }), [routes, tilesOn, view, stageSize]);
   const displayRoute = selectedRoute ?? synthesisRoute;
+  // Draw-on lifecycle: .is-drawing runs the stroke-draw keyframes once per
+  // displayed flight; the 460ms timeout (animation is 420ms) removes the
+  // class so steady-state computed stroke-dasharray returns to `none`.
+  const [drawing, setDrawing] = useState(false);
+  useEffect(() => {
+    const flightId = displayRoute?.flightId;
+    if (!flightId) return;
+    setDrawing(true);
+    const timer = window.setTimeout(() => setDrawing(false), 460);
+    return () => window.clearTimeout(timer);
+  }, [displayRoute?.flightId]);
   const displayProjection = useMemo(() => {
     if (!displayRoute) return undefined;
     const sourceSegments = displayRoute.segments ?? (displayRoute.geometry ? [displayRoute.geometry] : []);
@@ -1060,7 +1103,7 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
         {tilesOn && <g className="map-graticule-tile">{graticule.verticals.map((v) => <line key={`gv-${v.lon}-${Math.round(v.x)}`} x1={v.x} y1={0} x2={v.x} y2={stageSize.height} />)}{graticule.horizontals.map((h) => <line key={`gh-${h.lat}`} x1={0} y1={h.y} x2={stageSize.width} y2={h.y} />)}</g>}
         {alternates.map(({ route, projection }) => <g key={route.id} className={`route-line-alternate${hovered?.route.flightId === route.flightId ? " route-line-hover" : ""}`}>{projection.segments.map((segment, index) => <path key={`alternate-segment-${index}`} d={segment.path} className="route-path-alternate" />)}</g>)}
         {borrowedProjection && <g className="route-line-potential-inferred">{borrowedProjection.segments.map((segment, index) => <path key={`borrowed-segment-${index}`} d={segment.path} className="route-path-potential" />)}</g>}
-        {displayRoute && displayProjection && <g className={`route-line-selected${hovered?.route.flightId === displayRoute.flightId ? " route-line-hover" : ""}`}>{displayProjection.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" /><path d={segment.path} className="route-path" /></g>)}</g>}
+        {displayRoute && displayProjection && <g className={`route-line-selected${drawing ? " is-drawing" : ""}${hovered?.route.flightId === displayRoute.flightId ? " route-line-hover" : ""}`}>{displayProjection.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" /><path d={segment.path} className="route-path" pathLength={1} /></g>)}</g>}
         {projections.map(({ route, projection }) => projection && <g key={`hit-${route.flightId}`} className="route-hit-lines">{projection.segments.map((segment, index) => <path key={`hit-segment-${index}`} d={segment.path} className="route-hit" onClick={(event) => { event.stopPropagation(); chooseProjectedRoute(route, projection); }} onMouseMove={(event) => { const rect = stageRef.current?.getBoundingClientRect(); const nextX = event.clientX - (rect?.left ?? 0); const nextY = event.clientY - (rect?.top ?? 0); setHovered((prev) => prev && prev.route.flightId === route.flightId && Math.abs(prev.x - nextX) < 3 && Math.abs(prev.y - nextY) < 3 ? prev : { route, x: nextX, y: nextY }); }} onMouseLeave={() => setHovered(undefined)} />)}</g>)}
         {departurePoint && <MapMarker point={departurePoint} label={departure} tone="origin" />}
         {arrivalPoint && <MapMarker point={arrivalPoint} label={arrival} tone="destination" />}
