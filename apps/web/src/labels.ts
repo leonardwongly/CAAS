@@ -8,6 +8,8 @@ export const INCOMPLETE_GROUP_DESCRIPTION = "Some references could not be resolv
 
 export const SAFETY_NOTICE = "Demonstration only—not real-time operational tracking or route advice. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.";
 
+export const ADVISORY_HEADLINE = "Demonstration only — not for filing, dispatch, or route advice.";
+
 /** Byte-identical mirror of `packages/contracts` DRAFT_SAFETY_COPY. */
 export const DRAFT_SAFETY_COPY = "Computationally complete; operational constraints not assessed.";
 

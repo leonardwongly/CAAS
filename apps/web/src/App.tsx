@@ -22,6 +22,7 @@ import {
   type SynthesisSegment,
 } from "./api";
 import {
+  ADVISORY_HEADLINE,
   COMPLETE_GROUP_DESCRIPTION,
   COMPLETE_GROUP_TITLE,
   DRAFT_SAFETY_COPY,
@@ -518,7 +519,7 @@ function App() {
 
   return (
     <div className="app-shell map-first-shell">
-      <div className="safety-banner compact-safety" role="region" aria-label="Safety notice"><strong><span aria-hidden="true">⚠</span> Safety notice</strong><span>{SAFETY_NOTICE}</span></div>
+      <div className="safety-banner advisory-band" role="region" aria-label="Safety notice"><strong><span aria-hidden="true">⚠</span> Advisory</strong><span>{ADVISORY_HEADLINE}</span><details className="advisory-details"><summary tabIndex={-1}>Read advisory</summary><p>{SAFETY_NOTICE}</p></details></div>
       {!mapOnly && page === "map" && <header className="map-topbar">
         <a className="skip-link" href="#flight-search">Skip to flight search</a>
         <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Map-first route comparison</h1></div>
