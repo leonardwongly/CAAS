@@ -561,12 +561,15 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
    details/summary pair always renders; the summary is hidden at >=761px and
    the details element lays the items out in the legend's flex row. */
 .map-legend .legend-key { align-items: center; display: flex; flex-wrap: wrap; gap: inherit; margin: 0; }
-/* The <details> wrapper always renders; at >=761px the summary hides and the
-   items must stay visible even though the disclosure is closed, so an author
-   display rule overrides the UA's closed-details hiding. `inline` keeps the
-   original inline flow of icon + label inside the flex items. */
+/* The <details> wrapper always renders; visibility of the items on a closed
+   disclosure is controlled by the `open` attribute (App.tsx keeps it open at
+   >=761px) — modern browsers hide closed-details content via the UA
+   `::details-content` rule, which author display rules cannot override. This
+   rule only keeps the original inline flow of icon + label inside the flex
+   items and is otherwise harmless. */
 .legend-key > span { display: inline; }
 .legend-key summary { align-items: center; cursor: pointer; display: none; font-family: var(--font-mono); font-size: var(--text-micro); letter-spacing: .08em; min-height: 44px; padding: 4px 10px; text-transform: uppercase; }
+.legend-key summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 
 /* DISPATCH Task 9 responsive contract (spec section 9): 761-1279px folds the
    manifest away and docks the workbench as a bottom sheet; <=760px stacks
@@ -579,7 +582,6 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
   .briefing-frame.workbench-closed, .briefing-frame.no-workbench { grid-template-columns: minmax(0, 1fr); }
   .manifest { display: none; }
   .workbench { border-left: 0; border-top: 1px solid var(--hairline); grid-template-columns: 44px minmax(0, 1fr); max-height: 55vh; overflow: auto; }
-  .workbench-spine { flex-direction: column; }
 }
 @media (max-width: 760px) {
   .briefing-frame { display: flex; flex-direction: column; }

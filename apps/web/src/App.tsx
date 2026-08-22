@@ -232,7 +232,10 @@ function App() {
 
   // Task 9: the legend's Key disclosure stays open at >=761px (summary hidden)
   // so the absolutely-positioned legend is sized by its items; at <=760px it
-  // folds natively behind the summary.
+  // folds natively behind the summary. `mapOnly` is a dependency because Map
+  // Only unmounts the legend; leaving it remounts the <details> element closed
+  // and the effect must re-run to re-open it at desktop widths (the body is
+  // idempotent: toggleAttribute("open", shouldBeOpen)).
   useEffect(() => {
     // Environments without matchMedia (e.g. jsdom) keep the disclosure open.
     if (typeof window.matchMedia !== "function") {
@@ -244,7 +247,7 @@ function App() {
     apply();
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
-  }, []);
+  }, [mapOnly]);
 
   // Design §15.2: focus return is deterministic after closing a surface,
   // selecting a route, retrying an error, or leaving Map Only.
