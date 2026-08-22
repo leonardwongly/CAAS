@@ -283,7 +283,7 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 
 /* Accessibility & UAT pass (2026-08-13): Map Only surface, deterministic
    focus-return targets, and forced-colors support (design §15.2, §15.4, §15.7). */
-.restore-controls { background: var(--sheet); border: 1px solid var(--hairline); border-radius: 2px; color: var(--ink); font-size: .7rem; padding: 9px 10px; position: absolute; right: 18px; top: 18px; z-index: 4; }
+.restore-controls { background: var(--sheet); border: 1px solid var(--hairline); border-radius: 2px; color: var(--ink); font-size: .7rem; min-height: 44px; min-width: 44px; padding: 9px 10px; position: absolute; right: 18px; top: 18px; z-index: 4; }
 .restore-controls:hover { border-color: var(--blue); color: var(--ink); }
 .restore-controls:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .section-title h2:focus, .group-heading h3:focus { outline: 2px solid var(--blue); outline-offset: 2px; }
@@ -503,7 +503,6 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 .map-stage.has-selected-route .route-line-selected .route-shadow { stroke-width: 6; }
 .map-stage.has-selected-route .route-line-alternate { opacity: .15; }
 .route-line-hover .route-path, .route-line-hover .route-path-alternate { stroke-width: 5; }
-.map-first-panel > .map-legend { background: var(--sheet); border: 1px solid var(--hairline); border-radius: 2px; bottom: 14px; display: flex; left: auto; padding: 10px 14px; position: absolute; right: 14px; top: auto; z-index: 3; }
 .reg-mark { border-color: var(--ink-60); border-style: solid; border-width: 0; height: 14px; position: absolute; width: 14px; z-index: 3; }
 .reg-tl { border-left-width: 1px; border-top-width: 1px; left: 10px; top: 10px; }
 .reg-tr { border-right-width: 1px; border-top-width: 1px; right: 10px; top: 10px; }
