@@ -904,17 +904,26 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
   }, [selectedRoute?.id, selectedRoute?.origin, selectedRoute?.destination]);
 
   useEffect(() => {
-    if (!tilesOn || !displayRoute) return;
+    if (!displayRoute) return;
     const sourceSegments = displayRoute.segments ?? (displayRoute.geometry ? [displayRoute.geometry] : []);
+    // The fit bounds every drawn line: the selected route, the dimmed
+    // alternates, borrowed donor segments, and the endpoint pins, so nothing
+    // on the map is clipped after a selection.
+    const alternateSegments = routes
+      .filter((route) => isCompleteRoute(route) && route.flightId !== displayRoute.flightId)
+      .flatMap((route) => route.segments ?? (route.geometry ? [route.geometry] : []));
     const coordinates = [
       ...sourceSegments.flat(),
+      ...alternateSegments.flat(),
       ...(selectedCandidate?.segments.flatMap((segment) => segment.geometry) ?? []),
     ];
     if (endpoints.departure) coordinates.push(endpoints.departure.coordinate);
     if (endpoints.arrival) coordinates.push(endpoints.arrival.coordinate);
     const fitted = fitViewToCoordinates(coordinates, stageSize);
     if (fitted) setView(fitted);
-  }, [displayRoute, selectedCandidate, endpoints, stageSize.width, stageSize.height, tilesOn]);
+    // tilesOn is intentionally not a dependency: the Mercator view drives tile
+    // mode only, and toggling the base map must not reset the user's pan/zoom.
+  }, [routes, displayRoute, selectedCandidate, endpoints, stageSize.width, stageSize.height]);
 
   const projectPoint = (coordinate: Coordinate): Point => tilesOn ? pixelFromView(coordinate, view, stageSize) : projectWorldPoint(coordinate);
   const departurePoint = displayEndpoints.departure ? projectPoint(displayEndpoints.departure.coordinate) : undefined;
