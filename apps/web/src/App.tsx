@@ -923,7 +923,7 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
     const metersPerPixel = 156543.03392 * Math.cos(view.lat * Math.PI / 180) / 2 ** view.zoom;
     let step = 50;
     let px = step / metersPerPixel;
-    for (const meters of [50, 100, 200, 500, 1000, 2000, 5000, 100000, 200000, 500000, 1000000, 2000000]) {
+    for (const meters of [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000, 2000000]) {
       const candidate = meters / metersPerPixel;
       if (candidate <= 160) { step = meters; px = candidate; }
     }
@@ -1055,23 +1055,23 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
     <div className="map-canvas" role="img" aria-label={label}>
       {tilesOn && <TileLayer view={view} size={stageSize} onTileFailure={() => setTilesFailed(true)} />}
       <svg className="route-svg" viewBox={tilesOn ? `0 0 ${stageSize.width} ${stageSize.height}` : "0 0 800 440"} aria-hidden="true">
-        <defs><pattern id="gap-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="transparent" /><line x1="0" y1="0" x2="0" y2="6" stroke="var(--alert-red)" strokeOpacity=".2" strokeWidth="2" /></pattern></defs>
+        <defs><pattern id="gap-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="transparent" /><line x1="0" y1="0" x2="0" y2="6" /></pattern></defs>
         {!tilesOn && <WorldMapBase />}
         {tilesOn && <g className="map-graticule-tile">{graticule.verticals.map((v) => <line key={`gv-${v.lon}-${Math.round(v.x)}`} x1={v.x} y1={0} x2={v.x} y2={stageSize.height} />)}{graticule.horizontals.map((h) => <line key={`gh-${h.lat}`} x1={0} y1={h.y} x2={stageSize.width} y2={h.y} />)}</g>}
         {alternates.map(({ route, projection }) => <g key={route.id} className={`route-line-alternate${hovered?.route.flightId === route.flightId ? " route-line-hover" : ""}`}>{projection.segments.map((segment, index) => <path key={`alternate-segment-${index}`} d={segment.path} className="route-path-alternate" />)}</g>)}
         {borrowedProjection && <g className="route-line-potential-inferred">{borrowedProjection.segments.map((segment, index) => <path key={`borrowed-segment-${index}`} d={segment.path} className="route-path-potential" />)}</g>}
         {displayRoute && displayProjection && <g className={`route-line-selected${hovered?.route.flightId === displayRoute.flightId ? " route-line-hover" : ""}`}>{displayProjection.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" /><path d={segment.path} className="route-path" /></g>)}</g>}
-        {projections.map(({ route, projection }) => projection && <g key={`hit-${route.flightId}`} className="route-hit-lines">{projection.segments.map((segment, index) => <path key={`hit-segment-${index}`} d={segment.path} className="route-hit" onClick={(event) => { event.stopPropagation(); chooseProjectedRoute(route, projection); }} onMouseMove={(event) => { const rect = stageRef.current?.getBoundingClientRect(); setHovered({ route, x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) }); }} onMouseLeave={() => setHovered(undefined)} />)}</g>)}
+        {projections.map(({ route, projection }) => projection && <g key={`hit-${route.flightId}`} className="route-hit-lines">{projection.segments.map((segment, index) => <path key={`hit-segment-${index}`} d={segment.path} className="route-hit" onClick={(event) => { event.stopPropagation(); chooseProjectedRoute(route, projection); }} onMouseMove={(event) => { const rect = stageRef.current?.getBoundingClientRect(); const nextX = event.clientX - (rect?.left ?? 0); const nextY = event.clientY - (rect?.top ?? 0); setHovered((prev) => prev && prev.route.flightId === route.flightId && Math.abs(prev.x - nextX) < 3 && Math.abs(prev.y - nextY) < 3 ? prev : { route, x: nextX, y: nextY }); }} onMouseLeave={() => setHovered(undefined)} />)}</g>)}
         {departurePoint && <MapMarker point={departurePoint} label={departure} tone="origin" />}
         {arrivalPoint && <MapMarker point={arrivalPoint} label={arrival} tone="destination" />}
         {displayProjection?.gapBoundaries.map((point, index) => <g key={`gap-${index}`} className="gap-boundary"><circle cx={point.x} cy={point.y} r="7" /><text x={point.x + 12} y={point.y + 4}>Gap</text></g>)}
       </svg>
     </div>
     <span className="reg-mark reg-tl" aria-hidden="true" /><span className="reg-mark reg-tr" aria-hidden="true" /><span className="reg-mark reg-bl" aria-hidden="true" /><span className="reg-mark reg-br" aria-hidden="true" />
-    <div className="compass-rose" aria-hidden="true"><svg viewBox="0 0 36 36" width="36" height="36"><circle cx="18" cy="18" r="15" /><path d="M18 5 L21 18 L18 15 L15 18 Z" /><text x="18" y="33" textAnchor="middle">N</text></svg></div>
-    <div className="map-scalebar" aria-hidden="true"><span className="scalebar-bar" style={{ width: scaleBar.px }} /><span className="scalebar-label">{scaleBar.label}</span></div>
-    <div className="graticule-labels" aria-hidden="true">{graticule.verticals.map((v) => <span key={`v-${v.lon}-${Math.round(v.x)}`} className="grat-label" style={{ left: v.x }}>{`${Math.abs(Math.round(v.lon))}°${v.lon < 0 ? "W" : v.lon > 0 ? "E" : ""}`}</span>)}{graticule.horizontals.map((h) => <span key={`h-${h.lat}`} className="grat-label" style={{ top: h.y }}>{`${Math.abs(Math.round(h.lat))}°${h.lat < 0 ? "S" : h.lat > 0 ? "N" : ""}`}</span>)}</div>
-    {hovered && <div className="route-tooltip" style={{ left: hovered.x + 12, top: hovered.y + 12 }}>{hovered.route.callsign} · {formatDistance(hovered.route.distanceNm)}</div>}
+    {tilesOn && <div className="compass-rose" aria-hidden="true"><svg viewBox="0 0 36 36" width="36" height="36"><circle cx="18" cy="18" r="15" /><path d="M18 5 L21 18 L18 15 L15 18 Z" /><text x="18" y="33" textAnchor="middle">N</text></svg></div>}
+    {tilesOn && Number.isFinite(view.lat) && <div className="map-scalebar" aria-hidden="true"><span className="scalebar-bar" style={{ width: scaleBar.px }} /><span className="scalebar-label">{scaleBar.label}</span></div>}
+    {tilesOn && <div className="graticule-labels" aria-hidden="true">{graticule.verticals.map((v) => <span key={`v-${v.lon}-${Math.round(v.x)}`} className="grat-label" style={{ left: v.x }}>{`${Math.abs(Math.round(v.lon))}°${v.lon < 0 ? "W" : v.lon > 0 ? "E" : ""}`}</span>)}{graticule.horizontals.map((h) => <span key={`h-${h.lat}`} className="grat-label" style={{ top: h.y }}>{`${Math.abs(Math.round(h.lat))}°${h.lat < 0 ? "S" : h.lat > 0 ? "N" : ""}`}</span>)}</div>}
+    {hovered && <div className="route-tooltip" aria-hidden="true" style={{ left: hovered.x + 12, top: hovered.y + 12 }}>{hovered.route.callsign} · {formatDistance(hovered.route.distanceNm)}</div>}
     {overlapChoices.length > 0 && <section className="map-overlap-chooser" role="dialog" aria-modal="false" aria-label="Choose an overlapping recorded flight"><div><strong>{overlapChoices.length} routes overlap here</strong><button type="button" className="quiet-button" onClick={() => setOverlapChoices([])}>Close</button></div>{overlapChoices.map((route) => <button key={route.flightId} type="button" onClick={() => { setOverlapChoices([]); onSelectRoute(route); }}><strong>{route.callsign}</strong><span>{route.origin} → {route.destination}</span></button>)}</section>}
     <div className="map-fallback-banner"><span className="map-pin">◇</span><span>{banner}</span></div>
     <div className="map-zoom-controls" role="group" aria-label="Map zoom and base layer">
