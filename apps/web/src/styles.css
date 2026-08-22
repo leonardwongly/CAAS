@@ -182,7 +182,7 @@ h3 { color: var(--ink); font-size: .95rem; }
 .gap-row th, .gap-row td { color: var(--alert-red); }
 .gap-row .gap-reason { color: var(--muted); display: block; font-size: .68rem; font-weight: 400; margin-top: 3px; }
 /* Ruled ledger: teal tick marks resolved legs in the Status column. */
-tbody tr:not(.gap-row) td:last-child::before { color: var(--survey-teal); content: "✓ "; }
+table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child::before { color: var(--survey-teal); content: "✓ "; }
 .legend-gap { border: 2px dashed var(--red); border-radius: 50%; display: inline-block; height: 9px; margin-right: 5px; vertical-align: middle; width: 9px; }
 .gap-boundary circle { fill: var(--paper); stroke: var(--red); stroke-dasharray: 2 2; stroke-width: 2; }
 .gap-boundary text { fill: var(--red); font-size: 11px; font-weight: 800; }
