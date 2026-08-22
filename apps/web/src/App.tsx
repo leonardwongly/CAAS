@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ApiError,
   fetchReadiness,
@@ -933,6 +933,11 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
   const banner = synthesisRoute ? `${baseName} · observed-donor synthesis · dotted segments were observed on other recorded routes in this generation.` : hasAnyLine ? `${baseName} · source route geometry` : `${baseName} · no route geometry returned yet.`;
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!tilesOn) return;
+    // Interactive controls inside the stage (zoom buttons, base-map toggle,
+    // overlap chooser) must keep their native click. Capturing the pointer on
+    // the stage would retarget pointerup/click to the stage and swallow the
+    // control activation, so drags only begin on the map surface itself.
+    if (event.target instanceof Element && event.target.closest("button, a, input, select, textarea, [role='dialog']")) return;
     dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
     if (typeof event.currentTarget.setPointerCapture === "function") event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -949,21 +954,33 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
     if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
   };
   const wheelLockRef = useRef(0);
-  const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
-    if (!tilesOn) return;
-    event.preventDefault();
-    const nextZoom = clampZoom(view.zoom + (event.deltaY < 0 ? 1 : -1));
-    if (nextZoom === view.zoom) return; // at a zoom bound: nothing to do
-    // A scroll gesture fires many wheel events; accept at most one zoom
-    // level per burst so the map does not slam through the whole range.
-    const now = Date.now();
-    if (now - wheelLockRef.current < WHEEL_ZOOM_DEBOUNCE_MS) return;
-    wheelLockRef.current = now;
-    const rect = stageRef.current?.getBoundingClientRect();
-    const cursor = rect && rect.width > 0 ? { x: event.clientX - rect.left, y: event.clientY - rect.top } : { x: stageSize.width / 2, y: stageSize.height / 2 };
-    setView(viewFromZoomAtPoint(cursor, view, nextZoom, stageSize));
-  };
-  return <div className={`map-stage ${displayRoute ? "has-selected-route" : ""}`} ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onWheel={onWheel}>
+  // React registers wheel listeners as passive, where preventDefault is a
+  // no-op that spams console errors and lets the page scroll mid-zoom. Attach
+  // a native non-passive listener to the stage instead.
+  const wheelStateRef = useRef({ tilesOn, view, stageSize });
+  wheelStateRef.current = { tilesOn, view, stageSize };
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const handleWheel = (event: WheelEvent) => {
+      const { tilesOn: on, view: currentView, stageSize: size } = wheelStateRef.current;
+      if (!on) return;
+      event.preventDefault();
+      const nextZoom = clampZoom(currentView.zoom + (event.deltaY < 0 ? 1 : -1));
+      if (nextZoom === currentView.zoom) return; // at a zoom bound: nothing to do
+      // A scroll gesture fires many wheel events; accept at most one zoom
+      // level per burst so the map does not slam through the whole range.
+      const now = Date.now();
+      if (now - wheelLockRef.current < WHEEL_ZOOM_DEBOUNCE_MS) return;
+      wheelLockRef.current = now;
+      const rect = stage.getBoundingClientRect();
+      const cursor = rect.width > 0 ? { x: event.clientX - rect.left, y: event.clientY - rect.top } : { x: size.width / 2, y: size.height / 2 };
+      setView(viewFromZoomAtPoint(cursor, currentView, nextZoom, size));
+    };
+    stage.addEventListener("wheel", handleWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", handleWheel);
+  }, []);
+  return <div className={`map-stage ${displayRoute ? "has-selected-route" : ""}`} ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
     <div className="map-canvas" role="img" aria-label={label}>
       {tilesOn && <TileLayer view={view} size={stageSize} onTileFailure={() => setTilesFailed(true)} />}
       <svg className="route-svg" viewBox={tilesOn ? `0 0 ${stageSize.width} ${stageSize.height}` : "0 0 800 440"} aria-hidden="true">
