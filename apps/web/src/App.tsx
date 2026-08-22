@@ -518,30 +518,32 @@ function App() {
   const statisticalNote = useMemo(() => statisticalAnnotationNote(statisticalAnnotation), [statisticalAnnotation]);
 
   return (
-    <div className="app-shell map-first-shell">
+    <div className="app-shell map-first-shell dispatch-shell">
       <div className="safety-banner advisory-band" role="region" aria-label="Safety notice"><strong><span aria-hidden="true">⚠</span> Advisory</strong><span>{ADVISORY_HEADLINE}</span><details className="advisory-details"><summary tabIndex={-1}>Read advisory</summary><p>{SAFETY_NOTICE}</p></details></div>
-      {!mapOnly && page === "map" && <header className="map-topbar">
-        <a className="skip-link" href="#flight-search">Skip to flight search</a>
-        <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Map-first route comparison</h1></div>
-        <div className="toolbar-search"><SearchBox selected={selectedFlight} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={(match) => chooseFlight(match, true)} onCancelSearch={cancelSearch} /></div>
+      {!mapOnly && <header className="command-strip" aria-label="Command strip">
+        {page === "map" && <a className="skip-link" href="#flight-search">Skip to flight search</a>}
+        <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Dispatch briefing</h1></div>
+        {page === "map" && <div className="toolbar-search"><SearchBox selected={selectedFlight} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={(match) => chooseFlight(match, true)} onCancelSearch={cancelSearch} /></div>}
         <div className={`toolbar-flight ${selectedFlight ? "has-selection" : ""}`} role="group" aria-label="Selected flight">
           {selectedFlight ? <><div className="selected-route-label"><span className="selection-kicker">SELECTED ROUTE</span><strong>{selectedFlight.callsign}</strong></div><div className="selected-route-endpoints">{selectedFlight.departure} → {selectedFlight.destination}</div><div className="selected-route-distance">{selectedRoute?.complete ? formatDistance(selectedRoute.distanceNm) : "No complete recorded route available"}</div></> : <span>{overviewLoading ? "Loading the all-flight overview…" : `${filteredOverview.length} source flight record${filteredOverview.length === 1 ? "" : "s"} available. Select a route from the map or list.`}</span>}
         </div>
-        <button ref={mapOnlyTriggerRef} className="quiet-button toolbar-map-action" type="button" onClick={enterMapOnly}>Map only</button>
-        <button className="quiet-button toolbar-clear" ref={apiDataTriggerRef} type="button" onClick={() => { setPage("api-data"); requestAnimationFrame(() => document.getElementById("api-data-heading")?.focus()); }}>API data</button>
-        <button className="quiet-button toolbar-clear" type="button" onClick={() => { setPrimarySurface("none"); resetAll(); }}>Clear session</button>
+        {(generation || refreshError || readinessError) && (
+          <div className="strip-gen" role="region" aria-label="Source data controls">
+            {(refreshError || readinessError) && <span className="refresh-error" role="alert">{refreshError ?? readinessError}</span>}
+            <span className="gen-stamp machine-code">{generation ? `GEN ${formatRetrievedAt(generation.retrievedAt)}` : "GEN —"}</span>
+            <button className="quiet-button" type="button" onClick={() => void runRefresh()} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh source data"}</button>
+          </div>
+        )}
+        <nav className="strip-pages" aria-label="View">
+          <button ref={mapOnlyTriggerRef} className="quiet-button toolbar-map-action" type="button" onClick={enterMapOnly} disabled={page !== "map"}>Map only</button>
+          <button className="quiet-button toolbar-clear" ref={apiDataTriggerRef} type="button" onClick={() => { setPage("api-data"); requestAnimationFrame(() => document.getElementById("api-data-heading")?.focus()); }}>API data</button>
+          <button className="quiet-button toolbar-clear" type="button" onClick={() => { setPrimarySurface("none"); resetAll(); }}>Clear session</button>
+        </nav>
       </header>}
 
-      {(generation || refreshError || readinessError) && (
-        <div className="generation-strip" role="region" aria-label="Source data controls">
-          {(refreshError || readinessError) && <span className="refresh-error" role="alert">{refreshError ?? readinessError}</span>}
-          <button className="quiet-button" type="button" onClick={() => void runRefresh()} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh source data"}</button>
-        </div>
-      )}
-
-      {page === "api-data" ? <ApiDataPage selectedFlight={selectedFlight} selectedRoute={selectedRoute} onBack={() => { setPage("map"); requestAnimationFrame(() => apiDataTriggerRef.current?.focus()); }} /> : <main className="map-workspace">
+      {page === "api-data" ? <ApiDataPage selectedFlight={selectedFlight} selectedRoute={selectedRoute} onBack={() => { setPage("map"); requestAnimationFrame(() => apiDataTriggerRef.current?.focus()); }} /> : <main className={`briefing-frame ${mapOnly ? "no-workbench" : ""}`}>
         {mapOnly && <h1 className="sr-only">Map-first route comparison</h1>}
-        <section className="map-panel map-first-panel" aria-labelledby="map-heading">
+        <section className="map-panel map-first-panel map-cell" aria-labelledby="map-heading">
           <h2 className="sr-only" id="map-heading">Global route map</h2>
           <RouteMap routes={filteredOverview} selectedRoute={selectedRoute} synthesisRoute={synthesisRoute} selectedCandidate={selectedCandidate} callsign={selectedFlight?.callsign} onSelectRoute={chooseOverviewRoute} />
           <div className="map-hud">{selectedRoute ? <><span className="eyebrow">SELECTED SOURCE ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? formatDistance(selectedRoute.distanceNm) : "No complete source route available"}</span></> : synthesisRoute ? <><span className="eyebrow">OBSERVED-DONOR SYNTHESIS</span><strong>{synthesisRoute.label ?? synthesisRoute.callsign}</strong><span>Dotted segments were observed on other recorded routes in this generation—not estimates or suggestions.</span></> : <><span className="eyebrow">SOURCE ROUTE OVERVIEW</span><strong>{overviewLoading ? "Loading source route records…" : `${filteredOverview.length} of ${overview.length} source route records shown`}</strong><span>{overviewError ?? "Refreshed source data, not real-time tracking. Select a route from the map or list."}</span></>}</div>
@@ -568,9 +570,11 @@ function App() {
             {primarySurface === "editor" && selectedRoute && draftActive && <DraftEditor draft={draft} baseline={selectedRoute} loading={draftLoading} error={draftError} onUpdate={(via, selections) => void updateDraft(via, selections)} onClose={() => { resetDraftState(); closeSurface("editor"); }} />}
           </aside>}
           {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected source route</span><span><i className="legend-line legend-line-alt" /> Alternate source route</span><span><i className="legend-line legend-line-potential" /> Dotted segments: observed on another recorded route (same generation)</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
-          <div className="sr-status" role="status" aria-live="polite">{routeLoading ? "Loading route options." : status}</div>
         </section>
+        {!mapOnly && <aside className="workbench" />}
       </main>}
+      <footer className="doc-control-footer"><span>SPEC-FRE-002</span><span>REV C</span><span className="footer-asof">DATA AS OF {generation?.retrievedAt ? formatRetrievedAt(generation.retrievedAt) : "—"}</span></footer>
+      <div className="sr-status" role="status" aria-live="polite">{routeLoading ? "Loading route options." : status}</div>
     </div>
   );
 }
