@@ -127,11 +127,15 @@ test("wheel bursts zoom one level each with no passive-listener console errors",
 
   const z0 = await stableTileZoom(page);
   await page.mouse.move(center.x, center.y);
-  for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -100); // one gesture, many ticks
+  // Fire the burst back-to-back: awaited wheel dispatch can exceed the 350 ms
+  // debounce window between events on slow CI hosts even though a real gesture
+  // arrives as one burst.
+  const burst = () => Promise.all([0, 1, 2, 3, 4, 5].map(() => page.mouse.wheel(0, -100)));
+  await burst(); // one gesture, many ticks
   await expect.poll(async () => zoomOf(await tileImgs(page).first().getAttribute("src"))).toBe(z0 + 1);
 
   await page.waitForTimeout(450); // debounce window elapsed: next burst accepted
-  for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -100);
+  await burst();
   await expect.poll(async () => zoomOf(await tileImgs(page).first().getAttribute("src"))).toBe(z0 + 2);
 
   expect(passiveErrors).toEqual([]);
@@ -187,3 +191,4 @@ test("selecting a route renders both endpoint markers and the endpoint panel", a
   await expect(endpoints).toContainText("Arrival");
   await expect(page.locator(".map-canvas")).toHaveAttribute("aria-label", /departure and .* arrival/);
 });
+
