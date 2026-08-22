@@ -61,6 +61,22 @@ async function firstTileZoom(page: Page): Promise<number> {
   return zoomOf(await tileImgs(page).first().getAttribute("src"));
 }
 
+/**
+ * The selection fit effect can resettle the viewport shortly after load; wait
+ * for the rendered tile level to hold steady before issuing gestures so CI
+ * timing never races the settle.
+ */
+async function stableTileZoom(page: Page): Promise<number> {
+  let zoom = await firstTileZoom(page);
+  for (let i = 0; i < 4; i++) {
+    await page.waitForTimeout(120);
+    const next = zoomOf(await tileImgs(page).first().getAttribute("src"));
+    if (next === zoom) return zoom;
+    zoom = next;
+  }
+  return zoom;
+}
+
 test("map controls own their hit targets and survive real pointer clicks", async ({ page }) => {
   await installMapFixture(page);
   await page.goto("/");
@@ -83,7 +99,7 @@ test("map controls own their hit targets and survive real pointer clicks", async
   }
 
   // Real mouse zoom in/out steps exactly one tile level per click.
-  const z0 = await firstTileZoom(page);
+  const z0 = await stableTileZoom(page);
   await page.getByRole("button", { name: "Zoom in" }).click();
   await expect.poll(async () => zoomOf(await tileImgs(page).first().getAttribute("src"))).toBe(z0 + 1);
   await page.getByRole("button", { name: "Zoom out" }).click();
@@ -109,7 +125,7 @@ test("wheel bursts zoom one level each with no passive-listener console errors",
   if (!box) throw new Error("Stage bounding box unavailable.");
   const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 
-  const z0 = await firstTileZoom(page);
+  const z0 = await stableTileZoom(page);
   await page.mouse.move(center.x, center.y);
   for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -100); // one gesture, many ticks
   await expect.poll(async () => zoomOf(await tileImgs(page).first().getAttribute("src"))).toBe(z0 + 1);
@@ -130,6 +146,7 @@ test("drag pans the viewport and the base-map toggle round-trips under real clic
   if (!box) throw new Error("Stage bounding box unavailable.");
 
   // Drag: tile indices must change with the pan and respond to a return drag.
+  await stableTileZoom(page);
   const srcBefore = await tileImgs(page).first().getAttribute("src");
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
