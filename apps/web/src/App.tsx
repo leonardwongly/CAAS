@@ -519,7 +519,6 @@ function App() {
 
   return (
     <div className="app-shell map-first-shell dispatch-shell">
-      <div className="safety-banner advisory-band" role="region" aria-label="Safety notice"><strong><span aria-hidden="true">⚠</span> Advisory</strong><span>{ADVISORY_HEADLINE}</span><details className="advisory-details"><summary tabIndex={-1}>Read advisory</summary><p>{SAFETY_NOTICE}</p></details></div>
       {!mapOnly && <header className="command-strip" aria-label="Command strip">
         {page === "map" && <a className="skip-link" href="#flight-search">Skip to flight search</a>}
         <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Dispatch briefing</h1></div>
@@ -540,6 +539,7 @@ function App() {
           <button className="quiet-button toolbar-clear" type="button" onClick={() => { setPrimarySurface("none"); resetAll(); }}>Clear session</button>
         </nav>
       </header>}
+      <div className="safety-banner advisory-band" role="region" aria-label="Safety notice"><strong><span aria-hidden="true">⚠</span> Advisory</strong><span>{ADVISORY_HEADLINE}</span><details className="advisory-details"><summary tabIndex={-1}>Read advisory</summary><p>{SAFETY_NOTICE}</p></details></div>
 
       {page === "api-data" ? <ApiDataPage selectedFlight={selectedFlight} selectedRoute={selectedRoute} onBack={() => { setPage("map"); requestAnimationFrame(() => apiDataTriggerRef.current?.focus()); }} /> : <main className={`briefing-frame ${mapOnly ? "no-workbench" : ""} ${!mapOnly && primarySurface === "none" ? "workbench-closed" : ""}`}>
         {mapOnly && <h1 className="sr-only">Map-first route comparison</h1>}
