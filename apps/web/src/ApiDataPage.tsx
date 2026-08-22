@@ -168,7 +168,7 @@ export default function ApiDataPage({ selectedFlight, selectedRoute, onBack }: {
     <div className="api-data-header" role="region" aria-label="API data overview">
       <div>
         <p className="eyebrow">FLIGHT ROUTE EXPLORER</p>
-        <h1 id="api-data-heading" tabIndex={-1}>API data</h1>
+        <h2 id="api-data-heading" tabIndex={-1}>API data</h2>
         <p className="lede">Live generation summary, every application endpoint with raw responses, and bulk browsing of the normalized datasets. Airway values are never exposed — counts only.</p>
       </div>
       <button className="quiet-button" type="button" onClick={onBack}>Back to map</button>
