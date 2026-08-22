@@ -204,7 +204,7 @@ export default function ApiDataPage({ selectedFlight, selectedRoute, onBack }: {
             <button className="retry-button explorer-run" type="button" onClick={card.run} disabled={state.loading || card.disabled}>{state.loading ? <span className="spinner dark" /> : "Run"}</button>
             {card.disabled && card.disabledHint && <p className="helper-text">{card.disabledHint}</p>}
             {state.error && <div className="notice error-notice" role="alert"><span>{state.error}</span></div>}
-            {state.result !== undefined && <pre className="explorer-json">{JSON.stringify(state.result, null, 2)}</pre>}
+            {state.result !== undefined && <pre className="explorer-json">{JSON.stringify(state.result, null, 2).split("\n").map((line, index) => <span className="json-line" key={index}>{line}</span>)}</pre>}
           </div>;
         })}
       </div>

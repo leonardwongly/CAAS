@@ -603,7 +603,7 @@ function App() {
       </header>}
       <div className="safety-banner advisory-band" role="region" aria-label="Safety notice"><strong><span aria-hidden="true">⚠</span> Advisory</strong><span>{ADVISORY_HEADLINE}</span><details className="advisory-details"><summary tabIndex={-1}>Read advisory</summary><p>{SAFETY_NOTICE}</p></details></div>
 
-      {page === "api-data" ? <ApiDataPage selectedFlight={selectedFlight} selectedRoute={selectedRoute} onBack={() => { setPage("map"); requestAnimationFrame(() => apiDataTriggerRef.current?.focus()); }} /> : <main className={`briefing-frame ${mapOnly ? "no-workbench" : ""} ${!mapOnly && primarySurface === "none" ? "workbench-closed" : ""}`}>
+      {page === "api-data" ? <main className="briefing-frame api-frame"><ApiDataPage selectedFlight={selectedFlight} selectedRoute={selectedRoute} onBack={() => { setPage("map"); requestAnimationFrame(() => apiDataTriggerRef.current?.focus()); }} /></main> : <main className={`briefing-frame ${mapOnly ? "no-workbench" : ""} ${!mapOnly && primarySurface === "none" ? "workbench-closed" : ""}`}>
         {mapOnly && <h1 className="sr-only">Map-first route comparison</h1>}
         {!mapOnly && <aside className="manifest" aria-label="Flight manifest">
           <FlightOverviewList routes={filteredOverview} incompleteRoutes={incompleteOverview} total={overview.length} selected={selectedRoute} loading={overviewLoading} error={overviewError} onRetry={() => setOverviewReload((current) => current + 1)} onSelect={chooseOverviewRoute} onSelectIncomplete={chooseSynthesisTarget} onExploreSynthesis={openSynthesisChooser} />

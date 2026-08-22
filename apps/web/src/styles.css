@@ -85,7 +85,7 @@ h3 { color: var(--ink); font-size: .95rem; }
 .privacy-note span { color: var(--mint); font-size: 1rem; margin-right: 4px; }
 /* Chart-room ocean context: the stage sits behind the light water token. */
 .map-stage { background: var(--water); height: 528px; min-height: 400px; overflow: hidden; position: relative; }
-.map-fallback-banner { align-items: center; background: var(--sheet); border: 1px solid var(--hairline); border-radius: 2px; color: var(--muted); display: flex; font-size: .7rem; gap: 8px; left: 22px; padding: 8px 10px; position: absolute; top: 20px; z-index: 2; }
+.map-fallback-banner { align-items: center; background: var(--sheet); border: 1px solid var(--hairline); border-radius: 2px; color: var(--ink); display: flex; font-size: .7rem; gap: 8px; left: 22px; padding: 8px 10px; position: absolute; top: 20px; z-index: 2; }
 .map-pin { color: var(--blue); font-size: 1.1rem; }
 .route-svg { color: var(--graphite); height: 100%; width: 100%; }
 .map-canvas { height: 100%; inset: 0; position: absolute; width: 100%; }
@@ -352,15 +352,19 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 .api-data-table th[scope="row"] { color: var(--ink); }
 .airway-row th, .airway-row td { color: var(--subtle); }
 .explorer-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+/* DISPATCH Task 10: ruled worksheet — the plan's block verbatim, with the legacy
+   layout props (padding / font-size / scroll bounds) merged back in. */
 .explorer-card { background: var(--sheet); border: 1px solid var(--hairline); border-radius: 2px; padding: 14px; }
 .explorer-card.has-error { border-color: var(--red); }
 .explorer-card-head { align-items: center; display: flex; gap: 10px; margin-bottom: 10px; }
-.explorer-card-head code { color: var(--muted); font-size: .72rem; }
-.explorer-method { background: var(--blue); border-radius: 2px; color: var(--sheet); font-size: .62rem; font-weight: 800; padding: 3px 6px; }
+.explorer-card-head code { color: var(--ink); font-family: var(--font-mono); font-size: .72rem; }
+.explorer-method { background: transparent; border: 1px solid var(--graphite); border-radius: 2px; color: var(--graphite); font-size: .62rem; font-weight: 800; padding: 3px 6px; }
 .explorer-input { color: var(--ink-60); display: grid; font-size: .72rem; gap: 6px; margin-bottom: 10px; }
-.explorer-input input { background: var(--paper); border: 1px solid var(--hairline); border-radius: 2px; color: var(--ink); padding: 8px 10px; }
+.explorer-input input { background: var(--paper); border: 0; border-bottom: 1px solid var(--ink); border-radius: 0; color: var(--ink); padding: 8px 2px; }
 .explorer-run { color: var(--blue); font-size: .74rem; }
-.explorer-json { background: var(--paper); border: 1px solid var(--hairline); border-radius: 2px; color: var(--ink-60); font-size: .68rem; margin: 10px 0 0; max-height: 260px; overflow: auto; padding: 10px; white-space: pre-wrap; }
+.explorer-json { background: var(--paper); border: 1px solid var(--hairline); border-radius: 2px; color: var(--ink); counter-reset: jsonline; font-family: var(--font-mono); font-size: .68rem; margin: 10px 0 0; max-height: 260px; overflow: auto; padding: 10px; white-space: pre-wrap; }
+.explorer-json .json-line { counter-increment: jsonline; display: block; white-space: pre-wrap; }
+.explorer-json .json-line::before { color: var(--hairline); content: counter(jsonline, decimal-leading-zero) " "; display: inline-block; margin-right: 10px; min-width: 2.4em; text-align: right; user-select: none; }
 .browse-controls { align-items: center; display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between; margin-bottom: 12px; }
 .browse-tabs { display: flex; flex-wrap: wrap; gap: 7px; }
 .browse-tabs button { background: transparent; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); font-size: .72rem; padding: 7px 12px; }
@@ -522,8 +526,10 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 .workbench-empty { align-items: center; color: var(--ink-60); display: flex; flex-direction: column; gap: 8px; margin: auto; text-align: center; }
 .workbench-empty span { color: var(--hairline); font-size: 2rem; }
 .workbench-empty strong { font-family: var(--font-display); letter-spacing: var(--track-kicker); }
-/* When the API page is open the same frame hosts it at 50% (Task 10). */
-.briefing-frame.api-frame { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+/* When the API page is open the same frame hosts it full-width (Task 10):
+   single-column track so the sole .api-data-page child fills the grid and the
+   base .briefing-frame rule stays untouched. */
+.briefing-frame.api-frame { grid-template-columns: minmax(0, 1fr); }
 
 /* DISPATCH Task 6: compare delta spine. */
 .compare-columns { display: grid; gap: 0; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
