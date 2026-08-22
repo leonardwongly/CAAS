@@ -68,7 +68,7 @@ h3 { color: #dbeaf4; font-size: .95rem; margin: 0 0 14px; }
 .map-canvas .route-svg { inset: 0; position: absolute; z-index: 1; }
 .tile-layer { inset: 0; overflow: hidden; position: absolute; z-index: 0; }
 .tile-layer img { position: absolute; user-select: none; -webkit-user-drag: none; }
-.map-zoom-controls { bottom: 40px; display: flex; flex-direction: column; gap: 6px; position: absolute; right: 20px; z-index: 3; }
+.map-zoom-controls { display: flex; flex-direction: column; gap: 6px; left: 20px; position: absolute; top: 50%; transform: translateY(-50%); z-index: 5; }
 .map-zoom-controls button { background: rgba(7, 19, 31, .92); border: 1px solid rgba(148, 183, 211, .3); border-radius: 6px; color: var(--ink); font-size: .8rem; min-width: 34px; padding: 7px 9px; }
 .map-zoom-controls button:hover:not(:disabled), .map-zoom-controls button[aria-pressed="true"] { border-color: var(--blue); color: #f0fbff; }
 .map-zoom-controls button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
