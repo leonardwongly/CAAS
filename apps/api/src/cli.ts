@@ -70,8 +70,32 @@ async function main(): Promise<void> {
     if (!knownOptions.has(name)) throw new Error(`Unknown option: ${name}`);
     if (!argument.includes("=") && index + 1 < args.length && !args[index + 1]!.startsWith("--")) continue;
   }
-  await startServer({ host, port });
+  const { app } = await startServer({ host, port });
+  // Cloudflare Containers sends SIGTERM when stopping an instance (sleepAfter
+  // expiry or rollout replacement) and only force-kills after 15 minutes. Node
+  // has no default SIGTERM termination under this runtime, so without an
+  // explicit handler a stale or replaced instance lingers for the full drain
+  // window. Close the server on the stop signals and exit promptly.
+  let shuttingDown = false;
+  const shutdown = async (): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    // Bounded forced-exit deadline: if close hangs, exit non-zero well before
+    // the platform's 15-minute SIGKILL so replacement and sleep stay fast.
+    const forcedExit = setTimeout(() => process.exit(1), SHUTDOWN_DEADLINE_MS);
+    forcedExit.unref();
+    try {
+      await app.close();
+      process.exit(0);
+    } catch {
+      process.exit(1);
+    }
+  };
+  process.on("SIGTERM", () => void shutdown());
+  process.on("SIGINT", () => void shutdown());
 }
+
+const SHUTDOWN_DEADLINE_MS = 10_000;
 
 try {
   await main();
