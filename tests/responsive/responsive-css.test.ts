@@ -15,6 +15,9 @@ const webRoot = resolve(import.meta.dirname, "../../apps/web/src");
 const html = readFileSync(resolve(webRoot, "../index.html"), "utf8");
 const styles = readFileSync(resolve(webRoot, "styles.css"), "utf8");
 
+// Slices a fixed 2000-char window from the FIRST occurrence of the needle;
+// pinned media blocks must stay shorter than the window and (for the
+// max-width literals below) the sole occurrence in styles.css.
 function blockAfter(needle: string): string {
   const start = styles.indexOf(needle);
   expect(start, `expected styles.css to contain ${needle}`).toBeGreaterThan(-1);
@@ -35,10 +38,18 @@ describe("responsive and adaptive CSS contract (design §15.7)", () => {
   });
 
   it("ships the DISPATCH breakpoints", () => {
+    // blockAfter resolves the first occurrence, so the pinned literals must
+    // remain unique; earlier Task-6/7 mobile blocks use `width <= 760px`
+    // range syntax to keep it that way.
+    expect(styles.split("@media (max-width: 1279px)").length - 1).toBe(1);
+    expect(styles.split("@media (max-width: 760px)").length - 1).toBe(1);
     const mid = blockAfter("@media (max-width: 1279px)");
     expect(mid).toMatch(/\.workbench\s*\{[^}]*max-height:\s*55vh/);
     expect(mid).toMatch(/\.manifest\s*\{\s*display:\s*none/);
     const mobile = blockAfter("@media (max-width: 760px)");
+    // The h1 must stay in the accessibility tree at mobile: sr-only clip
+    // technique, never display:none.
+    expect(mobile).not.toMatch(/\.product-mark\s*\{\s*display:\s*none/);
     expect(mobile).toMatch(/\.map-cell \.map-stage\s*\{\s*height:\s*55vh/);
     expect(mobile).toMatch(/\.product-mark\s*\{\s*clip:\s*rect\(0\s+0\s+0\s+0\);\s*clip-path:\s*inset\(50%\);[^}]*height:\s*1px;[^}]*overflow:\s*hidden;[^}]*position:\s*absolute;[^}]*width:\s*1px/);
     expect(mobile).toMatch(/\.doc-control-footer span:not\(\.footer-asof\)/);
