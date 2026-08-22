@@ -31,7 +31,7 @@ import {
   ROUTE_COMPARISON_EXPLANATION,
   SAFETY_NOTICE,
 } from "./labels";
-import { clampZoom, DEFAULT_SIZE, fitViewToCoordinates, MAX_ZOOM, MIN_ZOOM, OSM_ATTRIBUTION, pixelFromView, projectWorldSegmentsMercator, TileLayer, viewFromPixelDelta, viewFromZoomAtPoint, type MapSize, type TileView } from "./TileMap";
+import { clampZoom, DEFAULT_SIZE, fitViewToCoordinates, MAX_ZOOM, MIN_ZOOM, OSM_ATTRIBUTION, pixelFromView, projectWorldSegmentsMercator, TILE_SIZE, TileLayer, viewFromPixelDelta, viewFromZoomAtPoint, worldPixel, type MapSize, type TileView } from "./TileMap";
 import ApiDataPage from "./ApiDataPage";
 import { compareDistanceOperands } from "@flight-route-explorer/route-engine/compare";
 import { analyzeIncompleteRouteDistance, type IncompleteRouteDistanceAnalysis } from "./gapDistanceEstimate";
@@ -857,6 +857,7 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
   const [stageSize, setStageSize] = useState<MapSize>(DEFAULT_SIZE);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number } | null>(null);
+  const [hovered, setHovered] = useState<{ route: RouteOption; x: number; y: number } | undefined>(undefined);
   const tilesOn = tilesEnabled && !tilesFailed;
 
   useEffect(() => {
@@ -892,6 +893,42 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
     return tilesOn ? projectWorldSegmentsMercator(sourceSegments, view, stageSize) : projectWorldSegments(sourceSegments);
   }, [displayRoute, tilesOn, view, stageSize]);
   const alternates = projections.flatMap(({ route, projection }) => route.flightId !== displayRoute?.flightId && projection && projection.segments.length ? [{ route, projection }] : []);
+  // Chart-room graticule: every 10° meridian/parallel crossing the current
+  // Mercator view, projected to stage pixels for the overlay lines + edge labels.
+  const graticule = useMemo(() => {
+    const scale = TILE_SIZE * 2 ** view.zoom;
+    const center = worldPixel(view.lat, view.lon, view.zoom);
+    const verticals: Array<{ lon: number; x: number }> = [];
+    const start = Math.ceil((((view.lon - 180) % 360) + 360) % 360 / 10) * 10;
+    // 36 meridians span exactly 360°; when the stage is wider than one world
+    // at low zoom, wrapped copies of each meridian fill the repeat.
+    for (let index = 0; index < 36; index += 1) {
+      const lon = ((start + index * 10) % 360 + 360) % 360 - 180;
+      let dx = worldPixel(view.lat, lon, view.zoom).x - center.x;
+      if (dx > scale / 2) dx -= scale;
+      if (dx < -scale / 2) dx += scale;
+      const firstCopy = (((stageSize.width / 2 + dx) % scale) + scale) % scale;
+      for (let copyX = firstCopy; copyX <= stageSize.width; copyX += scale) verticals.push({ lon, x: copyX });
+    }
+    const horizontals: Array<{ lat: number; y: number }> = [];
+    for (let lat = -80; lat <= 80; lat += 10) {
+      const y = stageSize.height / 2 + (worldPixel(lat, view.lon, view.zoom).y - center.y);
+      if (y >= 0 && y <= stageSize.height) horizontals.push({ lat, y });
+    }
+    return { verticals, horizontals };
+  }, [view, stageSize]);
+  // Scale bar: the largest listed ground distance that still fits ≤160px at the
+  // current meters-per-pixel, labelled in kilometres.
+  const scaleBar = useMemo(() => {
+    const metersPerPixel = 156543.03392 * Math.cos(view.lat * Math.PI / 180) / 2 ** view.zoom;
+    let step = 50;
+    let px = step / metersPerPixel;
+    for (const meters of [50, 100, 200, 500, 1000, 2000, 5000, 100000, 200000, 500000, 1000000, 2000000]) {
+      const candidate = meters / metersPerPixel;
+      if (candidate <= 160) { step = meters; px = candidate; }
+    }
+    return { px, label: step < 1000 ? `${step} m` : `${step / 1000} km` };
+  }, [view]);
   // Borrowed donor geometry comes exclusively from the synthesis API response;
   // the client never generates coordinates for it.
   const borrowedProjection = useMemo(() => {
@@ -1018,16 +1055,23 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
     <div className="map-canvas" role="img" aria-label={label}>
       {tilesOn && <TileLayer view={view} size={stageSize} onTileFailure={() => setTilesFailed(true)} />}
       <svg className="route-svg" viewBox={tilesOn ? `0 0 ${stageSize.width} ${stageSize.height}` : "0 0 800 440"} aria-hidden="true">
+        <defs><pattern id="gap-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="transparent" /><line x1="0" y1="0" x2="0" y2="6" stroke="var(--alert-red)" strokeOpacity=".2" strokeWidth="2" /></pattern></defs>
         {!tilesOn && <WorldMapBase />}
-        {alternates.map(({ route, projection }) => <g key={route.id} className="route-line-alternate">{projection.segments.map((segment, index) => <path key={`alternate-segment-${index}`} d={segment.path} className="route-path-alternate" />)}</g>)}
+        {tilesOn && <g className="map-graticule-tile">{graticule.verticals.map((v) => <line key={`gv-${v.lon}-${Math.round(v.x)}`} x1={v.x} y1={0} x2={v.x} y2={stageSize.height} />)}{graticule.horizontals.map((h) => <line key={`gh-${h.lat}`} x1={0} y1={h.y} x2={stageSize.width} y2={h.y} />)}</g>}
+        {alternates.map(({ route, projection }) => <g key={route.id} className={`route-line-alternate${hovered?.route.flightId === route.flightId ? " route-line-hover" : ""}`}>{projection.segments.map((segment, index) => <path key={`alternate-segment-${index}`} d={segment.path} className="route-path-alternate" />)}</g>)}
         {borrowedProjection && <g className="route-line-potential-inferred">{borrowedProjection.segments.map((segment, index) => <path key={`borrowed-segment-${index}`} d={segment.path} className="route-path-potential" />)}</g>}
-        {displayRoute && displayProjection && <g className="route-line-selected">{displayProjection.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" filter="url(#glow)" /><path d={segment.path} className="route-path" /></g>)}</g>}
-        {projections.map(({ route, projection }) => projection && <g key={`hit-${route.flightId}`} className="route-hit-lines">{projection.segments.map((segment, index) => <path key={`hit-segment-${index}`} d={segment.path} className="route-hit" onClick={(event) => { event.stopPropagation(); chooseProjectedRoute(route, projection); }} />)}</g>)}
+        {displayRoute && displayProjection && <g className={`route-line-selected${hovered?.route.flightId === displayRoute.flightId ? " route-line-hover" : ""}`}>{displayProjection.segments.map((segment, index) => <g key={`segment-${index}`}><path d={segment.path} className="route-shadow" /><path d={segment.path} className="route-path" /></g>)}</g>}
+        {projections.map(({ route, projection }) => projection && <g key={`hit-${route.flightId}`} className="route-hit-lines">{projection.segments.map((segment, index) => <path key={`hit-segment-${index}`} d={segment.path} className="route-hit" onClick={(event) => { event.stopPropagation(); chooseProjectedRoute(route, projection); }} onMouseMove={(event) => { const rect = stageRef.current?.getBoundingClientRect(); setHovered({ route, x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) }); }} onMouseLeave={() => setHovered(undefined)} />)}</g>)}
         {departurePoint && <MapMarker point={departurePoint} label={departure} tone="origin" />}
         {arrivalPoint && <MapMarker point={arrivalPoint} label={arrival} tone="destination" />}
         {displayProjection?.gapBoundaries.map((point, index) => <g key={`gap-${index}`} className="gap-boundary"><circle cx={point.x} cy={point.y} r="7" /><text x={point.x + 12} y={point.y + 4}>Gap</text></g>)}
       </svg>
     </div>
+    <span className="reg-mark reg-tl" aria-hidden="true" /><span className="reg-mark reg-tr" aria-hidden="true" /><span className="reg-mark reg-bl" aria-hidden="true" /><span className="reg-mark reg-br" aria-hidden="true" />
+    <div className="compass-rose" aria-hidden="true"><svg viewBox="0 0 36 36" width="36" height="36"><circle cx="18" cy="18" r="15" /><path d="M18 5 L21 18 L18 15 L15 18 Z" /><text x="18" y="33" textAnchor="middle">N</text></svg></div>
+    <div className="map-scalebar" aria-hidden="true"><span className="scalebar-bar" style={{ width: scaleBar.px }} /><span className="scalebar-label">{scaleBar.label}</span></div>
+    <div className="graticule-labels" aria-hidden="true">{graticule.verticals.map((v) => <span key={`v-${v.lon}-${Math.round(v.x)}`} className="grat-label" style={{ left: v.x }}>{`${Math.abs(Math.round(v.lon))}°${v.lon < 0 ? "W" : v.lon > 0 ? "E" : ""}`}</span>)}{graticule.horizontals.map((h) => <span key={`h-${h.lat}`} className="grat-label" style={{ top: h.y }}>{`${Math.abs(Math.round(h.lat))}°${h.lat < 0 ? "S" : h.lat > 0 ? "N" : ""}`}</span>)}</div>
+    {hovered && <div className="route-tooltip" style={{ left: hovered.x + 12, top: hovered.y + 12 }}>{hovered.route.callsign} · {formatDistance(hovered.route.distanceNm)}</div>}
     {overlapChoices.length > 0 && <section className="map-overlap-chooser" role="dialog" aria-modal="false" aria-label="Choose an overlapping recorded flight"><div><strong>{overlapChoices.length} routes overlap here</strong><button type="button" className="quiet-button" onClick={() => setOverlapChoices([])}>Close</button></div>{overlapChoices.map((route) => <button key={route.flightId} type="button" onClick={() => { setOverlapChoices([]); onSelectRoute(route); }}><strong>{route.callsign}</strong><span>{route.origin} → {route.destination}</span></button>)}</section>}
     <div className="map-fallback-banner"><span className="map-pin">◇</span><span>{banner}</span></div>
     <div className="map-zoom-controls" role="group" aria-label="Map zoom and base layer">
@@ -1042,10 +1086,17 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
 }
 
 function WorldMapBase() {
-  return <><defs><filter id="glow"><feGaussianBlur stdDeviation="5" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs><rect className="world-ocean" width="800" height="440" /><g className="world-graticule"><path d="M 0 73 H 800 M 0 147 H 800 M 0 220 H 800 M 0 293 H 800 M 0 367 H 800 M 133 0 V 440 M 267 0 V 440 M 400 0 V 440 M 533 0 V 440 M 667 0 V 440" /></g><g className="world-land"><path d="M 54 91 L 93 58 L 153 37 L 210 51 L 252 83 L 245 109 L 220 118 L 202 151 L 174 163 L 151 146 L 126 157 L 110 137 L 81 128 Z" /><path d="M 239 178 L 267 187 L 281 221 L 279 265 L 266 306 L 246 340 L 232 314 L 236 272 L 218 232 Z" /><path d="M 322 58 L 350 29 L 384 39 L 391 77 L 364 91 Z" /><path d="M 375 89 L 412 68 L 478 74 L 528 57 L 606 76 L 678 99 L 727 128 L 712 154 L 664 157 L 633 180 L 588 174 L 557 193 L 514 176 L 480 189 L 449 171 L 415 178 L 396 147 Z" /><path d="M 424 185 L 470 188 L 494 224 L 482 286 L 447 322 L 417 279 L 405 231 Z" /><path d="M 637 273 L 682 259 L 730 283 L 744 322 L 716 347 L 666 333 L 635 306 Z" /><path d="M 505 294 L 518 308 L 512 332 L 500 325 Z" /></g><g className="world-land island"><path d="M 707 190 L 716 182 L 723 195 L 715 205 Z" /><path d="M 761 221 L 770 228 L 764 243 L 755 236 Z" /><path d="M 164 186 L 175 190 L 176 204 L 166 208 Z" /><path d="M 747 365 L 763 367 L 770 379 L 754 384 L 742 376 Z" /></g></>;
+  return <><rect className="world-ocean" width="800" height="440" /><g className="world-graticule"><path d="M 0 73 H 800 M 0 147 H 800 M 0 220 H 800 M 0 293 H 800 M 0 367 H 800 M 133 0 V 440 M 267 0 V 440 M 400 0 V 440 M 533 0 V 440 M 667 0 V 440" /></g><g className="world-land"><path d="M 54 91 L 93 58 L 153 37 L 210 51 L 252 83 L 245 109 L 220 118 L 202 151 L 174 163 L 151 146 L 126 157 L 110 137 L 81 128 Z" /><path d="M 239 178 L 267 187 L 281 221 L 279 265 L 266 306 L 246 340 L 232 314 L 236 272 L 218 232 Z" /><path d="M 322 58 L 350 29 L 384 39 L 391 77 L 364 91 Z" /><path d="M 375 89 L 412 68 L 478 74 L 528 57 L 606 76 L 678 99 L 727 128 L 712 154 L 664 157 L 633 180 L 588 174 L 557 193 L 514 176 L 480 189 L 449 171 L 415 178 L 396 147 Z" /><path d="M 424 185 L 470 188 L 494 224 L 482 286 L 447 322 L 417 279 L 405 231 Z" /><path d="M 637 273 L 682 259 L 730 283 L 744 322 L 716 347 L 666 333 L 635 306 Z" /><path d="M 505 294 L 518 308 L 512 332 L 500 325 Z" /></g><g className="world-land island"><path d="M 707 190 L 716 182 L 723 195 L 715 205 Z" /><path d="M 761 221 L 770 228 L 764 243 L 755 236 Z" /><path d="M 164 186 L 175 190 L 176 204 L 166 208 Z" /><path d="M 747 365 L 763 367 L 770 379 L 754 384 L 742 376 Z" /></g></>;
 }
 
-function MapMarker({ point, label, tone }: { point: Point; label: string; tone: "origin" | "destination" }) { return <g className={`map-marker marker-${tone}`}><circle cx={point.x} cy={point.y} r="8" /><circle cx={point.x} cy={point.y} r="15" className="marker-ring" /><text x={point.x + 16} y={point.y - 12}>{label}</text></g>; }
+function MapMarker({ point, label, tone }: { point: Point; label: string; tone: "origin" | "destination" }) {
+  return <g className={`map-marker marker-${tone}`}>
+    {tone === "origin"
+      ? <><circle cx={point.x} cy={point.y} r="7" /><circle cx={point.x} cy={point.y} r="2.5" className="marker-core" /></>
+      : <rect x={point.x - 5.5} y={point.y - 5.5} width="11" height="11" transform={`rotate(45 ${point.x} ${point.y})`} />}
+    <text x={point.x + 14} y={point.y - 10}>{label}</text>
+  </g>;
+}
 type Point = { x: number; y: number };
 type ProjectedSegments = { segments: Array<{ path: string }>; start?: Point | undefined; end?: Point | undefined; gapBoundaries: Point[] };
 function projectWorldPoint(coordinate: Coordinate): Point { return { x: ((coordinate.lon + 180) / 360) * 800, y: ((90 - coordinate.lat) / 180) * 440 }; }
