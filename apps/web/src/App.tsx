@@ -228,6 +228,23 @@ function App() {
   const mapOnlyTriggerRef = useRef<HTMLButtonElement>(null);
   const restoreControlsRef = useRef<HTMLButtonElement>(null);
   const apiDataTriggerRef = useRef<HTMLButtonElement>(null);
+  const legendKeyRef = useRef<HTMLDetailsElement>(null);
+
+  // Task 9: the legend's Key disclosure stays open at >=761px (summary hidden)
+  // so the absolutely-positioned legend is sized by its items; at <=760px it
+  // folds natively behind the summary.
+  useEffect(() => {
+    // Environments without matchMedia (e.g. jsdom) keep the disclosure open.
+    if (typeof window.matchMedia !== "function") {
+      legendKeyRef.current?.setAttribute("open", "");
+      return;
+    }
+    const media = window.matchMedia("(min-width: 761px)");
+    const apply = () => legendKeyRef.current?.toggleAttribute("open", media.matches);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, []);
 
   // Design §15.2: focus return is deterministic after closing a surface,
   // selecting a route, retrying an error, or leaving Map Only.
@@ -594,7 +611,7 @@ function App() {
           <div className="map-hud">{selectedRoute ? <><span className="eyebrow">SELECTED SOURCE ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? <DistanceTick nm={selectedRoute.distanceNm} /> : "No complete source route available"}</span></> : synthesisRoute ? <><span className="eyebrow">OBSERVED-DONOR SYNTHESIS</span><strong>{synthesisRoute.label ?? synthesisRoute.callsign}</strong><span>Dotted segments were observed on other recorded routes in this generation—not estimates or suggestions.</span></> : <><span className="eyebrow">SOURCE ROUTE OVERVIEW</span><strong>{overviewLoading ? "Loading source route records…" : `${filteredOverview.length} of ${overview.length} source route records shown`}</strong><span>{overviewError ?? "Refreshed source data, not real-time tracking. Select a route from the map or list."}</span></>}</div>
           {!mapOnly && selectedRoute && primarySurface !== "route-data" && <div className="map-left-stack"><RouteLegPanel route={selectedRoute} /></div>}
           {mapOnly && <button ref={restoreControlsRef} className="restore-controls" type="button" onClick={leaveMapOnly} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leaveMapOnly(); } }}>Restore controls</button>}
-          {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected source route</span><span><i className="legend-line legend-line-alt" /> Alternate source route</span><span><i className="legend-line legend-line-potential" /> Dotted segments: observed on another recorded route (same generation)</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
+          {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><details ref={legendKeyRef} className="legend-key"><summary>Key</summary><span><i className="legend-line" /> Selected source route</span><span><i className="legend-line legend-line-alt" /> Alternate source route</span><span><i className="legend-line legend-line-potential" /> Dotted segments: observed on another recorded route (same generation)</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></details></div>}
         </section>
         {!mapOnly && <aside className={`workbench ${primarySurface !== "none" ? "is-open" : ""}`}>
           <nav className="workbench-spine" aria-label="Route workspace controls">

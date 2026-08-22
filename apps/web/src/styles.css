@@ -556,3 +556,45 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 /* Cascade-later override for the pinned 760px block: endpoint chips clear
    the left-edge zoom stamps on narrow viewports. */
 @media (max-width: 760px) { .map-first-panel .map-endpoints { left: 72px; } }
+
+/* DISPATCH Task 9: legend folds behind a "Key" disclosure at <=760px. The
+   details/summary pair always renders; the summary is hidden at >=761px and
+   the details element lays the items out in the legend's flex row. */
+.map-legend .legend-key { align-items: center; display: flex; flex-wrap: wrap; gap: inherit; margin: 0; }
+/* The <details> wrapper always renders; at >=761px the summary hides and the
+   items must stay visible even though the disclosure is closed, so an author
+   display rule overrides the UA's closed-details hiding. `inline` keeps the
+   original inline flow of icon + label inside the flex items. */
+.legend-key > span { display: inline; }
+.legend-key summary { align-items: center; cursor: pointer; display: none; font-family: var(--font-mono); font-size: var(--text-micro); letter-spacing: .08em; min-height: 44px; padding: 4px 10px; text-transform: uppercase; }
+
+/* DISPATCH Task 9 responsive contract (spec section 9): 761-1279px folds the
+   manifest away and docks the workbench as a bottom sheet; <=760px stacks
+   strip -> map (55vh) -> sheet in one column. Placed after the legacy
+   @media blocks so the cascade resolves conflicts in favour of this set. */
+@media (max-width: 1279px) {
+  .briefing-frame { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  /* The closed/no-workbench variants carry higher specificity than the
+     single-column rule above, so they must collapse to it explicitly. */
+  .briefing-frame.workbench-closed, .briefing-frame.no-workbench { grid-template-columns: minmax(0, 1fr); }
+  .manifest { display: none; }
+  .workbench { border-left: 0; border-top: 1px solid var(--hairline); grid-template-columns: 44px minmax(0, 1fr); max-height: 55vh; overflow: auto; }
+  .workbench-spine { flex-direction: column; }
+}
+@media (max-width: 760px) {
+  .briefing-frame { display: flex; flex-direction: column; }
+  .map-cell .map-stage { height: 55vh; min-height: 320px; }
+  .workbench { max-height: none; }
+  .map-first-panel > .map-legend { bottom: 10px; right: 10px; }
+  /* Legend items are <span> children of the <details class="legend-key">
+     wrapper (no legend-item class in the real markup), so the plan's
+     .legend-item:not(:first-child) fold maps to this selector. Scoped to the
+     closed state so opening the disclosure actually reveals the full key
+     (closed-state hiding is native to <details>; this pins the contract). */
+  .map-first-panel > .map-legend .legend-key:not([open]) span { display: none; }
+  .map-first-panel > .map-legend .legend-key[open] { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .doc-control-footer span:not(.footer-asof) { display: none; }
+  .command-strip { padding: 8px 12px; }
+  .product-mark { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+  .legend-key summary { display: list-item; }
+}
