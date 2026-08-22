@@ -165,14 +165,14 @@ export default function ApiDataPage({ selectedFlight, selectedRoute, onBack }: {
   const runState = (key: string): RunState => runs[key] ?? initialRun;
 
   return <div className="api-data-page">
-    <header className="api-data-header">
+    <div className="api-data-header" role="region" aria-label="API data overview">
       <div>
         <p className="eyebrow">FLIGHT ROUTE EXPLORER</p>
         <h1 id="api-data-heading" tabIndex={-1}>API data</h1>
         <p className="lede">Live generation summary, every application endpoint with raw responses, and bulk browsing of the normalized datasets. Airway values are never exposed — counts only.</p>
       </div>
       <button className="quiet-button" type="button" onClick={onBack}>Back to map</button>
-    </header>
+    </div>
 
     <section className="api-data-section" aria-labelledby="summary-heading">
       <h2 id="summary-heading">Live data summary</h2>

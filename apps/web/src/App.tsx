@@ -22,6 +22,7 @@ import {
   type SynthesisSegment,
 } from "./api";
 import {
+  ADVISORY_HEADLINE,
   COMPLETE_GROUP_DESCRIPTION,
   COMPLETE_GROUP_TITLE,
   DRAFT_SAFETY_COPY,
@@ -37,6 +38,16 @@ import { analyzeIncompleteRouteDistance, type IncompleteRouteDistanceAnalysis } 
 import { BUNDLED_GAP_DISTANCE_MODEL } from "./gapDistanceModel";
 
 type Surface = "none" | "routes" | "route-data" | "editor" | "compare" | "synthesis";
+// Workbench region label + drawer eyebrow per surface; tests pin these strings
+// byte-for-byte, so keep values identical when editing.
+const WORKBENCH_SURFACES: Record<Surface, { label: string; eyebrow: string }> = {
+  none: { label: "Workbench", eyebrow: "" },
+  routes: { label: "Route chooser", eyebrow: "COMPARE RECORDED ROUTES" },
+  "route-data": { label: "Flight and route data", eyebrow: "INSPECT ROUTE" },
+  editor: { label: "Explore a route variation", eyebrow: "EXPLORE VARIATION" },
+  compare: { label: "Route comparison", eyebrow: "COMPARE ROUTES" },
+  synthesis: { label: "Observed-donor synthesis", eyebrow: "OBSERVED-DONOR SYNTHESIS" },
+};
 type SearchState = { query: string; matches: CallsignMatch[]; loading: boolean; searched: boolean; error?: string | undefined };
 const emptySearch: SearchState = { query: "", matches: [], loading: false, searched: false };
 // Type-ahead settles this long after the last keystroke; Enter fires a search
@@ -517,59 +528,66 @@ function App() {
   const statisticalNote = useMemo(() => statisticalAnnotationNote(statisticalAnnotation), [statisticalAnnotation]);
 
   return (
-    <div className="app-shell map-first-shell">
-      <div className="safety-banner compact-safety" role="region" aria-label="Safety notice"><strong><span aria-hidden="true">⚠</span> Safety notice</strong><span>{SAFETY_NOTICE}</span></div>
-      {!mapOnly && page === "map" && <header className="map-topbar">
-        <a className="skip-link" href="#flight-search">Skip to flight search</a>
-        <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Map-first route comparison</h1></div>
-        <div className="toolbar-search"><SearchBox selected={selectedFlight} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={(match) => chooseFlight(match, true)} onCancelSearch={cancelSearch} /></div>
+    <div className="app-shell map-first-shell dispatch-shell">
+      {!mapOnly && <header className="command-strip" aria-label="Command strip">
+        {page === "map" && <a className="skip-link" href="#flight-search">Skip to flight search</a>}
+        <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Dispatch briefing</h1></div>
+        {page === "map" && <div className="toolbar-search"><SearchBox selected={selectedFlight} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={(match) => chooseFlight(match, true)} onCancelSearch={cancelSearch} /></div>}
         <div className={`toolbar-flight ${selectedFlight ? "has-selection" : ""}`} role="group" aria-label="Selected flight">
           {selectedFlight ? <><div className="selected-route-label"><span className="selection-kicker">SELECTED ROUTE</span><strong>{selectedFlight.callsign}</strong></div><div className="selected-route-endpoints">{selectedFlight.departure} → {selectedFlight.destination}</div><div className="selected-route-distance">{selectedRoute?.complete ? formatDistance(selectedRoute.distanceNm) : "No complete recorded route available"}</div></> : <span>{overviewLoading ? "Loading the all-flight overview…" : `${filteredOverview.length} source flight record${filteredOverview.length === 1 ? "" : "s"} available. Select a route from the map or list.`}</span>}
         </div>
-        <button ref={mapOnlyTriggerRef} className="quiet-button toolbar-map-action" type="button" onClick={enterMapOnly}>Map only</button>
-        <button className="quiet-button toolbar-clear" ref={apiDataTriggerRef} type="button" onClick={() => { setPage("api-data"); requestAnimationFrame(() => document.getElementById("api-data-heading")?.focus()); }}>API data</button>
-        <button className="quiet-button toolbar-clear" type="button" onClick={() => { setPrimarySurface("none"); resetAll(); }}>Clear session</button>
+        {(generation || refreshError || readinessError) && (
+          <div className="strip-gen" role="region" aria-label="Source data controls">
+            {(refreshError || readinessError) && <span className="refresh-error" role="alert">{refreshError ?? readinessError}</span>}
+            <span className="gen-stamp machine-code">{generation ? `GEN ${formatRetrievedAt(generation.retrievedAt)}` : "GEN —"}</span>
+            <button className="quiet-button" type="button" onClick={() => void runRefresh()} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh source data"}</button>
+          </div>
+        )}
+        <nav className="strip-pages" aria-label="View">
+          <button ref={mapOnlyTriggerRef} className="quiet-button toolbar-map-action" type="button" onClick={enterMapOnly} disabled={page !== "map"}>Map only</button>
+          <button className="quiet-button toolbar-clear" ref={apiDataTriggerRef} type="button" onClick={() => { setPage("api-data"); requestAnimationFrame(() => document.getElementById("api-data-heading")?.focus()); }}>API data</button>
+          <button className="quiet-button toolbar-clear" type="button" onClick={() => { setPrimarySurface("none"); resetAll(); }}>Clear session</button>
+        </nav>
       </header>}
+      <div className="safety-banner advisory-band" role="region" aria-label="Safety notice"><strong><span aria-hidden="true">⚠</span> Advisory</strong><span>{ADVISORY_HEADLINE}</span><details className="advisory-details"><summary tabIndex={-1}>Read advisory</summary><p>{SAFETY_NOTICE}</p></details></div>
 
-      {(generation || refreshError || readinessError) && (
-        <div className="generation-strip" role="region" aria-label="Source data controls">
-          {(refreshError || readinessError) && <span className="refresh-error" role="alert">{refreshError ?? readinessError}</span>}
-          <button className="quiet-button" type="button" onClick={() => void runRefresh()} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh source data"}</button>
-        </div>
-      )}
-
-      {page === "api-data" ? <ApiDataPage selectedFlight={selectedFlight} selectedRoute={selectedRoute} onBack={() => { setPage("map"); requestAnimationFrame(() => apiDataTriggerRef.current?.focus()); }} /> : <main className="map-workspace">
+      {page === "api-data" ? <ApiDataPage selectedFlight={selectedFlight} selectedRoute={selectedRoute} onBack={() => { setPage("map"); requestAnimationFrame(() => apiDataTriggerRef.current?.focus()); }} /> : <main className={`briefing-frame ${mapOnly ? "no-workbench" : ""} ${!mapOnly && primarySurface === "none" ? "workbench-closed" : ""}`}>
         {mapOnly && <h1 className="sr-only">Map-first route comparison</h1>}
-        <section className="map-panel map-first-panel" aria-labelledby="map-heading">
+        {!mapOnly && <aside className="manifest" aria-label="Flight manifest">
+          <FlightOverviewList routes={filteredOverview} incompleteRoutes={incompleteOverview} total={overview.length} selected={selectedRoute} loading={overviewLoading} error={overviewError} onRetry={() => setOverviewReload((current) => current + 1)} onSelect={chooseOverviewRoute} onSelectIncomplete={chooseSynthesisTarget} onExploreSynthesis={openSynthesisChooser} />
+        </aside>}
+        <section className="map-panel map-first-panel map-cell" aria-labelledby="map-heading">
           <h2 className="sr-only" id="map-heading">Global route map</h2>
           <RouteMap routes={filteredOverview} selectedRoute={selectedRoute} synthesisRoute={synthesisRoute} selectedCandidate={selectedCandidate} callsign={selectedFlight?.callsign} onSelectRoute={chooseOverviewRoute} />
           <div className="map-hud">{selectedRoute ? <><span className="eyebrow">SELECTED SOURCE ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? formatDistance(selectedRoute.distanceNm) : "No complete source route available"}</span></> : synthesisRoute ? <><span className="eyebrow">OBSERVED-DONOR SYNTHESIS</span><strong>{synthesisRoute.label ?? synthesisRoute.callsign}</strong><span>Dotted segments were observed on other recorded routes in this generation—not estimates or suggestions.</span></> : <><span className="eyebrow">SOURCE ROUTE OVERVIEW</span><strong>{overviewLoading ? "Loading source route records…" : `${filteredOverview.length} of ${overview.length} source route records shown`}</strong><span>{overviewError ?? "Refreshed source data, not real-time tracking. Select a route from the map or list."}</span></>}</div>
-          {!mapOnly && <div className={`map-left-stack ${selectedRoute ? "has-route-legs" : ""}`}>
-            <FlightOverviewList routes={filteredOverview} incompleteRoutes={incompleteOverview} total={overview.length} selected={selectedRoute} loading={overviewLoading} error={overviewError} onRetry={() => setOverviewReload((current) => current + 1)} onSelect={chooseOverviewRoute} onSelectIncomplete={chooseSynthesisTarget} onExploreSynthesis={openSynthesisChooser} />
-            {selectedRoute && <RouteLegPanel route={selectedRoute} />}
-          </div>}
-          {!mapOnly && <nav className="map-rail" aria-label="Route workspace controls">
+          {!mapOnly && selectedRoute && primarySurface !== "route-data" && <div className="map-left-stack"><RouteLegPanel route={selectedRoute} /></div>}
+          {mapOnly && <button ref={restoreControlsRef} className="restore-controls" type="button" onClick={leaveMapOnly} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leaveMapOnly(); } }}>Restore controls</button>}
+          {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected source route</span><span><i className="legend-line legend-line-alt" /> Alternate source route</span><span><i className="legend-line legend-line-potential" /> Dotted segments: observed on another recorded route (same generation)</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
+        </section>
+        {!mapOnly && <aside className={`workbench ${primarySurface !== "none" ? "is-open" : ""}`}>
+          <nav className="workbench-spine" aria-label="Route workspace controls">
             <div className="rail-entry">
               <button ref={routesTriggerRef} type="button" aria-pressed={primarySurface === "routes"} onClick={() => setPrimarySurface((surface) => surface === "routes" ? "none" : "routes")} disabled={!selectedFlight}>Routes</button>
               {options.length > 1 && <span className="toolbar-count rail-count" aria-hidden="true">{options.length}</span>}
             </div>
             <button ref={dataTriggerRef} type="button" aria-pressed={primarySurface === "route-data"} onClick={() => setPrimarySurface((surface) => surface === "route-data" ? "none" : "route-data")} disabled={!selectedRoute}>Data</button>
-            <button ref={editorTriggerRef} type="button" aria-pressed={primarySurface === "editor"} onClick={() => { if (!selectedRoute) return; setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} disabled={!selectedRoute}>Explore variation</button>
             <button ref={compareTriggerRef} type="button" aria-pressed={primarySurface === "compare"} onClick={() => setPrimarySurface((surface) => surface === "compare" ? "none" : "compare")} disabled={!selectedRoute || options.length < 2}>Compare</button>
-          </nav>}
-          {mapOnly && <button ref={restoreControlsRef} className="restore-controls" type="button" onClick={leaveMapOnly} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leaveMapOnly(); } }}>Restore controls</button>}
-          {!mapOnly && primarySurface !== "none" && <aside className="map-drawer map-bottom-sheet" role="region" aria-label={primarySurface === "routes" ? "Route chooser" : primarySurface === "route-data" ? "Flight and route data" : primarySurface === "compare" ? "Route comparison" : primarySurface === "synthesis" ? "Observed-donor synthesis" : "Explore a route variation"}>
-            <div className="drawer-header"><p className="eyebrow">{primarySurface === "compare" ? "COMPARE ROUTES" : primarySurface === "routes" ? "COMPARE RECORDED ROUTES" : primarySurface === "route-data" ? "INSPECT ROUTE" : primarySurface === "synthesis" ? "OBSERVED-DONOR SYNTHESIS" : "EXPLORE VARIATION"}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>
+            <button type="button" aria-pressed={primarySurface === "synthesis"} onClick={() => setPrimarySurface((surface) => surface === "synthesis" ? "none" : "synthesis")}>Synthesis</button>
+            <button ref={editorTriggerRef} type="button" aria-pressed={primarySurface === "editor"} onClick={() => { if (!selectedRoute) return; setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} disabled={!selectedRoute}>Explore variation</button>
+          </nav>
+          <div className="map-drawer workbench-panel" role="region" aria-label={WORKBENCH_SURFACES[primarySurface].label}>
+            {primarySurface === "none" && <div className="workbench-empty"><span aria-hidden="true">⌖</span><strong>NO PANEL OPEN</strong><p>Select a route, then open Routes, Data, Compare, Synthesis, or Draft.</p></div>}
+            {primarySurface !== "none" && <div className="drawer-header"><p className="eyebrow">{WORKBENCH_SURFACES[primarySurface].eyebrow}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>}
             {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} onRetry={() => { setRouteReload((current) => current + 1); requestAnimationFrame(() => document.getElementById("options-heading")?.focus()); }} onSelect={(option) => { resetDraftState(); chooseOverviewRoute(option); setStatus(`Selected flight ${option.callsign} from the neutral route comparison.`); closeSurface("routes"); }} />}
             {primarySurface === "synthesis" && <SynthesisExplorer routes={incompleteOverview} selected={synthesisRoute} synthesis={synthesis} selectedCandidate={selectedCandidate} loading={synthesisLoading} error={synthesisError} statisticalNote={statisticalNote} onSelect={chooseSynthesisTarget} onChooseCandidate={setSelectedCandidate} onRetry={() => { if (synthesisRoute) void loadSynthesis(synthesisRoute); }} />}
             {primarySurface === "compare" && selectedRoute && <RouteCompare baseline={selectedRoute} options={options} onSelect={(option) => { chooseOverviewRoute(option); setStatus(`Comparing ${selectedRoute.label ?? "route"} with ${option.label ?? "route option"}.`); }} />}
-            {primarySurface === "route-data" && selectedRoute && <RouteDetails route={selectedRoute} onStartDraft={() => { setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); requestAnimationFrame(() => document.getElementById("draft-heading")?.focus()); }} />}
+            {primarySurface === "route-data" && selectedRoute && <><RouteLegPanel route={selectedRoute} /><RouteDetails route={selectedRoute} onStartDraft={() => { setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); requestAnimationFrame(() => document.getElementById("draft-heading")?.focus()); }} /></>}
             {primarySurface === "editor" && selectedRoute && draftActive && <DraftEditor draft={draft} baseline={selectedRoute} loading={draftLoading} error={draftError} onUpdate={(via, selections) => void updateDraft(via, selections)} onClose={() => { resetDraftState(); closeSurface("editor"); }} />}
-          </aside>}
-          {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><span><i className="legend-line" /> Selected source route</span><span><i className="legend-line legend-line-alt" /> Alternate source route</span><span><i className="legend-line legend-line-potential" /> Dotted segments: observed on another recorded route (same generation)</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></div>}
-          <div className="sr-status" role="status" aria-live="polite">{routeLoading ? "Loading route options." : status}</div>
-        </section>
+          </div>
+        </aside>}
       </main>}
+      <footer className="doc-control-footer"><span>SPEC-FRE-002</span><span>REV C</span><span className="footer-asof">DATA AS OF {generation?.retrievedAt ? formatRetrievedAt(generation.retrievedAt) : "—"}</span></footer>
+      <div className="sr-status" role="status" aria-live="polite">{routeLoading ? "Loading route options." : status}</div>
     </div>
   );
 }
@@ -609,7 +627,7 @@ function SynthesisExplorer({ routes, selected, synthesis, selectedCandidate, loa
       {error && !loading && <div className="notice error-notice" role="alert"><span>{error}</span><button className="retry-button" type="button" onClick={onRetry}>Retry synthesis</button></div>}
       {synthesis && !loading && !error && <>
         <p className={`synthesis-status${unavailableTone ? " synthesis-unavailable" : ""}`}>{synthesisStatusCopy(synthesis)}</p>
-        {synthesis.candidates.length > 0 && <div className="synthesis-candidates" role="group" aria-label="Synthesis candidates">{synthesis.candidates.map((candidate, index) => <button type="button" key={candidate.candidateId} aria-pressed={candidate.candidateId === selectedCandidate?.candidateId} onClick={() => onChooseCandidate(candidate)}><span><strong>Candidate {index + 1}</strong><small>Observed on {candidateDonorCount(candidate)} donor route(s) · borrowed {formatDistance(candidate.borrowedDistanceNm)}</small></span><span>{candidate.corridorsCovered} corridor{candidate.corridorsCovered === 1 ? "" : "s"} covered</span></button>)}</div>}
+        {synthesis.candidates.length > 0 && <div className="synthesis-candidates" role="group" aria-label="Synthesis candidates">{synthesis.candidates.map((candidate, index) => <button type="button" key={candidate.candidateId} aria-pressed={candidate.candidateId === selectedCandidate?.candidateId} onClick={() => onChooseCandidate(candidate)}><span><strong>Candidate {index + 1}</strong><small>Observed on {candidateDonorCount(candidate)} donor route(s) · borrowed {formatDistance(candidate.borrowedDistanceNm)}</small><span className="coverage-bar" aria-hidden="true">{Array.from({ length: synthesis.corridorCount }).map((_, corridorIndex) => <i key={corridorIndex} className={corridorIndex < candidate.corridorsCovered ? "covered" : ""} />)}</span></span><span>{candidate.corridorsCovered} corridor{candidate.corridorsCovered === 1 ? "" : "s"} covered</span></button>)}</div>}
         {selectedCandidate && <>
           <div className="metric-grid">
             {selectedCandidate.estimatedTotalDistanceNm !== undefined && <Metric label="Estimated total (source + borrowed)" value={formatDistance(selectedCandidate.estimatedTotalDistanceNm)} note="Never a source record change" />}
@@ -702,7 +720,7 @@ function RouteCompare({ baseline, options, onSelect }: { baseline: RouteOption; 
         <div className="metric-grid"><Metric label="Baseline" value={source.label ?? "Selected route"} /><Metric label="Distance" value={formatDistance(source.distanceNm)} /><Metric label="Points" value={String(source.pointCount)} /><Metric label="Legs" value={String(source.legs.length)} /><Metric label="Gaps" value={String(source.gaps.length)} /><Metric label="Status" value={source.complete ? "Complete" : "Incomplete"} /></div>
         <div className="metric-grid"><Metric label="Target" value={target.label ?? "Route option"} /><Metric label="Distance" value={formatDistance(target.distanceNm)} /><Metric label="Points" value={String(target.pointCount)} /><Metric label="Legs" value={String(target.legs.length)} /><Metric label="Gaps" value={String(target.gaps.length)} /><Metric label="Status" value={target.complete ? "Complete" : "Incomplete"} /></div>
       </div>
-      <div className="metric-grid"><Metric label="Change from selected route" value={delta === undefined ? "Unavailable" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} NM`} note={percentage !== undefined ? `Directed baseline → target · ${percentage >= 0 ? "+" : ""}${percentage.toFixed(1)}%` : "Directed baseline → target"} /></div>
+      <div className="metric-grid"><Metric chip label="Change from selected route" value={delta === undefined ? "Unavailable" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} NM`} note={percentage !== undefined ? `Directed baseline → target · ${percentage >= 0 ? "+" : ""}${percentage.toFixed(1)}%` : "Directed baseline → target"} /></div>
       {(comparison.status !== "complete" || comparison.unavailable?.includes("INCOMPLETE_OPERAND")) && <div className="evidence-stack"><Evidence label="Comparison limitation" value="Both routes must be complete for a modeled-distance difference." tone="amber" /></div>}
     </div>}
   </section>;
@@ -716,7 +734,7 @@ function RouteDetails({ route, onStartDraft }: { route: RouteOption; onStartDraf
   return <section className="details-section" aria-labelledby="details-heading"><div className="section-title"><div><p className="eyebrow">INSPECT</p><h2 id="details-heading">Route data</h2></div><div className="detail-actions"><button className="edit-copy-button" type="button" onClick={onStartDraft}>Explore variation</button><span className="opaque-id" title="Opaque server flight ID">Flight ID {route.flightId}</span></div></div><div className="metric-grid"><Metric label="Route data" value={route.complete ? "All references resolved" : "Some references unresolved"} /><Metric label="Modeled distance" value={formatDistance(route.distanceNm)} /><Metric label="Points" value={String(route.pointCount)} note="Server-reported count" /><Metric label="Visible gaps" value={String(route.gaps.length)} /></div><div className="evidence-stack"><Evidence label="Neutral comparison" value={ROUTE_COMPARISON_EXPLANATION} tone="blue" /><Evidence label="Provenance" value={route.provenance ?? "Not supplied by the route service."} tone="blue" /><Evidence label="Safety boundary" value={SAFETY_NOTICE} tone="amber" /><Evidence label={`Visible gaps${route.gaps.length ? ` · ${route.gaps.length}` : ""}`} value={route.gaps.length ? route.gaps.map((gap) => `Route position ${gap.sequence + 1}: ${gap.reason}`).join(" ") : "No gaps reported by the route service."} tone={route.gaps.length ? "red" : "green"} /></div></section>;
 }
 
-function Metric({ label, value, note }: { label: string; value: string; note?: string }) { return <div className="metric"><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div>; }
+function Metric({ label, value, note, chip }: { label: string; value: string; note?: string; chip?: boolean }) { return <div className="metric"><span>{label}</span>{chip ? <strong><span className="delta-chip">{value}</span></strong> : <strong>{value}</strong>}{note && <small>{note}</small>}</div>; }
 function Evidence({ label, value, tone }: { label: string; value: string; tone: "blue" | "amber" | "red" | "green" }) { return <div className={`evidence evidence-${tone}`}><span>{label}</span><p>{value}</p></div>; }
 
 function RouteTable({ legs }: { legs: RouteLeg[] }) {
@@ -816,9 +834,9 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
       else if (event.key === "Enter") { event.preventDefault(); if (activeIndex >= 0 && matches[activeIndex]) commitMatch(matches[activeIndex]!); else void findReference(); }
       else if (event.key === "Escape") { event.preventDefault(); setMatches([]); setLookupError(undefined); setActiveIndex(-1); }
     }} aria-expanded={hasMatches} aria-controls={hasMatches ? matchResultsId : undefined} aria-activedescendant={activeIndex >= 0 ? `draft-match-${activeIndex}` : undefined} aria-autocomplete="list" maxLength={64} placeholder="Search an exact fix, NAVAID, or airport" autoComplete="off" /><button className="search-button" type="button" onClick={() => void findReference()} disabled={lookupLoading || !query.trim()} aria-label="Find exact reference point">{lookupLoading ? <span className="spinner" /> : "Find"}</button></div>{lookupError && <p className="field-error" role="alert">{lookupError}</p>}<div className="sr-status" role="status" aria-live="polite">{lookupLoading ? "Looking up exact reference points." : matches.length ? `${matches.length} exact reference point${matches.length === 1 ? "" : "s"} available.` : ""}</div>
-      {hasMatches && <div className="reference-picker" id={matchResultsId} role="listbox" aria-label="Resolved reference-point search results">{matches.map((match, index) => <div role="option" id={`draft-match-${index}`} aria-selected={activeIndex === index} className={activeIndex === index ? "is-active" : undefined} tabIndex={-1} key={`${match.identifier}-${match.coordinate.lat}-${match.coordinate.lon}`} onMouseDown={(event) => event.preventDefault()} onClick={() => commitMatch(match)}><span><strong>{match.identifier}</strong><small>{match.kind} · {match.coordinate.lat.toFixed(4)}, {match.coordinate.lon.toFixed(4)}{match.duplicateGroup ? " · multiple exact coordinates" : ""}</small></span><span>{match.duplicateGroup ? "Choose exact location" : "Add"}</span></div>)}</div>}
+      {hasMatches && <div className="reference-picker" id={matchResultsId} role="listbox" aria-label="Resolved reference-point search results">{matches.map((match, index) => <div role="option" id={`draft-match-${index}`} aria-selected={activeIndex === index} className={activeIndex === index ? "is-active" : undefined} tabIndex={-1} key={`${match.identifier}-${match.coordinate.lat}-${match.coordinate.lon}`} onMouseDown={(event) => event.preventDefault()} onClick={() => commitMatch(match)}><span><strong>{match.identifier}</strong>{match.kind && <span className="kind-badge" aria-hidden="true">{match.kind}</span>}<small>{match.kind} · {match.coordinate.lat.toFixed(4)}, {match.coordinate.lon.toFixed(4)}{match.duplicateGroup ? " · multiple exact coordinates" : ""}</small></span><span>{match.duplicateGroup ? "Choose exact location" : "Add"}</span></div>)}</div>}
     </div>
-    <div className="draft-points"><div className="group-heading"><h3>Intermediate points</h3><button className="text-button" type="button" onClick={() => commitUpdate([], [])} disabled={!via.length || loading}>Reset to endpoint-only draft</button></div>{via.length ? <ol role="list">{via.map((point, index) => <li key={`${point}-${index}`}><span><strong>{point}</strong><small>{selectedAt(index) ? "Exact coordinate selected from the ambiguous group." : "Manual-direct segments are not airways."}</small></span><span className="draft-row-actions"><button type="button" onClick={() => commitUpdate(via.map((value, position) => position === index - 1 ? point : position === index ? via[index - 1]! : value), remapMove(index, -1))} disabled={loading || index === 0} aria-label={`Move ${point} up`}>Move up</button><button type="button" onClick={() => commitUpdate(via.map((value, position) => position === index + 1 ? point : position === index ? via[index + 1]! : value), remapMove(index, 1))} disabled={loading || index === via.length - 1} aria-label={`Move ${point} down`}>Move down</button><button type="button" onClick={() => commitUpdate(via.filter((_, position) => position !== index), remapRemove(index))} disabled={loading} aria-label={`Remove ${point}`}>Remove</button></span></li>)}</ol> : <p className="muted-copy">No intermediate points. This draft uses a direct modeled endpoint-to-endpoint segment.</p>}</div>
+    <div className="draft-points"><div className="group-heading"><h3>Intermediate points</h3><button className="text-button" type="button" onClick={() => commitUpdate([], [])} disabled={!via.length || loading}>Reset to endpoint-only draft</button></div>{via.length ? <ol role="list">{via.map((point, index) => <li key={`${point}-${index}`}><span><strong>{point}</strong><small>{selectedAt(index) ? "Exact coordinate selected from the ambiguous group." : "Manual-direct segments are not airways."}</small></span><span className="draft-row-actions"><button type="button" onClick={() => commitUpdate(via.map((value, position) => position === index - 1 ? point : position === index ? via[index - 1]! : value), remapMove(index, -1))} disabled={loading || index === 0} aria-label={`Move ${point} up`}>↑</button><button type="button" onClick={() => commitUpdate(via.map((value, position) => position === index + 1 ? point : position === index ? via[index + 1]! : value), remapMove(index, 1))} disabled={loading || index === via.length - 1} aria-label={`Move ${point} down`}>↓</button><button type="button" onClick={() => commitUpdate(via.filter((_, position) => position !== index), remapRemove(index))} disabled={loading} aria-label={`Remove ${point}`}>✕</button></span></li>)}</ol> : <p className="muted-copy">No intermediate points. This draft uses a direct modeled endpoint-to-endpoint segment.</p>}</div>
     {loading && <div className="loading-row"><span className="spinner dark" /> Validating the local draft…</div>}{error && <div className="notice error-notice" role="alert"><span>{error}</span><button className="retry-button" type="button" onClick={() => { commitUpdate(via, selections); requestAnimationFrame(() => document.getElementById("draft-heading")?.focus()); }} disabled={loading}>Retry draft validation</button></div>}
     {draft && <div className="draft-result"><Metric label="Draft status" value={draft.comparison.status === "complete" ? "Complete" : "Incomplete"} /><Metric label="Modeled distance" value={formatDistance(draft.route.distanceNm)} /><Metric label="Change from selected route" value={delta === undefined ? "Unavailable" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)} NM`} note={percentage !== undefined ? `Directed baseline → target · ${percentage >= 0 ? "+" : ""}${percentage.toFixed(1)}%` : "Directed baseline → target"} /><Metric label="Draft gaps" value={String(draft.route.gaps.length)} note={draft.comparison.message} /></div>}
   </section>;
@@ -848,7 +866,14 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
     };
     measure();
     window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    // The docked workbench opening/closing resizes the stage without any
+    // window resize, so observe the element itself, not just the viewport.
+    const observer = typeof window !== "undefined" && "ResizeObserver" in window ? new window.ResizeObserver(measure) : undefined;
+    if (observer && stageRef.current) observer.observe(stageRef.current);
+    return () => {
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
   }, []);
 
   // Every server-returned candidate is drawn on the map: the selected route
