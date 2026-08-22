@@ -29,7 +29,7 @@ These anchors are pinned by tests and MUST survive the redesign unless the task 
 
 Additional hard rules:
 - `Escape` still closes the open workbench surface; focus return to the spine trigger stays deterministic.
-- Distance figures render in IBM Plex Mono with `font-variant-numeric: tabular-nums`; thin space (U+202F) thousands separator.
+- Distance figures render in IBM Plex Mono with `font-variant-numeric: tabular-nums`; plain-space (U+0020) thousands separator — U+202F thin space is not guaranteed in the vendored latin subsets and would break tabular alignment via per-glyph fallback.
 - All new interactive map chrome has ≥44px touch targets; radius 2px everywhere; focus = 2px offset ink outline.
 
 ---
@@ -727,7 +727,7 @@ Add `const [hovered, setHovered] = useState<{ route: RouteOption; x: number; y: 
 
 - [ ] **Step 2: Draw lifecycle in RouteMap** — on `displayRoute?.flightId` change set `drawing=true`, `const timer = window.setTimeout(() => setDrawing(false), 460)` (cleanup on unmount/change). Apply `is-drawing` to the selected `<g>`. The 460ms cleanup restores computed `stroke-dasharray: none` for the Playwright contract (Task 11).
 
-- [ ] **Step 3: Distance tick** — add `useEffect`-driven rAF count-up (0 → value, 320ms) in a small `DistanceTick({ nm })` component used by the `.map-hud` distance line and the toolbar distance; guard with `window.matchMedia("(prefers-reduced-motion: reduce)").matches` → render final value directly. Format with thin space: `nm.toLocaleString("en-US").replace(/,/g, "\u202F")` then `.toFixed(1)` handling: format `value.toFixed(1)` and insert `\u202F` before the last three integer digits when ≥1000.
+- [ ] **Step 3: Distance tick** — add `useEffect`-driven rAF count-up (0 → value, 320ms) in a small `DistanceTick({ nm })` component used by the `.map-hud` distance line and the toolbar distance; guard with `window.matchMedia("(prefers-reduced-motion: reduce)").matches` → render final value directly. Format with a plain-space separator: `value.toFixed(1)` and insert `" "` before the last three integer digits when ≥1000 (U+202F is NOT in the vendored latin subsets — plain space keeps tabular alignment).
 
 - [ ] **Step 4: Verify reduced-motion pin still passes** — `pnpm run test:responsive` reduced-motion test expects `animation-duration: .01ms` / `transition-duration: .01ms` inside the block (kept untouched).
 - [ ] **Step 5: Commit** — `git commit -m "feat(web): instrument-grade motion — strip/row/draw animations, reduced-motion safe"`
