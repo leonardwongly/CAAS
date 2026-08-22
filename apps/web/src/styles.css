@@ -273,7 +273,6 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 
 /* Map-first selected-flight workspace: keep route controls discoverable without turning the page into a data report. */
 .map-first-shell { max-width: none; min-height: 100vh; padding: 14px 18px 20px; }
-.map-topbar { align-items: center; display: grid; gap: 12px; grid-template-columns: auto minmax(260px, 430px) minmax(180px, 1fr) auto; margin-bottom: 12px; }
 .product-mark .eyebrow { margin-bottom: 3px; }.product-mark h1 { font-size: 1.05rem; letter-spacing: -.02em; line-height: 1.1; margin: 0; white-space: nowrap; }
 .toolbar-search { min-width: 0; }.toolbar-search .search-block { border: 0; padding: 0; }.toolbar-search .search-block > label { clip: rect(0, 0, 0, 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }.toolbar-search .duplicate-picker { position: absolute; width: min(430px, calc(100vw - 36px)); }.toolbar-search .search-input-row input { padding: 10px 12px; }
 .toolbar-flight.has-selection { align-items: flex-start; border-left: 3px solid var(--blue); display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-left: 12px; }
@@ -290,8 +289,6 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 .map-left-stack { bottom: 58px; display: flex; flex-direction: column; gap: 10px; left: 18px; min-height: 0; position: absolute; top: 92px; width: min(330px, 28vw); z-index: 4; }.route-leg-panel { background: var(--sheet); border: 1px solid var(--blue); border-radius: 2px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding: 10px; }.route-leg-panel-heading { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 10px; justify-content: space-between; padding: 2px 3px 8px; }.route-leg-panel-heading .eyebrow { margin-bottom: 3px; }.route-leg-panel-heading h2 { color: var(--ink); font-size: .82rem; margin: 0; }.route-leg-panel-heading > span { color: var(--muted); font-size: .66rem; white-space: nowrap; }.route-leg-panel .table-scroll { flex: 1; margin-top: 9px; min-height: 0; overflow: auto; }.drawer-header { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; margin-bottom: 14px; padding-bottom: 11px; }.drawer-header .eyebrow { margin: 0; }.drawer-header .quiet-button { padding: 6px 9px; }
 .map-drawer .options-section, .map-drawer .details-section, .map-drawer .draft-section, .map-drawer .empty-options { background: transparent; border: 0; border-radius: 0; padding: 0; }.map-drawer .section-title { margin-bottom: 15px; }.map-drawer .detail-actions .opaque-id { display: none; }.map-drawer .metric-grid { grid-template-columns: repeat(2, 1fr); margin-bottom: 16px; }.map-drawer .metric { min-height: 76px; padding: 12px; }.map-drawer .metric:nth-child(2) { border-right: 0; }.map-drawer .metric:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }.map-drawer .detail-columns { grid-template-columns: 1fr; }.map-drawer .evidence-stack { margin-top: 14px; }.map-drawer .option-grid { grid-template-columns: 1fr; }.map-drawer .route-card-distance { font-size: 1.15rem; margin: 9px 0 3px; }.map-drawer .route-card { padding: 12px; }.map-drawer .draft-section { margin: 0; }.map-drawer .draft-result { grid-template-columns: repeat(2, 1fr); }
 .map-first-panel > .map-legend { background: var(--sheet); border: 1px solid var(--hairline); border-radius: 2px; bottom: 14px; display: flex; left: auto; padding: 10px 14px; position: absolute; right: 14px; top: auto; z-index: 3; }
-@media (max-width: 1100px) { .map-topbar { grid-template-columns: auto minmax(220px, 1fr) auto; }.toolbar-flight { display: none; }.map-first-panel .map-stage { min-height: 560px; } }
-@media (max-width: 760px) { .map-first-shell { padding: 10px; }.map-topbar { grid-template-columns: 1fr auto; }.product-mark { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }.toolbar-search { grid-column: 1 / 2; }.toolbar-clear { grid-column: 2; grid-row: 1; }.map-first-panel .map-stage { height: calc(100vh - 150px); min-height: 560px; }.map-hud { max-width: calc(100% - 102px); }.map-drawer { bottom: 44px; left: 8px; max-width: none; top: auto; width: calc(100% - 16px); max-height: 58%; }.map-first-panel > .map-legend { font-size: .6rem; gap: 10px; padding: 9px 12px; }.map-first-panel .map-endpoints { bottom: 46px; left: 12px; right: auto; }.map-first-panel .map-fallback-banner { bottom: 98px; left: 12px; right: 12px; }.map-endpoint span { max-width: 160px; }.compare-columns { grid-template-columns: 1fr; } }
 
 /* Audit remediation: convey safety without color, keep dense data usable, and make recoverable errors obvious. */
 .retry-button { align-self: flex-start; background: transparent; border: 1px solid var(--alert-red); border-radius: 2px; color: var(--alert-red); font-size: .7rem; font-weight: 750; margin-top: 4px; padding: 6px 8px; }
@@ -305,9 +302,7 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 }
 
 /* Runtime policies: live-generation refresh control and error presentation. */
-.generation-strip { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin: -4px 0 12px; }
 .refresh-error { color: var(--red); font-size: .72rem; }
-.generation-strip .quiet-button { padding: 7px 12px; white-space: nowrap; }
 
 /* Accessibility & UAT pass (2026-08-13): Map Only surface, deterministic
    focus-return targets, and forced-colors support (design §15.2, §15.4, §15.7). */
@@ -316,6 +311,11 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 .restore-controls:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .section-title h2:focus, .group-heading h3:focus { outline: 2px solid var(--blue); outline-offset: 2px; }
 @media (forced-colors: active) {
+  .workbench-spine button { border-color: ButtonBorder; color: CanvasText; }
+  .workbench-spine button[aria-pressed="true"] { border-color: Highlight; color: Highlight; }
+  .compass-rose svg { stroke: CanvasText; }
+  .compass-rose text { fill: CanvasText; }
+  .map-scalebar .scalebar-bar { border-color: CanvasText; }
   .route-path { stroke: CanvasText; }
   .route-path-alternate { stroke: GrayText; }
   .route-shadow { stroke: transparent; }
@@ -332,9 +332,7 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
   .map-fallback-banner, .map-hud, .map-endpoint, .map-attribution, .safety-banner, .map-legend, .restore-controls, .map-rail button, .map-zoom-controls button { border-color: ButtonBorder; }
   .search-input-row input:focus-visible, .skip-link:focus, .route-card:focus-visible, .quiet-button:focus-visible, .search-button:focus-visible, .map-rail button:focus-visible, .restore-controls:focus-visible, .retry-button:focus-visible, .table-scroll:focus-visible, .edit-copy-button:focus-visible, .text-button:focus-visible, .draft-row-actions button:focus-visible, .section-title h2:focus, .group-heading h3:focus, .map-zoom-controls button:focus-visible { outline-color: Highlight; }
   #gap-hatch line { stroke: CanvasText; }
-  .reg-mark, .map-scalebar .scalebar-bar { border-color: CanvasText; }
-  .compass-rose svg { stroke: CanvasText; }
-  .compass-rose text { fill: CanvasText; }
+  .reg-mark { border-color: CanvasText; }
   .grat-label, .scalebar-label { color: CanvasText; }
   .route-tooltip { background: Canvas; border: 1px solid CanvasText; color: CanvasText; }
 }
@@ -378,7 +376,6 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 /* All-flight overview: the list and map share one filtered collection and one
    selected flight identity. The scroll container bounds layout cost without
    truncating records or route lines. */
-.flight-overview-list { background: var(--sheet); border: 1px solid var(--hairline); border-radius: 2px; bottom: 58px; display: flex; flex-direction: column; left: 18px; max-height: calc(100% - 150px); overflow: hidden; padding: 10px; position: absolute; top: 92px; width: min(330px, 28vw); z-index: 4; }
 .overview-list-heading { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 2px 3px 8px; }.overview-list-heading .eyebrow { margin-bottom: 3px; }.overview-list-heading strong { color: var(--muted); font-size: .68rem; }
 .overview-flight-buttons { display: flex; flex-direction: column; overflow: auto; scrollbar-color: var(--blue) var(--paper); }
 .overview-flight-buttons button { align-items: center; background: transparent; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); display: flex; gap: 8px; justify-content: space-between; padding: 9px 7px; text-align: left; width: 100%; }
@@ -388,19 +385,6 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 .overview-flight-buttons button > span:first-child { display: grid; gap: 3px; min-width: 0; }.overview-flight-buttons strong { color: var(--ink); font-size: .74rem; }.overview-flight-buttons small { color: var(--muted); font-size: .61rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.overview-flight-buttons button > span:last-child { color: var(--subtle); font-size: .61rem; white-space: nowrap; }
 .route-hit { cursor: pointer; fill: none; pointer-events: stroke; stroke: transparent; stroke-width: 16; }
 .map-overlap-chooser { background: var(--sheet); border: 1px solid var(--blue); border-radius: 2px; left: 50%; max-height: 50%; overflow: auto; padding: 10px; position: absolute; top: 50%; transform: translate(-50%, -50%); width: min(360px, calc(100% - 32px)); z-index: 8; }.map-overlap-chooser > div { align-items: center; display: flex; justify-content: space-between; margin-bottom: 8px; }.map-overlap-chooser > div strong { font-size: .78rem; }.map-overlap-chooser > button { background: transparent; border: 1px solid var(--line); border-radius: 2px; color: var(--ink); display: grid; gap: 3px; margin-top: 6px; padding: 9px; text-align: left; width: 100%; }.map-overlap-chooser > button span { color: var(--muted); font-size: .65rem; }
-@media (max-width: 760px) { .flight-overview-list { bottom: 44px; left: 8px; max-height: 32%; top: auto; width: calc(100% - 96px); }.map-hud { left: 12px; }.overview-flight-buttons button { padding: 8px 6px; } }
-
-/* Keep the map frame coherent when the viewport is wider than the low-zoom world. */
-@media (min-width: 1101px) {
-  .map-topbar { grid-template-columns: auto minmax(260px, 430px) minmax(180px, 1fr) auto auto; }
-}
-@media (min-width: 761px) and (max-width: 1100px) {
-  .map-topbar { grid-template-columns: auto minmax(220px, 1fr) auto auto; }
-}
-@media (max-width: 760px) {
-  .map-topbar > .toolbar-clear:first-of-type { grid-column: 2; grid-row: 1; }
-  .map-topbar > .toolbar-clear:last-of-type { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
-}
 
 /* Let the map occupy the available desktop viewport instead of reserving
    excess vertical space for the page shell. */
@@ -416,7 +400,6 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 
 /* Option C: full-map focus with compact top actions and bottom sheets. */
 .map-first-shell { background: var(--paper); }
-.map-topbar { grid-template-columns: auto minmax(240px, 410px) minmax(170px, 1fr) repeat(3, auto); gap: 10px; }
 .toolbar-map-action { align-items: center; display: inline-flex; gap: 7px; white-space: nowrap; }
 .toolbar-map-action[aria-pressed="true"] { border-color: var(--blue); color: var(--ink); }
 .toolbar-count { align-items: center; background: var(--blue); border-radius: 99px; color: var(--sheet); display: inline-flex; font-size: .6rem; font-weight: 850; height: 17px; justify-content: center; min-width: 17px; padding: 0 5px; position: static; }
@@ -426,13 +409,10 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 .map-first-panel .map-fallback-banner { bottom: auto; left: auto; right: 24px; top: 76px; }
 .map-first-panel .map-endpoints { bottom: 182px; left: auto; right: 24px; }
 .map-hud { background: var(--sheet); border-color: var(--hairline); left: 24px; max-width: min(390px, calc(100% - 160px)); padding: 12px 14px; top: 24px; }
-.overview-flight-buttons button.selected { box-shadow: inset 3px 0 var(--chart-magenta); }
 @media (max-width: 1100px) {
-  .map-topbar { grid-template-columns: auto minmax(220px, 1fr) repeat(3, auto); }
   .map-first-panel .map-stage { min-height: 600px; }
 }
-@media (max-width: 760px) {
-  .map-topbar { grid-template-columns: 1fr auto auto; }
+@media (width <= 760px) {
   .toolbar-search { grid-column: 1 / -1; grid-row: 2; }
   .toolbar-flight { display: none; }
   .toolbar-map-action { grid-row: 1; }
@@ -455,7 +435,7 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 .potential-route-options button { align-items: center; background: var(--sheet); border: 1px solid var(--amber); border-radius: 2px; color: var(--ink); display: flex; gap: 10px; justify-content: space-between; padding: 11px 12px; text-align: left; width: 100%; }
 .potential-route-options button:hover { background: var(--paper); border-color: var(--amber); }.potential-route-options button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .potential-route-options strong, .potential-route-options small { display: block; }.potential-route-options strong { color: var(--ink); font-size: .78rem; }.potential-route-options small, .potential-route-options > button > span:last-child { color: var(--muted); font-size: .66rem; }
-@media (max-width: 760px) { .potential-route-prompt { align-items: flex-start; flex-direction: column; gap: 8px; }.potential-route-options button { align-items: flex-start; flex-direction: column; gap: 4px; } }
+@media (width <= 760px) { .potential-route-prompt { align-items: flex-start; flex-direction: column; gap: 8px; }.potential-route-options button { align-items: flex-start; flex-direction: column; gap: 4px; } }
 @media (forced-colors: active) { .route-path-potential { stroke: Highlight; }.legend-line-potential { background: repeating-linear-gradient(90deg, CanvasText 0 5px, transparent 5px 9px); } }
 .synthesis-status { border-left: 3px solid var(--blue); padding: 4px 0 4px 10px; color: var(--muted); font-size: .68rem; line-height: 1.4; }
 .synthesis-status.synthesis-unavailable { border-left-color: var(--amber); }
@@ -469,13 +449,13 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 .coverage-bar { display: inline-flex; flex-wrap: wrap; gap: 2px; margin-top: 5px; }
 .coverage-bar i { background: var(--hairline); display: inline-block; height: 8px; width: 5px; }
 .coverage-bar i.covered { background: var(--signal-orange); }
-@media (max-width: 760px) { .synthesis-candidates button { align-items: flex-start; flex-direction: column; gap: 4px; } }
+@media (width <= 760px) { .synthesis-candidates button { align-items: flex-start; flex-direction: column; gap: 4px; } }
 
 /* Persistent left-side route-leg panel. This final scoped layer intentionally
    overrides the earlier bottom-sheet experiment: route legs never collapse
    when a transient route drawer opens. */
 .map-first-panel .map-left-stack { bottom: 58px; display: flex; flex-direction: column; gap: 10px; left: 18px; min-height: 0; position: absolute; top: 122px; width: min(330px, 28vw); z-index: 4; }
-@media (max-width: 760px) {
+@media (width <= 760px) {
   .map-first-panel .map-left-stack { bottom: 44px; left: 10px; right: 10px; top: 100px; width: auto; }
 }
 
@@ -561,7 +541,7 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 .route-tooltip { background: var(--ink); border-radius: 2px; color: var(--paper); font-family: var(--font-mono); font-size: var(--text-micro); padding: 4px 8px; pointer-events: none; position: absolute; z-index: 6; }
 /* Cascade-later override for the pinned 760px block: endpoint chips clear
    the left-edge zoom stamps on narrow viewports. */
-@media (max-width: 760px) { .map-first-panel .map-endpoints { left: 72px; } }
+@media (width <= 760px) { .map-first-panel .map-endpoints { left: 72px; } }
 
 /* DISPATCH Task 9: legend folds behind a "Key" disclosure at <=760px. The
    details/summary pair always renders; the summary is hidden at >=761px and
@@ -580,7 +560,10 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 /* DISPATCH Task 9 responsive contract (spec section 9): 761-1279px folds the
    manifest away and docks the workbench as a bottom sheet; <=760px stacks
    strip -> map (55vh) -> sheet in one column. Placed after the legacy
-   @media blocks so the cascade resolves conflicts in favour of this set. */
+   @media blocks so the cascade resolves conflicts in favour of this set.
+   The earlier Task-6/7 mobile blocks use the equivalent width-range syntax
+   so the pinned max-width-760 blockAfter contract in responsive-css.test.ts
+   lands on this block first. */
 @media (max-width: 1279px) {
   .briefing-frame { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   /* The closed/no-workbench variants carry higher specificity than the
@@ -604,5 +587,9 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
   .doc-control-footer span:not(.footer-asof) { display: none; }
   .command-strip { padding: 8px 12px; }
   .product-mark { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+  /* Salvaged from the deleted legacy 760px block: still-load-bearing mobile
+     rules the DISPATCH block above does not restate. */
+  .map-endpoint span { max-width: 160px; }
+  .compare-columns { grid-template-columns: 1fr; }
   .legend-key summary { display: list-item; }
 }
