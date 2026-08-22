@@ -43,6 +43,12 @@
   "secrets": {
     "required": ["apikey"]
   },
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  },
   "env": {
     "staging": {
       "containers": [
