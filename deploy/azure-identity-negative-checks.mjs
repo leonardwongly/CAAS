@@ -19,20 +19,57 @@
 
 import { spawn } from "node:child_process";
 
-const live = process.argv.includes("--live");
-const arg = (name) => {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 ? process.argv[i + 1] : undefined;
+// Usage errors fail closed before anything is printed or spawned (exit 2).
+const failUsage = (message) => {
+  console.error(`azure-identity-negative-checks: ${message}`);
+  console.error("usage: node deploy/azure-identity-negative-checks.mjs [--live] [--app NAME] [--rg RG] [--vault NAME] [--principal OBJECT_ID] [--allowed-user OBJECT_ID]");
+  process.exit(2);
 };
-const app = arg("app") ?? "PREFIX-app";
-const rg = arg("rg") ?? "RG";
-const vault = arg("vault") ?? "PREFIX-kv";
-const principal = arg("principal") ?? "DEPLOYMENT-IDENTITY-OBJECT-ID";
-const allowedUser = arg("allowed-user") ?? "ALLOWED-USER-OBJECT-ID";
 
+const KNOWN_FLAGS = new Set(["--live", "--app", "--rg", "--vault", "--principal", "--allowed-user"]);
+for (const token of process.argv.slice(2)) {
+  if (typeof token === "string" && token.startsWith("--") && !KNOWN_FLAGS.has(token)) {
+    failUsage(`unknown flag "${token}"`);
+  }
+}
+
+// Interpolated values land inside printed `az` command strings and inside the
+// argv of live spawns, so only unambiguous identifier characters are admitted:
+// shell metacharacters, quotes, whitespace, and flag-looking values can never
+// produce executable-looking mutations.
+const VALUE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
+const flagValue = (name) => {
+  const i = process.argv.indexOf(`--${name}`);
+  if (i < 0) return undefined;
+  const value = process.argv[i + 1];
+  if (value === undefined || value.startsWith("--")) failUsage(`--${name} requires a value`);
+  if (!VALUE_PATTERN.test(value)) {
+    failUsage(`--${name} must match ${VALUE_PATTERN} (letters, digits, "-", "_"; no shell metacharacters)`);
+  }
+  return value;
+};
+const app = flagValue("app") ?? "PREFIX-app";
+const rg = flagValue("rg") ?? "RG";
+const vault = flagValue("vault") ?? "PREFIX-kv";
+const principal = flagValue("principal") ?? "DEPLOYMENT-IDENTITY-OBJECT-ID";
+const allowedUser = flagValue("allowed-user") ?? "ALLOWED-USER-OBJECT-ID";
+const live = process.argv.includes("--live");
+
+// Write-inertia backstop: even under --live this script may only execute
+// read-only inspection commands; any mutating verb fails closed before spawn.
+const MUTATING_AZ_VERBS = new Set([
+  "add", "apply", "assign", "backup", "clear", "create", "deactivate", "delete", "disable",
+  "enable", "import", "invoke", "lock", "move", "purge", "recover", "regenerate",
+  "remove", "reset", "restore", "restart", "revoke", "rotate", "scale", "set",
+  "start", "stop", "swap", "undelete", "unlock", "up", "update",
+]);
 const run = (cmd) =>
   new Promise((resolvePromise) => {
-    const [bin, ...args] = cmd.split(" ").filter(Boolean);
+    const tokens = cmd.split(" ").filter(Boolean);
+    if (tokens[0] === "az" && tokens.slice(2).some((token) => MUTATING_AZ_VERBS.has(token))) {
+      throw new Error(`refusing to execute mutating az command: ${cmd}`);
+    }
+    const [bin, ...args] = tokens;
     const child = spawn(bin, args, { stdio: "pipe" });
     let out = "";
     child.stdout.on("data", (d) => { out += d; });
