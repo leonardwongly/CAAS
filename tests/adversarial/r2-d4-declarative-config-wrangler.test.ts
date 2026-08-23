@@ -4,8 +4,10 @@
 // scans workflows and Bicep but never reads it. This lane parses the file as
 // JSONC and cross-references every declaration against the actual repo state:
 //   1. JSONC parse validity (the comment-stripper is self-tested first so the
-//      parse pin is not vacuous), main entrypoint / assets directory /
-//      container image paths must resolve to real files in the tree.
+//      parse pin is not vacuous), main entrypoint / container image paths
+//      must resolve to real files in the tree, and assets.directory must
+//      match the web build output declaration without depending on build
+//      output existing (it is produced at build time, never committed).
 //   2. assets.run_worker_first must describe exactly the prefix the edge
 //      router classifies (apps/edge/src/routing.ts isApiRequest -> "/api/").
 //   3. The container class_name ApiContainer must agree across the containers
@@ -19,6 +21,7 @@
 //      diverge.
 // Everything reads committed files; nothing is mocked.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -142,17 +145,45 @@ test("wrangler.jsonc parses as JSONC and declares the worker identity", async ()
   assert.match(config.compatibility_date, /^\d{4}-\d{2}-\d{2}$/, "compatibility_date must be a wrangler date");
 });
 
-test("main entrypoint, assets directory, and container image resolve to real paths", async () => {
+test("main entrypoint and container image resolve to real paths", async () => {
   const { config } = await loadConfig();
   assert.equal(config.main, "apps/edge/src/index.ts");
   assert.ok(existsSync(resolve(root, config.main)), `main entrypoint ${config.main} must exist`);
-  const assetsDirectory = config.assets.directory.replace(/^\.\//, "");
-  assert.ok(existsSync(resolve(root, assetsDirectory)), `assets directory ${config.assets.directory} must exist (web build output)`);
   const container = onlyContainer(config);
   const image = container.image.replace(/^\.\//, "");
   assert.ok(existsSync(resolve(root, image)), `container image Dockerfile ${container.image} must exist`);
   const context = container.image_build_context.replace(/^\.\//, "");
   assert.ok(existsSync(resolve(root, context)), `image_build_context ${container.image_build_context} must exist`);
+});
+
+test("assets.directory names the web build output: declared, produced at build time, never committed", async () => {
+  // CI runs this lane on a fresh checkout BEFORE any web build, so
+  // apps/web/dist legitimately does not exist there; asserting its existence
+  // would make the test pass or fail depending on local build leftovers —
+  // an environment-dependent false assertion of repo truth. The real
+  // invariant is declarative: assets.directory must be exactly the directory
+  // the web build writes to (derived from the web package's build config, not
+  // the filesystem), and that directory must be gitignored so committed state
+  // can never contain build output.
+  const { config } = await loadConfig();
+  assert.equal(config.assets.directory, "./apps/web/dist", "assets.directory must stay pinned to the web build output path");
+  // Derive the build output directory from committed sources: the web build
+  // script is `vite build` and apps/web/vite.config.ts sets no build.outDir,
+  // so Vite's default `dist/` (relative to apps/web) is the output directory
+  // — exactly the apps/web/dist path wrangler declares.
+  const webPackage = JSON.parse(await readFile(resolve(root, "apps/web/package.json"), "utf8")) as { scripts: Record<string, string> };
+  assert.match(webPackage.scripts.build ?? "", /vite build/, "the web build must be produced by vite build");
+  const viteConfig = await readFile(resolve(root, "apps/web/vite.config.ts"), "utf8");
+  assert.ok(!/outDir/.test(viteConfig), "vite config must not redirect build output via outDir; the default dist/ is the contract");
+  // git check-ignore exits 0 only when the path matches an ignore pattern.
+  let ignored = false;
+  try {
+    execFileSync("git", ["check-ignore", "--", "apps/web/dist"], { cwd: root, stdio: "pipe" });
+    ignored = true;
+  } catch {
+    ignored = false;
+  }
+  assert.ok(ignored, "apps/web/dist must be gitignored: build output is produced at build time, never committed");
 });
 
 test("run_worker_first covers exactly the /api/ prefix the edge router classifies", async () => {
