@@ -168,7 +168,13 @@ export function displayDistanceNm(distanceNm: number): number {
   if (!Number.isFinite(distanceNm) || distanceNm < 0) {
     throw new RangeError("distanceNm must be a finite, non-negative number");
   }
-  return Math.round((distanceNm + Number.EPSILON) * 10) / 10;
+  const rounded = Math.round((distanceNm + Number.EPSILON) * 10) / 10;
+  // Finite inputs near Number.MAX_VALUE overflow the *10 step to Infinity;
+  // a display helper must never emit a non-finite value, so fail closed.
+  if (!Number.isFinite(rounded)) {
+    throw new RangeError("distanceNm is too large to round at 0.1 NM without overflow");
+  }
+  return rounded;
 }
 
 export { compareDistanceOperands, type DistanceComparison, type DistanceComparisonStatus, type DistanceComparisonUnavailable } from "./compare.ts";
@@ -176,7 +182,11 @@ export { compareDistanceOperands, type DistanceComparison, type DistanceComparis
 export function sumDistanceNm(distances: readonly number[]): number {
   return distances.reduce((sum, distance) => {
     if (!Number.isFinite(distance) || distance < 0) throw new RangeError("distances must be finite and non-negative");
-    return sum + distance;
+    const next = sum + distance;
+    // Finite operands can still overflow the accumulated sum to Infinity;
+    // a modeled total must never leave this helper non-finite.
+    if (!Number.isFinite(next)) throw new RangeError("distance sum overflowed to a non-finite value");
+    return next;
   }, 0);
 }
 
