@@ -106,7 +106,17 @@ function geoJsonCoordinate(value: unknown): Coordinate | undefined {
   if (!Array.isArray(value) || value.length < 2) return undefined;
   const lon = decimalNumber(value[0]);
   const lat = decimalNumber(value[1]);
-  return Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 ? { lat, lon } : undefined;
+  return boundedCoordinate(lat, lon);
+}
+
+/**
+ * Every client-side coordinate normalizer applies the same [-90,90]/[-180,180]
+ * bounds as the GeoJSON branch (finding sec-1): a finite-but-out-of-range
+ * value from a hostile response is unresolved and must never be rendered.
+ */
+function boundedCoordinate(lat: number | undefined, lon: number | undefined): Coordinate | undefined {
+  if (lat === undefined || lon === undefined) return undefined;
+  return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 ? { lat, lon } : undefined;
 }
 
 function normalizeGeometry(value: unknown): Coordinate[] | undefined {
@@ -280,8 +290,10 @@ export async function searchCallsigns(query: string, signal?: AbortSignal): Prom
       return match ? [match] : [];
     });
     matches.push(...page);
-    const nextCursor = record?.nextCursor;
-    if (typeof nextCursor !== "string" || page.length === 0) break;
+    // A blank cursor is terminal: an empty-string nextCursor from a hostile
+    // responder must never re-issue the same page (unbounded pagination loop).
+    const nextCursor = record ? stringValue(record, "nextCursor") : undefined;
+    if (!nextCursor || page.length === 0) break;
     cursor = nextCursor;
   }
   return matches;
@@ -442,12 +454,13 @@ export async function fetchDonorProof(proofId: string, signal?: AbortSignal): Pr
     const ordinal = finiteNumber(entry, "ordinal");
     const entryStatus = stringValue(entry, "status");
     if (ordinal === undefined || !entryStatus) return [];
-    const lat = isRecord(entry.coordinate) ? finiteNumber(entry.coordinate, "lat") : undefined;
-    const lon = isRecord(entry.coordinate) ? finiteNumber(entry.coordinate, "lon") : undefined;
+    const coordinate = isRecord(entry.coordinate)
+      ? boundedCoordinate(finiteNumber(entry.coordinate, "lat"), finiteNumber(entry.coordinate, "lon"))
+      : undefined;
     return [{
       ordinal, status: entryStatus,
       ...(stringValue(entry, "label") ? { label: stringValue(entry, "label") } : {}),
-      ...(lat !== undefined && lon !== undefined ? { coordinate: { lat, lon } } : {}),
+      ...(coordinate ? { coordinate } : {}),
       ...(stringValue(entry, "reason") ? { reason: stringValue(entry, "reason") } : {}),
     }];
   }) : [];
@@ -582,15 +595,15 @@ function normalizePointMatch(value: unknown): PointMatch | undefined {
   const identifier = stringValue(value, "callsign", "code", "name");
   const coordinateValue = value.coordinate;
   const coordinate = isRecord(coordinateValue)
-    ? { lat: finiteNumber(coordinateValue, "lat", "latitude"), lon: finiteNumber(coordinateValue, "lon", "lng", "longitude") }
+    ? boundedCoordinate(finiteNumber(coordinateValue, "lat", "latitude"), finiteNumber(coordinateValue, "lon", "lng", "longitude"))
     : undefined;
-  if (!locationId || !identifier || !coordinate || coordinate.lat === undefined || coordinate.lon === undefined) return undefined;
+  if (!locationId || !identifier || !coordinate) return undefined;
   return {
     locationId,
     identifier,
     name: stringValue(value, "name", "callsign") ?? identifier,
     kind: stringValue(value, "kind") ?? "reference point",
-    coordinate: { lat: coordinate.lat, lon: coordinate.lon },
+    coordinate,
     ...(stringValue(value, "duplicateGroup") ? { duplicateGroup: stringValue(value, "duplicateGroup") } : {}),
   };
 }
@@ -615,7 +628,9 @@ export async function lookupPoint(reference: string, signal?: AbortSignal): Prom
     const match = normalizePointMatch(value);
     return match ? [match] : [];
   });
-  return { matches, truncated: typeof payload.nextCursor === "string" };
+  // Blank cursors are terminal everywhere in the client: only a non-empty
+  // nextCursor means the ambiguity page bound was reached and more exist.
+  return { matches, truncated: stringValue(payload, "nextCursor") !== undefined };
 }
 
 /**
@@ -783,15 +798,15 @@ function normalizeReferenceBrowseItem(value: unknown): ReferenceBrowseItem | und
   const identifier = stringValue(value, "callsign", "code", "name");
   const coordinateValue = value.coordinate;
   const coordinate = isRecord(coordinateValue)
-    ? { lat: finiteNumber(coordinateValue, "lat", "latitude"), lon: finiteNumber(coordinateValue, "lon", "lng", "longitude") }
+    ? boundedCoordinate(finiteNumber(coordinateValue, "lat", "latitude"), finiteNumber(coordinateValue, "lon", "lng", "longitude"))
     : undefined;
-  if (!id || !identifier || !coordinate || coordinate.lat === undefined || coordinate.lon === undefined) return undefined;
+  if (!id || !identifier || !coordinate) return undefined;
   return {
     id,
     identifier,
     name: stringValue(value, "name", "callsign") ?? identifier,
     kind: stringValue(value, "kind") ?? "reference point",
-    coordinate: { lat: coordinate.lat, lon: coordinate.lon },
+    coordinate,
   };
 }
 
