@@ -8,9 +8,9 @@ import { vi } from "vitest";
  * body (never a query string); route options is POST /api/v1/routes/options
  * returning `{ data, generation }`; the overview endpoint returns paged route
  * data with `loaded`, `total`, and an optional generation-bound cursor; point
- * lookup is
- * GET /api/v1/points/:reference returning { matches } with generation-bound
- * locationId tokens; draft validation is a single POST /api/v1/routes/compare
+ * lookup is POST /api/v1/points/lookup carrying { reference } in the body and
+ * returning { matches } with generation-bound locationId tokens; draft
+ * validation is a single POST /api/v1/routes/compare
  * carrying { baselineId, targetDraft: { origin, destination, via,
  * selections } } and returning { target, comparison }. They contain no raw
  * upstream records, credentials, or airway values, consistent with the
@@ -72,7 +72,7 @@ export type CapturedCall = { method: string; url: string; body?: string | undefi
 
 const searchMatches = [
   { id: "flight-1", flightId: "flight-1", callsign: "FIXTURE1", departure: "KOR1", destination: "KDS1", routePointCount: 3 },
-  { id: "flight-2", flightId: "flight-2", callsign: "FIXTURE1", departure: "KOR1", destination: "KDSS", routePointCount: 2 },
+  { id: "flight-2", flightId: "flight-2", callsign: "FIXTURE1", departure: "KOR1", destination: "KDS2", routePointCount: 2 },
 ];
 
 const routeOptions = [
@@ -87,8 +87,8 @@ const routeOptions = [
     destination: "KDS1",
     pointCount: 3,
     legs: [
-      { id: "leg-1", sequence: 1, kind: "direct", from: "KOR1", to: "MIDPT", distanceNm: 240.5, status: "resolved" },
-      { id: "leg-2", sequence: 2, kind: "direct", from: "MIDPT", to: "KDS1", distanceNm: 271.9, status: "resolved" },
+      { id: "leg-1", sequence: 1, kind: "segment", from: "KOR1", to: "MIDPT", distanceNm: 240.5, status: "resolved" },
+      { id: "leg-2", sequence: 2, kind: "segment", from: "MIDPT", to: "KDS1", distanceNm: 271.9, status: "resolved" },
     ],
     geometry: { type: "LineString", coordinates: [[-73, 40], [-90, 35], [-118, 33]] },
     distanceNm: 512.4,
@@ -106,8 +106,8 @@ const routeOptions = [
     destination: "KDS1",
     pointCount: 3,
     legs: [
-      { id: "leg-3a", sequence: 1, kind: "direct", from: "KOR1", to: "MIDPT", distanceNm: 251.2, status: "resolved" },
-      { id: "leg-3b", sequence: 2, kind: "direct", from: "MIDPT", to: "KDS1", distanceNm: 282.9, status: "resolved" },
+      { id: "leg-3a", sequence: 1, kind: "segment", from: "KOR1", to: "MIDPT", distanceNm: 251.2, status: "resolved" },
+      { id: "leg-3b", sequence: 2, kind: "segment", from: "MIDPT", to: "KDS1", distanceNm: 282.9, status: "resolved" },
     ],
     geometry: { type: "LineString", coordinates: [[-73, 40], [-86, 39], [-118, 33]] },
     distanceNm: 534.1,
@@ -125,9 +125,9 @@ const routeOptions = [
     destination: "KDS1",
     pointCount: 4,
     legs: [
-      { id: "leg-1", sequence: 1, kind: "direct", from: "KOR1", to: "WEST01", status: "resolved" },
+      { id: "leg-1", sequence: 1, kind: "segment", from: "KOR1", to: "WEST01", status: "resolved" },
       { id: "leg-2", sequence: 2, kind: "gap", reason: "MIDPT could not be resolved to a single reference", status: "gap" },
-      { id: "leg-3", sequence: 3, kind: "direct", from: "EAST01", to: "KDS1", status: "resolved" },
+      { id: "leg-3", sequence: 3, kind: "segment", from: "EAST01", to: "KDS1", status: "resolved" },
     ],
     segments: [
       [{ lat: 40, lon: -73 }, { lat: 39, lon: -80 }],
@@ -202,8 +202,8 @@ const draftCompareTarget = {
   origin: "KOR1",
   destination: "KDS1",
   legs: [
-    { id: "leg-1", sequence: 1, kind: "direct", from: "KOR1", to: "MIDPT", distanceNm: 240.5, status: "resolved" },
-    { id: "leg-2", sequence: 2, kind: "direct", from: "MIDPT", to: "KDS1", distanceNm: 271.9, status: "resolved" },
+    { id: "leg-1", sequence: 1, kind: "segment", from: "KOR1", to: "MIDPT", distanceNm: 240.5, status: "resolved" },
+    { id: "leg-2", sequence: 2, kind: "segment", from: "MIDPT", to: "KDS1", distanceNm: 271.9, status: "resolved" },
   ],
   gaps: [],
   distanceNm: 512.4,
@@ -223,7 +223,7 @@ const draftCompareComparison = {
 const pointMatches: Record<string, unknown> = {
   KOR1: { matches: [{ id: "loc-KOR1", callsign: "KOR1", name: "KOR1", kind: "airport", coordinate: { lat: 40, lon: -73 } }] },
   KDS1: { matches: [{ id: "loc-KDS1", callsign: "KDS1", name: "KDS1", kind: "airport", coordinate: { lat: 33, lon: -118 } }] },
-  MIDPT: { matches: [{ id: "loc-MIDPT", callsign: "MIDPT", name: "MIDPT", kind: "fix", coordinate: { lat: 35, lon: -90 } }] },
+  MIDPT: { matches: [{ id: "loc-MIDPT", callsign: "MIDPT", name: "MIDPT", kind: "place", coordinate: { lat: 35, lon: -90 } }] },
 };
 
 /**
@@ -387,7 +387,7 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
         const flights = [
           ...Array.from({ length: 10 }, (_, index) => ({ id: `flight-${index + 1}`, callsign: "FIXTURE1", departure: "KOR1", destination: "KDS1", pointCount: 3 })),
           { id: "flight-11", callsign: "FIXTURE3", departure: "KDS1", destination: "KOR1", pointCount: 3 },
-          { id: "flight-12", callsign: "FIXTURE3", departure: "KDSS", destination: "KDS1", pointCount: 2 },
+          { id: "flight-12", callsign: "FIXTURE3", departure: "KDS2", destination: "KDS1", pointCount: 2 },
         ];
         const start = cursor === "p1" ? 10 : 0;
         const end = Math.min(flights.length, start + requested);
