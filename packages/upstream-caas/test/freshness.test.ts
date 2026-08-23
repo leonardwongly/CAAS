@@ -64,3 +64,17 @@ test("only unusable generations are not servable", () => {
   assert.equal(isGenerationUsable("stale"), true);
   assert.equal(isGenerationUsable("unusable"), false);
 });
+
+test("hostile elapsed values and windows fail closed at the boundary function", () => {
+  // Infinite elapsed time is not a real age and must reject, not classify.
+  assert.throws(() => freshnessState(Number.POSITIVE_INFINITY, 10, 20), RangeError);
+  assert.throws(() => freshnessState(10, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY), RangeError);
+  assert.throws(() => freshnessState(10, 10, Number.NaN), RangeError);
+  // A finite age beyond any practical window is simply unusable.
+  assert.equal(freshnessState(Number.MAX_SAFE_INTEGER, 10, 20), "unusable");
+  // Negative zero is non-negative: the inclusive fresh bound applies.
+  assert.equal(freshnessState(-0, 10, 20), "fresh");
+  // freshMs may legally be zero: nothing is fresh beyond the instant itself.
+  assert.equal(freshnessState(0, 0, 10), "fresh");
+  assert.equal(freshnessState(1, 0, 10), "stale");
+});
