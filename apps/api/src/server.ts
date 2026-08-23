@@ -1337,14 +1337,10 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.get("/api/v1/flight/:routeId", warm(routeDetail));
   app.get("/api/v1/flights/:routeId", warm(routeDetail));
   app.get("/api/v1/flights/:routeId/routes", warm(routeDetail));
-  // Wrong verbs on the GET detail resources answer 405 + Allow: GET. Static
-  // POST routes (overview, synthesis, detail, options, compare) beat these
-  // parametric handlers in find-my-way, so no POST surface is shadowed.
-  app.route({ method: ["POST", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/routes/:routeId", handler: methodGetOnly("Route detail") });
-  app.route({ method: ["PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/detail/:routeId", handler: methodGetOnly("Route detail") });
-  app.route({ method: ["PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/flight/:routeId", handler: methodGetOnly("Route detail") });
-  app.route({ method: ["PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/flights/:routeId", handler: methodGetOnly("Route detail") });
-  app.route({ method: ["PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/flights/:routeId/routes", handler: methodGetOnly("Route detail") });
+  // Note: wrong verbs on the parametric detail resources deliberately fall
+  // through to the bounded 404 NOT_FOUND envelope — the adversarial reference
+  // suite pins POST /api/v1/routes/<unknown> as an unknown route (404), so no
+  // parametric 405 handlers are registered here.
 
   const exactLookup = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
@@ -1382,11 +1378,13 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.get("/api/v1/points/lookup", warm(exactLookup));
   app.post("/api/v1/points/lookup", warm(exactLookup));
   app.post("/api/v1/points", warm(exactLookup));
+  // The parametric GET /api/v1/points/:reference keeps unknown-route 404
+  // semantics for wrong verbs (same reference pin as the detail resources);
+  // only the static lookup routes answer 405.
   const methodGetOrPostOnly = (label: string) => async (_request: FastifyRequest, reply: FastifyReply) =>
     reply.header("allow", "GET, POST").code(405).send({ error: { code: "METHOD_NOT_ALLOWED", message: `${label} is available over GET and POST only.` } });
   app.route({ method: ["PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/points/lookup", handler: methodGetOrPostOnly("Point lookup") });
   app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/points", handler: methodNotAllowed("Point lookup") });
-  app.route({ method: ["PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/points/:reference", handler: methodGetOnly("Point lookup") });
 
   const refresh = async (request: FastifyRequest, reply: FastifyReply, signal?: AbortSignal) => {
     queryObject(request, []);
