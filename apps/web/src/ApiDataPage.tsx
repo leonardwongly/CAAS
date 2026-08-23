@@ -3,7 +3,7 @@
 // explorer that runs each existing API and shows the raw JSON, and a bulk
 // data browser over the /api/v1/data/* endpoints. Queries and cursors travel
 // in POST bodies only; no token or query state appears in a URL.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ApiError,
   browseAirports,
@@ -60,9 +60,19 @@ export default function ApiDataPage({ selectedFlight, selectedRoute, onBack }: {
   const [history, setHistory] = useState<Array<string | undefined>>([undefined]);
   const [browseLoading, setBrowseLoading] = useState(false);
   const [browseError, setBrowseError] = useState<string>();
+  const [summaryReload, setSummaryReload] = useState(0);
+  // Latest family the table renders for: a slow browse response for the
+  // previous family must never land under the new family's header (the row
+  // shapes differ and would crash the render).
+  const browseFamilyRef = useRef<FamilyKey>(family);
+  browseFamilyRef.current = family;
 
   useEffect(() => {
     const controller = new AbortController();
+    // A retry must look like a fresh load: drop the failed/absent summary so
+    // the loading row (not the stale error) is what the user sees.
+    setSummary(undefined);
+    setSummaryError(undefined);
     fetchDataSummary(controller.signal)
       .then((loaded) => { if (!controller.signal.aborted) setSummary(loaded); })
       .catch((error) => {
@@ -70,7 +80,7 @@ export default function ApiDataPage({ selectedFlight, selectedRoute, onBack }: {
         if (!controller.signal.aborted) setSummaryError(apiMessage(error));
       });
     return () => controller.abort();
-  }, []);
+  }, [summaryReload]);
 
   async function run(key: string, action: () => Promise<unknown>) {
     setRuns((current) => ({ ...current, [key]: { loading: true } }));
@@ -92,9 +102,12 @@ export default function ApiDataPage({ selectedFlight, selectedRoute, onBack }: {
     setBrowseError(undefined);
     try {
       const page = await browsePage(familyKey, cursor);
+      // A superseded family switch invalidates the in-flight page.
+      if (browseFamilyRef.current !== familyKey) return;
       setItems(page.items);
       setNextCursor(page.nextCursor);
     } catch (error) {
+      if (browseFamilyRef.current !== familyKey) return;
       if (error instanceof ApiError && error.code === "CURSOR_EXPIRED") {
         // A refresh invalidated the held cursor: fail closed back to page one.
         setBrowseError("The browse cursor expired after a data refresh. Restarting from the first page.");
@@ -105,13 +118,30 @@ export default function ApiDataPage({ selectedFlight, selectedRoute, onBack }: {
         setBrowseError(apiMessage(error));
       }
     } finally {
-      setBrowseLoading(false);
+      if (browseFamilyRef.current === familyKey) setBrowseLoading(false);
     }
   }
 
-  useEffect(() => {
-    // The family and limit drive the page; history resets with them.
+  // A family switch must clear the previous family's rows synchronously:
+  // the table header/shape flips in the same render, so rendering the old
+  // family's items under it is not just stale — the field shapes differ and
+  // the render crashes. The [family, limit] effect repeats the clears for the
+  // limit-change path (same family, compatible shape) idempotently.
+  const switchFamily = (key: FamilyKey) => {
+    if (key === family) return;
+    setFamily(key);
     setHistory([undefined]);
+    setItems([]);
+    setNextCursor(undefined);
+  };
+
+  useEffect(() => {
+    // The family and limit drive the page; history resets with them. Drop the
+    // previous family's rows immediately — the table header already names the
+    // new family, so stale rows from the old one must never stay on screen.
+    setHistory([undefined]);
+    setItems([]);
+    setNextCursor(undefined);
     void loadPage(family, undefined);
   }, [family, limit]);
 
@@ -125,7 +155,7 @@ export default function ApiDataPage({ selectedFlight, selectedRoute, onBack }: {
 
   const explorerCards: Array<{ key: string; method: string; path: string; disabled?: boolean; disabledHint?: string; run: () => void }> = [
     { key: "readiness", method: "GET", path: "/api/v1/readiness", run: () => void run("readiness", () => fetchReadiness()) },
-    { key: "search", method: "POST", path: "/api/v1/callsigns/search", run: () => void run("search", () => searchCallsigns(searchQuery)) },
+    { key: "search", method: "POST", path: "/api/v1/callsigns/search", disabled: !searchQuery.trim(), disabledHint: "Type a query before running the search.", run: () => void run("search", () => searchCallsigns(searchQuery)) },
     {
       key: "options",
       method: "POST",
@@ -142,7 +172,7 @@ export default function ApiDataPage({ selectedFlight, selectedRoute, onBack }: {
       disabledHint: "Select a route on the map first.",
       run: () => { if (selectedRoute) void run("detail", () => fetchRouteData(selectedRoute.id)); },
     },
-    { key: "lookup", method: "POST", path: "/api/v1/points/lookup", run: () => void run("lookup", () => lookupPoint(lookupQuery)) },
+    { key: "lookup", method: "POST", path: "/api/v1/points/lookup", disabled: !lookupQuery.trim(), disabledHint: "Type a reference before running the lookup.", run: () => void run("lookup", () => lookupPoint(lookupQuery)) },
     {
       key: "compare",
       method: "POST",
@@ -176,7 +206,7 @@ export default function ApiDataPage({ selectedFlight, selectedRoute, onBack }: {
 
     <section className="api-data-section" aria-labelledby="summary-heading">
       <h2 id="summary-heading">Live data summary</h2>
-      {summaryError && <div className="notice error-notice" role="alert"><strong>Could not load the data summary.</strong><span>{summaryError}</span></div>}
+      {summaryError && <div className="notice error-notice" role="alert"><strong>Could not load the data summary.</strong><span>{summaryError}</span><button className="retry-button" type="button" onClick={() => setSummaryReload((current) => current + 1)}>Retry summary</button></div>}
       {!summary && !summaryError && <div className="loading-row"><span className="spinner dark" /> Loading the data summary…</div>}
       {summary && <>
         <div className="summary-generation" role="status">Live data <strong>{summary.generation.live.state}</strong> · retrieved {formatRetrievedAt(summary.generation.live.retrievedAt)}</div>
@@ -214,7 +244,7 @@ export default function ApiDataPage({ selectedFlight, selectedRoute, onBack }: {
       <h2 id="browse-heading">Bulk data browser</h2>
       <div className="browse-controls" role="group" aria-label="Bulk browser controls">
         <div className="browse-tabs" role="tablist" aria-label="Data family">
-          {FAMILY_KEYS.map((key) => <button key={key} type="button" role="tab" aria-selected={family === key} className={family === key ? "is-active" : undefined} onClick={() => setFamily(key)}>{FAMILY_LABELS[key]}</button>)}
+          {FAMILY_KEYS.map((key) => <button key={key} type="button" role="tab" aria-selected={family === key} className={family === key ? "is-active" : undefined} onClick={() => switchFamily(key)}>{FAMILY_LABELS[key]}</button>)}
         </div>
         <label className="browse-limit">Page size<select value={String(limit)} onChange={(event) => setLimit(Number(event.target.value))}><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>
       </div>

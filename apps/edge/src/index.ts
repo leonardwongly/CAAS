@@ -1,6 +1,12 @@
 import { Container } from "@cloudflare/containers";
 import { env } from "cloudflare:workers";
-import { isApiRequest } from "./routing.js";
+import {
+  CONTAINER_DEFAULT_PORT,
+  CONTAINER_SLEEP_AFTER,
+  containerEnvVars,
+  routeRequest,
+  type EdgeBindings,
+} from "./routing.js";
 
 interface EdgeEnv {
   readonly API_CONTAINER: DurableObjectNamespace<ApiContainer>;
@@ -14,21 +20,17 @@ const requiredSecrets = env as unknown as { readonly apikey: string };
  * The existing Fastify service remains unchanged inside the container. The
  * upstream CAAS credential is a Worker secret and is injected only at
  * container start; it is never made available to browser assets or responses.
+ * The routing, container-name, and secret-injection logic lives in
+ * ./routing.ts so it stays hermetically testable under plain Node.
  */
 export class ApiContainer extends Container<EdgeEnv> {
-  defaultPort = 8080;
-  sleepAfter = "10m";
-  envVars = {
-    apikey: requiredSecrets.apikey,
-  };
+  defaultPort = CONTAINER_DEFAULT_PORT;
+  sleepAfter = CONTAINER_SLEEP_AFTER;
+  envVars = containerEnvVars(requiredSecrets);
 }
 
 export default {
   async fetch(request, environment): Promise<Response> {
-    const url = new URL(request.url);
-    if (isApiRequest(url.pathname)) {
-      return environment.API_CONTAINER.getByName("api").fetch(request);
-    }
-    return environment.ASSETS.fetch(request);
+    return routeRequest(request, environment as unknown as EdgeBindings);
   },
 } satisfies ExportedHandler<EdgeEnv>;

@@ -45,25 +45,31 @@ function headerValue(headers: Headers, name: string): string {
 }
 
 async function readResponseBody(response: Response, maxBytes: number, family: CaasFamily): Promise<string> {
-  const rejectOversize = async (): Promise<never> => {
+  const rejectOversize = async (cancel: () => Promise<void>): Promise<never> => {
     // The unread body stream must be cancelled: an abandoned stream ties up
     // the connection (and upstream resources) for the full response length.
-    if (response.body) await response.body.cancel().catch(() => {});
+    // The cancel handle must be the ACTIVE reader's — calling cancel() on a
+    // locked stream rejects with "ReadableStream is locked" and the abort
+    // leaks the connection, which is exactly what this guard must prevent.
+    await cancel().catch(() => {});
     throw new CaasAdapterError("RESPONSE_TOO_LARGE", "The upstream response exceeded its bounded size.", { family });
   };
   const contentLength = response.headers.get("content-length");
   if (contentLength !== null && Number.isFinite(Number(contentLength)) && Number(contentLength) > maxBytes) {
-    await rejectOversize();
+    await rejectOversize(() => response.body ? response.body.cancel() : Promise.resolve());
   }
   if (!response.body) return "";
+  const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-    total += chunk.byteLength;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
     if (total > maxBytes) {
-      await rejectOversize();
+      await rejectOversize(() => reader.cancel());
     }
-    chunks.push(chunk);
+    chunks.push(value);
   }
   const bytes = new Uint8Array(total);
   let offset = 0;

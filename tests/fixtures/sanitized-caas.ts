@@ -12,34 +12,38 @@ export const sanitizedFlights: readonly FlightPlanRecord[] = Object.freeze([
     callsign: "FIXTURE1",
     departure: "KOR1",
     destination: "KDS1",
-    routeElements: Object.freeze([{ sequence: 0, identifier: "MIDPT" }]),
+    routeElements: Object.freeze([Object.freeze({ sequence: 0, identifier: "MIDPT" })]),
   }),
   Object.freeze({
     id: "fixture-flight-2",
     callsign: "FIXTURE2",
     departure: "KOR1",
     destination: "KDS1",
-    routeElements: Object.freeze([{ sequence: 0, identifier: "MIDPT" }]),
+    routeElements: Object.freeze([Object.freeze({ sequence: 0, identifier: "MIDPT" })]),
   }),
 ]);
 
 function evidence(family: DatasetEvidence["family"], records: number): DatasetEvidence {
-  return { family, bytes: 128, records, acceptedRecords: records, rejectedRecords: 0, retried: false, durationMs: 0 };
+  // The real normalizer deep-freezes every result (normalizers.ts); the
+  // fixture must present the same immutability so consumers cannot depend on
+  // mutating fixture data that would be frozen against the live adapter.
+  return Object.freeze({ family, bytes: 128, records, acceptedRecords: records, rejectedRecords: 0, retried: false, durationMs: 0 });
 }
 
 function references(dataset: "fixes" | "airports" | "navaids", values: readonly (readonly [string, number, number])[]): ReferenceDatasetResult {
-  const points = values.map(([identifier, lat, lon]) => ({ dataset, identifier, coordinate: { lat, lon } }));
+  const points = values.map(([identifier, lat, lon]) => Object.freeze({ dataset, identifier, coordinate: Object.freeze({ lat, lon }) }));
   const index = new Map<string, readonly typeof points[number][]>();
   for (const point of points) index.set(point.identifier, [...(index.get(point.identifier) ?? []), point]);
-  return { dataset, points, index, evidence: evidence(dataset, points.length) };
+  for (const [key, matches] of index) index.set(key, Object.freeze(matches));
+  return Object.freeze({ dataset, points: Object.freeze(points), index, evidence: evidence(dataset, points.length) });
 }
 
 export function sanitizedAdapter(records: readonly FlightPlanRecord[] = sanitizedFlights): CaasAdapter {
-  return {
-    displayAll: async () => ({ records, evidence: evidence("displayAll", records.length) }),
-    airways: async () => ({ family: "airways", bytes: 64, records: 2, acceptedRecords: 2, rejectedRecords: 0, uniqueRecords: 1, retried: false, durationMs: 0 }),
+  return Object.freeze({
+    displayAll: async () => Object.freeze({ records: Object.freeze([...records]), evidence: evidence("displayAll", records.length) }),
+    airways: async () => Object.freeze({ family: "airways", bytes: 64, records: 2, acceptedRecords: 2, rejectedRecords: 0, uniqueRecords: 1, retried: false, durationMs: 0 }),
     fixes: async () => references("fixes", sanitizedLocations.fixes),
     airports: async () => references("airports", sanitizedLocations.airports),
     navaids: async () => references("navaids", sanitizedLocations.navaids),
-  };
+  });
 }

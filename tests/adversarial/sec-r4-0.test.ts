@@ -122,17 +122,25 @@ test("rememberDraft prunes expired slots even when no consumer ever touches them
   // Fill all 512 slots (never calling compare, so getDraft can never
   // reclaim), age past the TTL, then create one more: it must succeed only
   // because rememberDraft itself prunes expired entries. Without the prune
-  // loop this returns 429 for the generation's lifetime.
+  // loop this returns 429 for the generation's lifetime. Sole owner of the
+  // 512/TTL capacity sequence (consolidated from sweep-d3-api-boundaries).
   const clock = { t: 1_000_000 };
   const server = await createApiServer({ adapter: sanitizedAdapter(), now: () => clock.t });
   try {
     const payload = { origin: "KOR1", destination: "KDS1", via: [] };
+    const ids = new Set<string>();
     for (let i = 0; i < 512; i += 1) {
       const response = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload });
       assert.equal(response.statusCode, 201, `draft ${i + 1} must store`);
+      const id = String((response.json() as { id: string }).id);
+      assert.ok(!ids.has(id), "every draft id in the burst must be unique");
+      ids.add(id);
     }
     const full = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload });
     assert.equal(full.statusCode, 429, "the 513th draft hits capacity");
+    const envelope = full.json() as { error: { code: string; retryable?: boolean } };
+    assert.equal(envelope.error.code, "DRAFT_CAPACITY_REACHED", "capacity exhaustion names its code");
+    assert.equal(envelope.error.retryable, true, "capacity exhaustion is retryable");
     clock.t += 16 * 60 * 1000;
     const reclaimed = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload });
     assert.equal(reclaimed.statusCode, 201, "expired drafts must be reclaimed by rememberDraft itself");

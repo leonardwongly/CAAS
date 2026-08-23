@@ -764,6 +764,11 @@ function registerStaticAssets(app: FastifyInstance, directory: string | undefine
   app.get("/*", async (request, reply) => {
     const requestedPath = String((request.params as { "*"?: string })["*"] ?? "");
     if (requestedPath === "api" || requestedPath.startsWith("api/")) return reply.code(404).send({ error: { code: "NOT_FOUND", message: "The requested resource was not found." } });
+    // R2-G5-BUG-1 (dotfile disclosure): any dot-leading path segment names a
+    // hidden file (.env, .git/config, .DS_Store) or a relative hop (. / ..).
+    // Such files are operator state, never SPA surface, so the whole family
+    // fails closed with the bounded 404 before any filesystem resolution.
+    if (requestedPath.split("/").some((segment) => segment.startsWith("."))) return reply.code(404).send({ error: { code: "NOT_FOUND", message: "The requested resource was not found." } });
     const candidate = resolve(join(root, requestedPath || "index.html"));
     if (candidate !== root && !candidate.startsWith(`${root}/`)) return reply.code(404).send({ error: { code: "NOT_FOUND", message: "The requested resource was not found." } });
     let file = candidate;
@@ -877,7 +882,10 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     const host = request.headers.host;
     let originHost: string | undefined;
     try { originHost = new URL(origin).host; } catch { originHost = undefined; }
-    if (originHost !== undefined && host !== undefined && originHost !== host) {
+    // An Origin that cannot be parsed to a host identifies no same-origin
+    // browser either (a browser always sends an absolute URL): fail closed
+    // exactly like the literal "null" origin, never silently skip the defense.
+    if (originHost === undefined || host === undefined || originHost !== host) {
       throw new ApiHttpError(403, "CROSS_ORIGIN_DENIED", "Cross-origin state-changing requests are not allowed.");
     }
     // Allowed: return nothing so Fastify continues the normal request chain
@@ -1002,9 +1010,14 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.post("/api/v1/callsigns/search", warm(searchCallsigns));
   app.post("/api/v1/search", warm(searchCallsigns));
   app.post("/api/v1/flights/search", warm(searchCallsigns));
-  app.get("/api/v1/callsigns/search", searchMethodNotAllowed);
-  app.get("/api/v1/search", searchMethodNotAllowed);
-  app.get("/api/v1/flights/search", searchMethodNotAllowed);
+  // Every wrong verb on the POST-only search surface answers the same bounded
+  // 405 envelope with Allow: POST — including PUT/DELETE/OPTIONS, which a bare
+  // GET handler would leave as unstructured 404s.
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/callsigns/search", handler: searchMethodNotAllowed });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/search", handler: searchMethodNotAllowed });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/flights/search", handler: searchMethodNotAllowed });
+  const methodGetOnly = (label: string) => async (_request: FastifyRequest, reply: FastifyReply) =>
+    reply.header("allow", "GET").code(405).send({ error: { code: "METHOD_NOT_ALLOWED", message: `${label} is available over GET only.` } });
 
   const browse = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
@@ -1030,6 +1043,9 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.get("/api/v1/routes/browse", warm(browse));
   app.get("/api/v1/browse", warm(browse));
   app.get("/api/v1/flights", warm(browse));
+  app.route({ method: ["POST", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/routes/browse", handler: methodGetOnly("Route browse") });
+  app.route({ method: ["POST", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/browse", handler: methodGetOnly("Route browse") });
+  app.route({ method: ["POST", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/flights", handler: methodGetOnly("Route browse") });
 
   // Target overview contract: every safe flight appears exactly once in immutable
   // generation order, with every resolved route segment and explicit gap data.
@@ -1039,7 +1055,10 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     assertEmptyQuery(request);
     const snapshot = store.requireSnapshot();
     const body = bodyObject(request, ["limit", "cursor"]);
-    const limit = parseLimit(body.limit ?? 25);
+    // The overview default is 25, but a present-but-null limit is still a
+    // type error: `?? 25` would silently default it while every other paging
+    // family rejects null with INVALID_LIMIT. Keep parseLimit strict here.
+    const limit = parseLimit(body.limit === undefined ? 25 : body.limit);
     const context = "all-flight-routes";
     const offset = body.cursor === undefined ? 0 : cursorOffset(body.cursor, snapshot, context, limit, "overview-cursor", now);
     const data = snapshot.flights.slice(offset, offset + limit).map((flight) => overviewRouteDto(snapshot, flight));
@@ -1059,7 +1078,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   };
   app.post("/api/v1/routes/overview", warm(routeOverview));
   app.post("/api/v1/overview", warm(routeOverview));
-  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/routes/overview", handler: methodNotAllowed("Route overview") });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/routes/overview", handler: methodNotAllowed("Route overview") });
 
   // Donor-subpath synthesis: for an incomplete recorded route, assemble bounded
   // candidate geometries borrowed from other recorded routes between the exact
@@ -1118,7 +1137,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     return reply.send(payload);
   };
   app.post("/api/v1/routes/synthesis", warm(synthesize));
-  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/routes/synthesis", handler: methodNotAllowed("Route synthesis") });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/routes/synthesis", handler: methodNotAllowed("Route synthesis") });
 
   // Canonical donor proofs: a synthesis proof token resolves to the donor
   // flight's own occurrences over the exact issued ordinal range — same
@@ -1137,7 +1156,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     const donorIndex = decoded.i;
     const fromOrdinal = decoded.f;
     const toOrdinal = decoded.u;
-    if (typeof toOrdinal !== "number" || typeof donorIndex !== "number" || !Number.isInteger(donorIndex) || donorIndex < 0 || typeof fromOrdinal !== "number" || !Number.isInteger(fromOrdinal) || !Number.isInteger(toOrdinal) || toOrdinal < fromOrdinal || toOrdinal - fromOrdinal + 1 > MAX_ROUTE_POINTS) {
+    if (typeof toOrdinal !== "number" || typeof donorIndex !== "number" || !Number.isInteger(donorIndex) || donorIndex < 0 || typeof fromOrdinal !== "number" || !Number.isInteger(fromOrdinal) || fromOrdinal < 0 || !Number.isInteger(toOrdinal) || toOrdinal < fromOrdinal || toOrdinal - fromOrdinal + 1 > MAX_ROUTE_POINTS) {
       throw new ApiHttpError(400, "PROOF_INVALID", "The donor proof range is invalid.");
     }
     const flight = snapshot.flightByIndex.get(donorIndex);
@@ -1155,7 +1174,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     });
   };
   app.post("/api/v1/routes/source-occurrences", warm(sourceOccurrences));
-  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/routes/source-occurrences", handler: methodNotAllowed("Source occurrences lookup") });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/routes/source-occurrences", handler: methodNotAllowed("Source occurrences lookup") });
 
   // Feature 4: bulk data browse endpoints. Queries and cursors travel in POST
   // bodies only (repo rule: never tokens or state in URLs). Cursors are bound
@@ -1189,6 +1208,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     });
   };
   app.get("/api/v1/data/summary", warm(dataSummary));
+  app.route({ method: ["POST", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/data/summary", handler: methodGetOnly("The data summary") });
 
   const browseFlights = async (request: FastifyRequest, reply: FastifyReply) => {
     assertEmptyQuery(request);
@@ -1212,6 +1232,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     return reply.send({ data: items, generation: generationSummary(snapshot, now()), ...(nextOffset < snapshot.flights.length ? { nextCursor: scopedToken(snapshot, "browse-cursor", { o: nextOffset, q: context, l: limit }) } : {}) });
   };
   app.post("/api/v1/data/flights", warm(browseFlights));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/data/flights", handler: methodNotAllowed("Flight browse") });
 
   const browseLocations = (family: string, kind: Location["kind"]) => async (request: FastifyRequest, reply: FastifyReply) => {
     assertEmptyQuery(request);
@@ -1227,8 +1248,12 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.post("/api/v1/data/fixes", warm(browseLocations("fixes", "place")));
   app.post("/api/v1/data/airports", warm(browseLocations("airports", "airport")));
   app.post("/api/v1/data/navaids", warm(browseLocations("navaids", "station")));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/data/fixes", handler: methodNotAllowed("Fix browse") });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/data/airports", handler: methodNotAllowed("Airport browse") });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/data/navaids", handler: methodNotAllowed("Navaid browse") });
 
   const routeOptions = async (request: FastifyRequest, reply: FastifyReply) => {
+    assertEmptyQuery(request);
     const snapshot = store.requireSnapshot();
     const body = bodyObject(request, ["flightId", "originId", "destinationId"]);
     let candidates: RouteCandidate[];
@@ -1298,8 +1323,9 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.post("/api/v1/routes/options", warm(routeOptions));
   // Non-POST methods on the POST-only option surface answer a bounded 405 —
   // the static routes below must beat the parametric GET /api/v1/routes/:routeId.
-  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/routes/options", handler: methodNotAllowed("Route options lookup") });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/routes/options", handler: methodNotAllowed("Route options lookup") });
   app.post("/api/v1/route-options", warm(routeOptions));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/route-options", handler: methodNotAllowed("Route options lookup") });
 
   const routeDetail = async (request: FastifyRequest, reply: FastifyReply) => {
     queryObject(request, []);
@@ -1322,6 +1348,10 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.get("/api/v1/flight/:routeId", warm(routeDetail));
   app.get("/api/v1/flights/:routeId", warm(routeDetail));
   app.get("/api/v1/flights/:routeId/routes", warm(routeDetail));
+  // Note: wrong verbs on the parametric detail resources deliberately fall
+  // through to the bounded 404 NOT_FOUND envelope — the adversarial reference
+  // suite pins POST /api/v1/routes/<unknown> as an unknown route (404), so no
+  // parametric 405 handlers are registered here.
 
   const exactLookup = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
@@ -1359,6 +1389,13 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.get("/api/v1/points/lookup", warm(exactLookup));
   app.post("/api/v1/points/lookup", warm(exactLookup));
   app.post("/api/v1/points", warm(exactLookup));
+  // The parametric GET /api/v1/points/:reference keeps unknown-route 404
+  // semantics for wrong verbs (same reference pin as the detail resources);
+  // only the static lookup routes answer 405.
+  const methodGetOrPostOnly = (label: string) => async (_request: FastifyRequest, reply: FastifyReply) =>
+    reply.header("allow", "GET, POST").code(405).send({ error: { code: "METHOD_NOT_ALLOWED", message: `${label} is available over GET and POST only.` } });
+  app.route({ method: ["PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/points/lookup", handler: methodGetOrPostOnly("Point lookup") });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/points", handler: methodNotAllowed("Point lookup") });
 
   const refresh = async (request: FastifyRequest, reply: FastifyReply, signal?: AbortSignal) => {
     queryObject(request, []);
@@ -1387,8 +1424,11 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   };
   app.post("/api/v1/refresh", warm(refresh));
   app.post("/api/v1/admin/refresh", warm(refresh));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/refresh", handler: methodNotAllowed("Generation refresh") });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/admin/refresh", handler: methodNotAllowed("Generation refresh") });
 
   app.post("/api/v1/drafts", warm(async (request, reply) => {
+    assertEmptyQuery(request);
     const snapshot = store.requireSnapshot();
     const parsed = RouteDraftSchema.safeParse(bodyObject(request, ["origin", "destination", "via", "selections"]));
     if (!parsed.success || !parsed.data.origin || !parsed.data.destination) throw new ApiHttpError(400, "INVALID_DRAFT", "A route draft requires non-empty origin and destination endpoints.");
@@ -1406,8 +1446,10 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     const draftId = store.rememberDraft(parsed.data, snapshot);
     return reply.code(201).send({ id: draftId, generation: generationSummary(snapshot, now()), draft: parsed.data });
   }));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/drafts", handler: methodNotAllowed("Draft creation") });
 
   const draftCompare = async (request: FastifyRequest, reply: FastifyReply) => {
+    assertEmptyQuery(request);
     const snapshot = store.requireSnapshot();
     const body = bodyObject(request, ["draftId", "draft"]);
     const draftId = body.draftId === undefined ? undefined : requiredString(body.draftId, "INVALID_DRAFT", "A valid draft ID is required.", 512);
@@ -1427,8 +1469,11 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   };
   app.post("/api/v1/drafts/compare", warm(draftCompare));
   app.post("/api/v1/compare", warm(draftCompare));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/drafts/compare", handler: methodNotAllowed("Draft comparison") });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/compare", handler: methodNotAllowed("Draft comparison") });
 
   const compareRoutes = async (request: FastifyRequest, reply: FastifyReply) => {
+    assertEmptyQuery(request);
     const snapshot = store.requireSnapshot();
     const body = bodyObject(request, ["baselineId", "targetDraftId", "targetDraft"]);
     const baselineId = requiredString(body.baselineId, "INVALID_BASELINE", "A selected recorded route ID is required.", 2048);
@@ -1456,7 +1501,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     return reply.send(compareProjections(snapshot, baseline, target, now, draftId));
   };
   app.post("/api/v1/routes/compare", warm(compareRoutes));
-  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/routes/compare", handler: methodNotAllowed("Route comparison") });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/routes/compare", handler: methodNotAllowed("Route comparison") });
 
   if (options.assetDirectory || (process.env.NODE_ENV === "production" && process.env.WEB_ASSET_DIR)) registerStaticAssets(app, options.assetDirectory ?? process.env.WEB_ASSET_DIR);
   if (options.initialize !== false) await store.initialize();

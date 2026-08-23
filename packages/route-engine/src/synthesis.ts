@@ -9,7 +9,7 @@ export type ObservedOccurrenceInput =
   | { readonly ordinal: number; readonly referenceId?: string | undefined; readonly coordinate: Coordinate; readonly label: string }
   | { readonly ordinal: number; readonly gapReason: string };
 
-type ObservedPointOccurrence = Exclude<ObservedOccurrenceInput, { gapReason: string }>;
+export type ObservedPointOccurrence = Exclude<ObservedOccurrenceInput, { gapReason: string }>;
 
 function isObservedPoint(occurrence: ObservedOccurrenceInput): occurrence is ObservedPointOccurrence {
   return !("gapReason" in occurrence);
@@ -110,6 +110,12 @@ export interface TargetCorridor {
   readonly fromOrdinal: number;
   readonly toOrdinal: number;
   readonly gapOrdinals: readonly number[];
+  /** Exact anchor occurrences bounding the gap run. Donor lookups must use
+   * these structural anchors, never an ordinal re-resolution: ordinals are
+   * recorded metadata and need not be unique, so a map keyed by ordinal could
+   * resolve to a different occurrence than the one bounding this corridor. */
+  readonly from: ObservedPointOccurrence;
+  readonly to: ObservedPointOccurrence;
 }
 
 /** Corridors between the nearest exact anchors around runs of gaps. An
@@ -117,15 +123,15 @@ export interface TargetCorridor {
  * edge; callers report coverage failure explicitly. */
 export function targetCorridors(occurrences: readonly ObservedOccurrenceInput[]): TargetCorridor[] {
   const corridors: TargetCorridor[] = [];
-  let lastAnchorOrdinal: number | undefined;
+  let lastAnchor: ObservedPointOccurrence | undefined;
   let gapRun: number[] = [];
   for (const occurrence of occurrences) {
     if ("gapReason" in occurrence) { gapRun.push(occurrence.ordinal); continue; }
     if (gapRun.length > 0) {
-      if (lastAnchorOrdinal !== undefined) corridors.push({ fromOrdinal: lastAnchorOrdinal, toOrdinal: occurrence.ordinal, gapOrdinals: gapRun });
+      if (lastAnchor !== undefined) corridors.push({ fromOrdinal: lastAnchor.ordinal, toOrdinal: occurrence.ordinal, gapOrdinals: gapRun, from: lastAnchor, to: occurrence });
       gapRun = [];
     }
-    lastAnchorOrdinal = occurrence.ordinal;
+    lastAnchor = occurrence;
   }
   return corridors;
 }
@@ -226,7 +232,6 @@ export function assembleSynthesisCandidates(
   }
   const corridors = targetCorridors(target.occurrences);
   const gapOrdinals = new Set(target.occurrences.filter((occurrence) => "gapReason" in occurrence).map((occurrence) => occurrence.ordinal));
-  const pointsByOrdinal = new Map(target.occurrences.filter(isObservedPoint).map((occurrence) => [occurrence.ordinal, occurrence]));
 
   // Source distance: haversine over recorded target geometry, legs between
   // adjacent recorded points (never across gaps).
@@ -248,8 +253,10 @@ export function assembleSynthesisCandidates(
   type CorridorChoice = { signature: string; donorKeys: readonly string[]; segments: BorrowedSegment[]; distanceNm: number };
   const choicesPerCorridor: CorridorChoice[][] = [];
   for (const corridor of corridors) {
-    const from = pointsByOrdinal.get(corridor.fromOrdinal)!;
-    const to = pointsByOrdinal.get(corridor.toOrdinal)!;
+    // Structural anchors from the corridor itself: never re-resolve by
+    // ordinal, which is not guaranteed unique (regression D1-BUG-1).
+    const from = corridor.from;
+    const to = corridor.to;
     const slices = findDonorSlices(index, from, to, target.flightKey);
     if (slices.length > MAX_SYNTHESIS_CANDIDATES) return limitExceeded(corridors.length);
     const byGeometry = new Map<string, DonorSlice[]>();

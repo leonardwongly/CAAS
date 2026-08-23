@@ -16,7 +16,17 @@ export const SYNTHESIS_PAGE = 5;
 
 const finiteNumber = z.number().finite();
 const normalizedText = z.string().trim().min(1).max(MAX_TEXT_LENGTH);
-const normalizedReferenceValue = z.string().trim().min(1).max(MAX_REFERENCE_LENGTH);
+// toUpperCase() can grow a string ("ß" -> "SS", "ﬁ" -> "FI"), so an input that
+// exactly fits the pre-transform max() would exceed the declared bound after
+// normalization. Piping back through the same bound guarantees every emitted
+// string honors MAX_*_LENGTH; inputs that would expand past it reject instead
+// of fabricating overlong identifiers.
+const normalizedReferenceValue = z.string().trim().min(1).max(MAX_REFERENCE_LENGTH)
+  .transform((value) => value.toUpperCase())
+  .pipe(z.string().min(1).max(MAX_REFERENCE_LENGTH));
+const normalizedUpperCaseText = z.string().trim().min(1).max(MAX_TEXT_LENGTH)
+  .transform((value) => value.toUpperCase())
+  .pipe(z.string().min(1).max(MAX_TEXT_LENGTH));
 
 export const CoordinateSchema = z.object({
   lat: finiteNumber.min(-90).max(90),
@@ -54,12 +64,12 @@ export const LocationSchema = z.object({
   code: normalizedReferenceValue.optional(),
   kind: ReferenceKindSchema.default("place"),
   coordinate: CoordinateSchema,
-  aliases: z.array(normalizedText).max(MAX_ALIASES).default([]),
+  aliases: z.array(normalizedUpperCaseText).max(MAX_ALIASES).default([]),
 }).strict().transform((location) => ({
   ...location,
   id: location.id.toUpperCase(),
   code: location.code?.toUpperCase(),
-  aliases: [...new Set(location.aliases.map((alias) => alias.toUpperCase()))],
+  aliases: [...new Set(location.aliases)],
 }));
 export type Location = z.output<typeof LocationSchema>;
 
@@ -87,7 +97,7 @@ export type RouteGap = z.output<typeof RouteGapSchema>;
 export const RoutePointSchema = z.object({
   status: z.literal("point"),
   sequence: routeSequence,
-  designatedIdentifier: normalizedReferenceValue.transform((value) => value.toUpperCase()).nullable(),
+  designatedIdentifier: normalizedReferenceValue.nullable(),
   coordinate: CoordinateSchema,
 }).strict();
 export type RoutePoint = z.output<typeof RoutePointSchema>;

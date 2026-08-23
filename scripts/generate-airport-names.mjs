@@ -35,7 +35,11 @@ function sha256(value) {
 const inputPath = resolve(inputArg);
 const outputDir = resolve(outputArg);
 const source = await readFile(inputPath);
-const rows = parseCsv(source.toString("utf8"));
+let text = source.toString("utf8");
+// Strip one leading UTF-8 BOM so identical data parses identically whether or
+// not the source file is BOM-prefixed; the manifest hashes the raw bytes.
+if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+const rows = parseCsv(text);
 const header = rows.shift();
 if (!header) throw new Error("CSV has no header");
 const icaoIndex = header.indexOf("icao_code");
@@ -49,6 +53,9 @@ for (const row of rows) {
   if (!/^[A-Z]{4}$/.test(icao)) throw new Error(`Invalid ICAO value: ${icao}`);
   const name = (row[nameIndex] ?? "").trim().normalize("NFC");
   if (!name || name.length > 160) throw new Error(`Invalid airport name for ${icao}`);
+  if (/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(name)) {
+    throw new Error(`Airport name for ${icao} contains control or bidirectional formatting characters`);
+  }
   const prior = byIcao.get(icao);
   if (prior && prior !== name) throw new Error(`Conflicting airport names for ${icao}: ${prior} / ${name}`);
   byIcao.set(icao, name);

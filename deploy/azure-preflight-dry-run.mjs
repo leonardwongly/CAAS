@@ -16,13 +16,38 @@
 
 import { spawn } from "node:child_process";
 
-const live = process.argv.includes("--live");
-const arg = (name) => {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 ? process.argv[i + 1] : undefined;
+// Usage errors fail closed before anything is printed or spawned (exit 2).
+const failUsage = (message) => {
+  console.error(`azure-preflight-dry-run: ${message}`);
+  console.error("usage: node deploy/azure-preflight-dry-run.mjs [--live] [--prefix NAME] [--rg NAME]");
+  process.exit(2);
 };
-const prefix = arg("prefix") ?? "PREFIX";
-const rg = arg("rg") ?? "RG";
+
+const KNOWN_FLAGS = new Set(["--live", "--prefix", "--rg"]);
+for (const token of process.argv.slice(2)) {
+  if (typeof token === "string" && token.startsWith("--") && !KNOWN_FLAGS.has(token)) {
+    failUsage(`unknown flag "${token}"`);
+  }
+}
+
+// Interpolated values land inside printed `az` command strings and inside the
+// argv of live spawns, so only unambiguous resource-name characters are
+// admitted: shell metacharacters, quotes, whitespace, and flag-looking values
+// can never produce executable-looking mutations.
+const VALUE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
+const flagValue = (name) => {
+  const i = process.argv.indexOf(`--${name}`);
+  if (i < 0) return undefined;
+  const value = process.argv[i + 1];
+  if (value === undefined || value.startsWith("--")) failUsage(`--${name} requires a value`);
+  if (!VALUE_PATTERN.test(value)) {
+    failUsage(`--${name} must match ${VALUE_PATTERN} (letters, digits, "-", "_"; no shell metacharacters)`);
+  }
+  return value;
+};
+const prefix = flagValue("prefix") ?? "PREFIX";
+const rg = flagValue("rg") ?? "RG";
+const live = process.argv.includes("--live");
 
 const checks = [
   {
@@ -151,9 +176,25 @@ const checks = [
   },
 ];
 
+// Write-inertia backstop: even under --live this script may only execute
+// read-only inspection commands; any mutating verb fails closed before spawn.
+const MUTATING_AZ_VERBS = new Set([
+  "add", "apply", "assign", "backup", "clear", "create", "deactivate", "delete", "disable",
+  "enable", "import", "invoke", "lock", "move", "purge", "recover", "regenerate",
+  "remove", "reset", "restore", "restart", "revoke", "rotate", "scale", "set",
+  "start", "stop", "swap", "undelete", "unlock", "up", "update",
+]);
 const run = (cmd) =>
   new Promise((resolvePromise) => {
-    const child = spawn("az", cmd.split(" ").filter(Boolean), { stdio: "pipe" });
+    const tokens = cmd.split(" ").filter(Boolean);
+    if (tokens[0] === "az" && tokens.slice(2).some((token) => MUTATING_AZ_VERBS.has(token))) {
+      throw new Error(`refusing to execute mutating az command: ${cmd}`);
+    }
+    // The binary comes from the command itself: PF-06 runs `gh`, everything
+    // else runs `az`. (Regression: this used to hardcode spawn("az", ...),
+    // which would have invoked `az environment list` in live mode.)
+    const [bin, ...args] = tokens;
+    const child = spawn(bin, args, { stdio: "pipe" });
     let out = "";
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { out += d; });

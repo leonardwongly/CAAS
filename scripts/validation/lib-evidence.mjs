@@ -3,7 +3,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -29,7 +29,23 @@ export function isoNow() {
 }
 
 export async function writeJsonRecord(relativePath, record) {
+  // Path containment: the evidence writer must never be a write-what-where
+  // primitive. Relative paths must stay inside the repository root — parent
+  // traversal is rejected component-wise before any mkdir/write happens, the same
+  // discipline the validators apply to artifact reads. Absolute paths are
+  // admitted only for explicit caller-owned isolation directories (lane probes
+  // pass --record-dir=<tmpdir>); traversal components are rejected in either
+  // form.
+  if (typeof relativePath !== "string" || !relativePath) {
+    throw new Error(`writeJsonRecord refuses an empty record path: ${relativePath}`);
+  }
+  if (relativePath.split("/").includes("..")) {
+    throw new Error(`writeJsonRecord refuses parent traversal in the record path: ${relativePath}`);
+  }
   const absolute = resolve(root, relativePath);
+  if (!isAbsolute(relativePath) && absolute !== root && !absolute.startsWith(root + sep)) {
+    throw new Error(`writeJsonRecord refuses a path outside the repository root: ${relativePath}`);
+  }
   await mkdir(dirname(absolute), { recursive: true });
   const contents = `${JSON.stringify(record, null, 2)}\n`;
   // Atomic write: a concurrent lane run (or a crash mid-write) must never

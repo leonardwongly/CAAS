@@ -11,6 +11,7 @@ import {
 } from "@flight-route-explorer/route-engine";
 import {
   PUBLIC_PROVENANCE,
+  UNAVAILABLE_AIRPORT_NAME,
   scopedToken,
   token,
   type RouteGapReason,
@@ -202,6 +203,12 @@ export function routeProjection(
   const distanceNm = complete ? legs.reduce((sum, leg) => sum + (leg.distanceNm ?? 0), 0) : undefined;
   const pointCount = occurrences.filter((occurrence): occurrence is { point: { label: string; coordinate: Coordinate; sequence: number; ordinal: number; referenceId?: string } } => "point" in occurrence).length;
   const signature = occurrences.map((occurrence) => "gap" in occurrence ? `g:${occurrence.gap.sequence}:${occurrence.gap.reason}` : `p:${occurrence.point.sequence}:${coordinateKey(occurrence.point.coordinate)}`).join("|");
+  // The web gap view deduplicates by (sequence, reason) identity, so emitting
+  // structurally identical duplicate gaps (e.g. two unresolved elements that
+  // share a duplicated upstream sequence number) would silently lose one of
+  // them at the seam. The DTO emits the deduplicated gap set: nothing
+  // distinguishable is ever collapsed.
+  const deduplicatedGaps = gaps.filter((gap, index) => gaps.findIndex((other) => other.sequence === gap.sequence && other.reason === gap.reason) === index);
   return Object.freeze({
     id: routeIdValue,
     flight,
@@ -210,7 +217,7 @@ export function routeProjection(
     legs: Object.freeze(legs),
     waypoints: Object.freeze(waypoints),
     segments: Object.freeze(segments.map((segment) => Object.freeze(segment))),
-    gaps: Object.freeze(gaps),
+    gaps: Object.freeze(deduplicatedGaps),
     distanceNm,
     complete,
     pointCount,
@@ -288,7 +295,7 @@ export function isSameCoordinate(left: Coordinate, right: Coordinate): boolean {
 }
 
 export function displayReference(location: Location): string {
-  if (location.kind === "airport" && location.code) return airportDisplayLabel(location.code, location.name === "Name unavailable" ? undefined : location.name);
+  if (location.kind === "airport" && location.code) return airportDisplayLabel(location.code, location.name === UNAVAILABLE_AIRPORT_NAME ? undefined : location.name);
   return location.code ?? location.name;
 }
 

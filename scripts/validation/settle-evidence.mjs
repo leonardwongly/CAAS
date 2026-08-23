@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { copyFile, lstat, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { basename, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { commitSha, root, sha256Hex } from "./lib-evidence.mjs";
 import { validateEvidenceBundle } from "./validate-evidence-bundle.mjs";
@@ -21,6 +21,16 @@ const defaultPlanPath = resolve(root, "tmp", `evidence-settlement-plan-${commitS
 
 function digest(contents) {
   return createHash("sha256").update(contents).digest("hex");
+}
+
+// Path containment: plan files are human-reviewed, but the evidence root must
+// never be reachable with a traversal name. Record names are flat basenames
+// produced by readdir; anything else (separators, parent steps, dot-names)
+// fails loudly before any file is read, moved, or unlinked.
+function assertFlatEvidenceName(name) {
+  if (typeof name !== "string" || !name || name !== basename(name) || name.startsWith(".")) {
+    throw new Error(`settlement refuses a non-flat evidence record name: ${JSON.stringify(name)}`);
+  }
 }
 
 function artifactEntries(record) {
@@ -104,8 +114,12 @@ async function assertPlanUnchanged(plan) {
 }
 
 export async function archiveRecordByteForByte(name, expectedSha256) {
+  assertFlatEvidenceName(name);
   const source = resolve(evidenceDirectory, name);
   const destination = resolve(archiveDirectory, name);
+  if (!source.startsWith(evidenceDirectory + sep) || !destination.startsWith(archiveDirectory + sep)) {
+    throw new Error(`settlement refuses a path outside the evidence directories: ${name}`);
+  }
   const sourceBytes = await readFile(source);
   if (sha256Hex(sourceBytes) !== expectedSha256) throw new Error(`source hash changed before archive: ${name}`);
   await mkdir(archiveDirectory, { recursive: true });
@@ -150,6 +164,7 @@ async function writeRecoveryAudit(plan) {
   if (plan.review?.status !== "approved") throw new Error("recovery requires plan.review.status=approved after human review");
   const archived = [];
   for (const candidate of plan.candidates) {
+    assertFlatEvidenceName(candidate.name);
     const archivedBytes = await readFile(resolve(archiveDirectory, candidate.name));
     if (sha256Hex(archivedBytes) !== candidate.sourceSha256) throw new Error(`archived bytes differ from the reviewed plan: ${candidate.name}`);
     if (await lstat(resolve(evidenceDirectory, candidate.name)).then(() => true, () => false)) throw new Error(`root record still present: ${candidate.name}`);
