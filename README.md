@@ -28,8 +28,6 @@ What was built:
 - **Shared packages** — Zod contract schemas (`packages/contracts/`), the upstream CAAS adapter (`packages/upstream-caas/`), and the route computation engine (`packages/route-engine/`).
 - **End-to-end CI/CD** — secretless GitHub Actions validation, reproducible OCI image builds with Trivy scanning, and automated staging deployment to Cloudflare.
 
-![Gap-distance preview on the map](temp-screenshots/flight-route-explorer-poc/estimated-gap-preview-top.png)
-
 ## Challenge Requirements Coverage
 
 | Challenge requirement (Section 2) | Where it is implemented |
