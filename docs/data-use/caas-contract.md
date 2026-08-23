@@ -74,6 +74,14 @@ Two POST-only endpoints carry identifiers/tokens in request bodies, never URLs:
 
 Bounds: at most 256 endpoint-inclusive points per candidate, at most 20 candidates, a 2 MiB response page, a 5-second warm deadline, and at most 8 provenance entries per deduplicated geometry (`donorTruncated` beyond that). Joining requires exact reference identity or exact coordinate; conflicted reference ids are unjoinable with no coordinate fallback; slices are forward-only and contiguous, with no interpolation or fuzzy matching. Candidates are never ranked (algorithm `donor-subpath-v1`). Synthesis responses expose opaque tokens, borrowed geometry, distances, and aggregate donor counts only — never donor upstream identifiers, callsigns, or raw flight indices — so the standing runtime contract (no raw upstream objects, no credentials, bounded sanitized responses) is unchanged. See [ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md).
 
+## HTTP surface tightening (adversarial sweep, 2026-08-23)
+
+Three externally observable semantics are now pinned by the offline lanes:
+
+- **Method handling:** a wrong verb on a static API route answers a structured `405` with an `Allow` header naming the admissible verbs; a wrong verb on a parametric resource route answers the bounded `404` `NOT_FOUND` envelope instead.
+- **Query strings:** body-only endpoints (`/routes/options`, `/drafts`, `/drafts/compare`, `/routes/compare`, and the rest of the POST-only surface) reject any query string with `400` `INVALID_QUERY` before body parsing; parameters travel in POST bodies only.
+- **Explicit limits:** an overview `limit: null` is rejected with `INVALID_LIMIT` instead of silently defaulting to 25; every hostile limit spelling fails closed with the same code across all paging families.
+
 ## What this evidence does not prove
 
 The discovery record does not prove quotas, retries, pagination, induced-failure behavior, long-term stability, redistribution rights, or implementation. No throttling or upstream-fault probe was deliberately performed, and no pagination metadata or Flight response rate-limit/retry headers were observed. Those behaviors require later deterministic adapter tests and any separately authorized live evidence.
