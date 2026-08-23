@@ -126,6 +126,12 @@ test("git-archive context extraction rejects symlinks whose targets escape the c
 
   // Throwaway repo committing symlinks with escaping targets — git allows it.
   await execFileAsync("git", ["init", "-q"], { cwd: sandbox });
+  // The throwaway repo must not inherit the developer's global commit-signing
+  // configuration (e.g. 1Password ssh-sign); a signed commit would fail the
+  // probe when the signing agent is unavailable and is irrelevant to the
+  // escaping-symlink behavior under test. Disable it locally for hermeticity.
+  await execFileAsync("git", ["config", "commit.gpgSign", "false"], { cwd: sandbox });
+  await execFileAsync("git", ["config", "tag.gpgSign", "false"], { cwd: sandbox });
   await execFileAsync("git", ["config", "user.email", "sec-r2-3@example.com"], { cwd: sandbox });
   await execFileAsync("git", ["config", "user.name", "sec-r2-3"], { cwd: sandbox });
   await symlink("../../../etc/passwd", join(sandbox, "evil-dotdot"));

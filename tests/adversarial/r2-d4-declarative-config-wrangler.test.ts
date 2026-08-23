@@ -21,7 +21,6 @@
 //      diverge.
 // Everything reads committed files; nothing is mocked.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -118,6 +117,88 @@ function onlyContainer(config: WranglerConfig): WranglerContainer {
   return container;
 }
 
+/**
+ * Translate one gitignore glob pattern into a RegExp anchored to repo root.
+ * Supports the subset git uses for directory patterns: `**` (any depth,
+ * including zero), `*` (anything but `/`), `?`, character classes, and the
+ * trailing-slash directory-only marker (handled by the caller). A pattern
+ * with no internal slash matches at any directory depth, per gitignore(5).
+ */
+function gitignorePatternToRegExp(pattern: string): RegExp {
+  let source = "";
+  let index = 0;
+  while (index < pattern.length) {
+    const char = pattern[index] ?? "";
+    if (char === "*") {
+      if (pattern[index + 1] === "*") {
+        if (pattern[index + 2] === "/") {
+          source += "(?:.*/)?"; // `**/` matches zero or more directories
+          index += 3;
+          continue;
+        }
+        source += ".*"; // trailing `**` matches everything
+        index += 2;
+        continue;
+      }
+      source += "[^/]*";
+      index += 1;
+      continue;
+    }
+    if (char === "?") {
+      source += "[^/]";
+      index += 1;
+      continue;
+    }
+    if (char === "[") {
+      const closing = pattern.indexOf("]", index + 1);
+      if (closing === -1) {
+        source += "\\[";
+        index += 1;
+        continue;
+      }
+      source += pattern.slice(index, closing + 1);
+      index = closing + 1;
+      continue;
+    }
+    source += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    index += 1;
+  }
+  return new RegExp(`^${source}$`);
+}
+
+/**
+ * Decide whether the committed root .gitignore keeps `path` ignored, reading
+ * ONLY file content — never the working tree, the index, or git plumbing.
+ * Mirrors gitignore(5) semantics for the directory patterns this repo uses.
+ */
+function isIgnoredByCommittedGitignore(gitignoreText: string, path: string): boolean {
+  let ignored = false;
+  for (const rawLine of gitignoreText.split(/\r?\n/)) {
+    let pattern = rawLine.trimEnd();
+    if (pattern === "" || pattern.startsWith("#")) continue;
+    let negated = false;
+    if (pattern.startsWith("!")) {
+      negated = true;
+      pattern = pattern.slice(1);
+    }
+    pattern = pattern.replace(/^\\!/ , "!");
+    // The trailing-slash directory-only marker: the target here IS a
+    // directory, so directory patterns apply; drop the marker before match.
+    pattern = pattern.replace(/\/$/, "");
+    // A leading slash anchors the pattern to the repo root; without any
+    // slash the pattern matches at any directory depth, per gitignore(5).
+    const anchored = pattern.startsWith("/");
+    pattern = pattern.replace(/^\//, "");
+    if (!anchored && !pattern.includes("/")) pattern = `**/${pattern}`;
+    const matcher = gitignorePatternToRegExp(pattern);
+    // A pattern naming a directory also ignores everything inside it, so a
+    // match on the target itself or on any ancestor directory counts.
+    const coversTarget = matcher.test(path) || new RegExp(`^${matcher.source.slice(1, -1)}/`).test(path);
+    if (coversTarget) ignored = !negated;
+  }
+  return ignored;
+}
+
 async function loadConfig(): Promise<{ raw: string; config: WranglerConfig }> {
   const raw = await readFile(resolve(root, "wrangler.jsonc"), "utf8");
   const config = JSON.parse(stripJsoncComments(raw)) as WranglerConfig;
@@ -186,15 +267,19 @@ test("assets.directory names the web build output: declared, produced at build t
       `local build output ${config.assets.directory} exists but contains no index.html — stale or partial build`,
     );
   }
-  // git check-ignore exits 0 only when the path matches an ignore pattern.
-  let ignored = false;
-  try {
-    execFileSync("git", ["check-ignore", "--", "apps/web/dist"], { cwd: root, stdio: "pipe" });
-    ignored = true;
-  } catch {
-    ignored = false;
-  }
-  assert.ok(ignored, "apps/web/dist must be gitignored: build output is produced at build time, never committed");
+  // The repo invariant "build output is never committed" lives in the root
+  // .gitignore (`**/dist/`). Assert on that COMMITTED FILE'S CONTENT, never
+  // via `git check-ignore`: trailing-slash gitignore patterns only match
+  // paths git can stat as directories, so check-ignore exits 1 on a fresh
+  // checkout where apps/web/dist does not exist yet — exactly the CI state
+  // that broke the previous probe — while passing locally where a prior
+  // build left the directory behind. Content matching is provably
+  // independent of working-tree state.
+  const gitignoreText = await readFile(resolve(root, ".gitignore"), "utf8");
+  assert.ok(
+    isIgnoredByCommittedGitignore(gitignoreText, "apps/web/dist"),
+    "the committed .gitignore must keep apps/web/dist ignored (build output is produced at build time, never committed)",
+  );
 });
 
 test("run_worker_first covers exactly the /api/ prefix the edge router classifies", async () => {
