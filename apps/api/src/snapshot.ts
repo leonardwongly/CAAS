@@ -26,6 +26,12 @@ import { GenerationAcquisitionError } from "./server.ts";
 const PUBLIC_PROVENANCE = "CAAS normalized live generation";
 export { PUBLIC_PROVENANCE };
 
+/** Display placeholder assigned to airports without a bundled ICAO name.
+ * It is a label, never an identity: it must not be indexed as a location
+ * token, or every unnamed airport would resolve to every other unnamed
+ * airport (phantom ambiguity and phantom duplicate groups). */
+export const UNAVAILABLE_AIRPORT_NAME = "Name unavailable";
+
 type RouteGapReason = "invalid-reference" | "not-found" | "ambiguous" | "missing";
 export type { RouteGapReason };
 
@@ -185,7 +191,14 @@ function freezeFlightRecord(record: FlightPlanRecord): FlightPlanRecord {
 }
 
 export function locationTokens(location: Location): string[] {
-  return [location.id, location.code ?? "", location.name, ...location.aliases].map(token).filter(Boolean);
+  return [
+    location.id,
+    location.code ?? "",
+    // The placeholder is not a searchable identity (R2-G1-BUG-1): an airport
+    // without a bundled name stays reachable through its id and ICAO code.
+    location.name === UNAVAILABLE_AIRPORT_NAME ? "" : location.name,
+    ...location.aliases,
+  ].map(token).filter(Boolean);
 }
 
 function locationKind(dataset: ReferencePoint["dataset"]): Location["kind"] {
@@ -205,7 +218,7 @@ function familyLocations(results: readonly ReferenceDatasetResult[]): Location[]
       const airportName = point.dataset === "airports" ? airportNameForIcao(point.identifier) : undefined;
       locations.push(freezeLocation({
         id: `${result.dataset.slice(0, 3)}-${index}`,
-        name: airportName ?? (point.dataset === "airports" ? "Name unavailable" : point.identifier),
+        name: airportName ?? (point.dataset === "airports" ? UNAVAILABLE_AIRPORT_NAME : point.identifier),
         code: point.identifier,
         kind: locationKind(point.dataset),
         coordinate: point.coordinate,

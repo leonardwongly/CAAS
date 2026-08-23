@@ -11,6 +11,7 @@ import {
 } from "@flight-route-explorer/route-engine";
 import {
   PUBLIC_PROVENANCE,
+  UNAVAILABLE_AIRPORT_NAME,
   scopedToken,
   token,
   type RouteGapReason,
@@ -294,7 +295,7 @@ export function isSameCoordinate(left: Coordinate, right: Coordinate): boolean {
 }
 
 export function displayReference(location: Location): string {
-  if (location.kind === "airport" && location.code) return airportDisplayLabel(location.code, location.name === "Name unavailable" ? undefined : location.name);
+  if (location.kind === "airport" && location.code) return airportDisplayLabel(location.code, location.name === UNAVAILABLE_AIRPORT_NAME ? undefined : location.name);
   return location.code ?? location.name;
 }
 
