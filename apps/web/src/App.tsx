@@ -225,6 +225,7 @@ function App() {
   const dataTriggerRef = useRef<HTMLButtonElement>(null);
   const editorTriggerRef = useRef<HTMLButtonElement>(null);
   const compareTriggerRef = useRef<HTMLButtonElement>(null);
+  const synthesisTriggerRef = useRef<HTMLButtonElement>(null);
   const mapOnlyTriggerRef = useRef<HTMLButtonElement>(null);
   const restoreControlsRef = useRef<HTMLButtonElement>(null);
   const apiDataTriggerRef = useRef<HTMLButtonElement>(null);
@@ -253,7 +254,7 @@ function App() {
   // selecting a route, retrying an error, or leaving Map Only.
   function closeSurface(surface: Surface) {
     setPrimarySurface("none");
-    const trigger = surface === "routes" ? routesTriggerRef : surface === "route-data" ? dataTriggerRef : surface === "editor" ? editorTriggerRef : surface === "compare" ? compareTriggerRef : undefined;
+    const trigger = surface === "routes" ? routesTriggerRef : surface === "route-data" ? dataTriggerRef : surface === "editor" ? editorTriggerRef : surface === "compare" ? compareTriggerRef : surface === "synthesis" ? synthesisTriggerRef : undefined;
     if (trigger) requestAnimationFrame(() => trigger.current?.focus());
   }
 
@@ -409,6 +410,9 @@ function App() {
   function chooseSynthesisTarget(route?: RouteOption) {
     if (!route) {
       clearSynthesis();
+      // "Choose another" unmounts its own trigger; return focus to the
+      // chooser heading so keyboard users are not dropped to the body.
+      requestAnimationFrame(() => document.getElementById("synthesis-heading")?.focus());
       return;
     }
     if (isCompleteRoute(route)) return;
@@ -550,6 +554,10 @@ function App() {
       setGeneration(result.generation);
       setReadinessError(undefined);
       resetAll();
+      // The refresh clears every selection: an open drawer would otherwise
+      // stay on screen holding an empty or stale surface for the new
+      // generation (e.g. an editor panel with no selected route).
+      setPrimarySurface("none");
       setOverview([]);
       const refreshMessage = `Source data refreshed at ${formatRetrievedAt(result.generation.retrievedAt)}; selection cleared. This is not real-time tracking.`;
       overviewStatusPrefix.current = refreshMessage;
@@ -609,7 +617,7 @@ function App() {
           <FlightOverviewList routes={filteredOverview} incompleteRoutes={incompleteOverview} total={overview.length} selected={selectedRoute} loading={overviewLoading} error={overviewError} onRetry={() => setOverviewReload((current) => current + 1)} onSelect={chooseOverviewRoute} onSelectIncomplete={chooseSynthesisTarget} onExploreSynthesis={openSynthesisChooser} />
         </aside>}
         <section className="map-panel map-first-panel map-cell" aria-labelledby="map-heading">
-          <h2 className="sr-only" id="map-heading">Global route map</h2>
+          <h2 className="sr-only" id="map-heading" tabIndex={-1}>Global route map</h2>
           <RouteMap routes={filteredOverview} selectedRoute={selectedRoute} synthesisRoute={synthesisRoute} selectedCandidate={selectedCandidate} callsign={selectedFlight?.callsign} onSelectRoute={chooseOverviewRoute} />
           <div className="map-hud">{selectedRoute ? <><span className="eyebrow">SELECTED SOURCE ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? <DistanceTick nm={selectedRoute.distanceNm} /> : "No complete source route available"}</span></> : synthesisRoute ? <><span className="eyebrow">OBSERVED-DONOR SYNTHESIS</span><strong>{synthesisRoute.label ?? synthesisRoute.callsign}</strong><span>Dotted segments were observed on other recorded routes in this generation—not estimates or suggestions.</span></> : <><span className="eyebrow">SOURCE ROUTE OVERVIEW</span><strong>{overviewLoading ? "Loading source route records…" : `${filteredOverview.length} of ${overview.length} source route records shown`}</strong><span>{overviewError ?? "Refreshed source data, not real-time tracking. Select a route from the map or list."}</span></>}</div>
           {!mapOnly && selectedRoute && primarySurface !== "route-data" && <div className="map-left-stack"><RouteLegPanel route={selectedRoute} /></div>}
@@ -624,11 +632,11 @@ function App() {
             </div>
             <button ref={dataTriggerRef} type="button" aria-pressed={primarySurface === "route-data"} onClick={() => setPrimarySurface((surface) => surface === "route-data" ? "none" : "route-data")} disabled={!selectedRoute}>Data</button>
             <button ref={compareTriggerRef} type="button" aria-pressed={primarySurface === "compare"} onClick={() => setPrimarySurface((surface) => surface === "compare" ? "none" : "compare")} disabled={!selectedRoute || options.length < 2}>Compare</button>
-            <button type="button" aria-pressed={primarySurface === "synthesis"} onClick={() => setPrimarySurface((surface) => surface === "synthesis" ? "none" : "synthesis")}>Synthesis</button>
+            <button ref={synthesisTriggerRef} type="button" aria-pressed={primarySurface === "synthesis"} onClick={() => setPrimarySurface((surface) => surface === "synthesis" ? "none" : "synthesis")}>Synthesis</button>
             <button ref={editorTriggerRef} type="button" aria-pressed={primarySurface === "editor"} onClick={() => { if (!selectedRoute) return; setDraftActive(true); setPrimarySurface("editor"); void updateDraft([]); }} disabled={!selectedRoute}>Explore variation</button>
           </nav>
           <div className="map-drawer workbench-panel" role="region" aria-label={WORKBENCH_SURFACES[primarySurface].label}>
-            {primarySurface === "none" && <div className="workbench-empty"><span aria-hidden="true">⌖</span><strong>NO PANEL OPEN</strong><p>Select a route, then open Routes, Data, Compare, Synthesis, or Draft.</p></div>}
+            {primarySurface === "none" && <div className="workbench-empty"><span aria-hidden="true">⌖</span><strong>NO PANEL OPEN</strong><p>Select a route, then open Routes, Data, Compare, Synthesis, or Explore variation.</p></div>}
             {primarySurface !== "none" && <div className="drawer-header"><p className="eyebrow">{WORKBENCH_SURFACES[primarySurface].eyebrow}</p><button className="quiet-button" type="button" onClick={() => { if (primarySurface === "editor") resetDraftState(); closeSurface(primarySurface); }}>Close</button></div>}
             {primarySurface === "routes" && <RouteOptions options={options} selected={selectedRoute} loading={routeLoading} error={routeError} onRetry={() => { setRouteReload((current) => current + 1); requestAnimationFrame(() => document.getElementById("options-heading")?.focus()); }} onSelect={(option) => { resetDraftState(); chooseOverviewRoute(option); setStatus(`Selected flight ${option.callsign} from the neutral route comparison.`); closeSurface("routes"); }} />}
             {primarySurface === "synthesis" && <SynthesisExplorer routes={incompleteOverview} selected={synthesisRoute} synthesis={synthesis} selectedCandidate={selectedCandidate} loading={synthesisLoading} error={synthesisError} statisticalNote={statisticalNote} onSelect={chooseSynthesisTarget} onChooseCandidate={setSelectedCandidate} onRetry={() => { if (synthesisRoute) void loadSynthesis(synthesisRoute); }} />}
@@ -667,7 +675,7 @@ function SynthesisExplorer({ routes, selected, synthesis, selectedCandidate, loa
   const unavailableTone = Boolean(synthesis && (synthesis.status === "unavailable" || synthesis.status === "over-limit" || synthesis.status === "candidate-limit-exceeded"));
   return <section className="potential-route-section" aria-labelledby="synthesis-heading">
     {!selected ? <>
-      <div className="section-title"><div><p className="eyebrow">OBSERVED-DONOR SYNTHESIS</p><h2 id="synthesis-heading">Choose a source route with gaps</h2></div><span className="count-label">{routes.length} available</span></div>
+      <div className="section-title"><div><p className="eyebrow">OBSERVED-DONOR SYNTHESIS</p><h2 id="synthesis-heading" tabIndex={-1}>Choose a source route with gaps</h2></div><span className="count-label">{routes.length} available</span></div>
       <p className="criterion-copy">Synthesis assembles candidates from geometry observed on other recorded routes in the same data generation. Nothing is interpolated, ranked, or written back to the source record.</p>
       <div className="potential-route-options">{routes.map((route) => <button type="button" key={route.flightId} onClick={() => onSelect(route)}><span><strong>{route.callsign}</strong><small>{route.label ?? "Recorded route"} · {route.gaps.length} gap{route.gaps.length === 1 ? "" : "s"}</small></span><span>{route.origin ?? "Unknown departure"} → {route.destination ?? "Unknown destination"}</span></button>)}</div>
       {!routes.length && <p className="muted-copy">No incomplete recorded routes match the current filter.</p>}
@@ -902,13 +910,29 @@ function endpointReference(label: string): string {
 
 function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, callsign, onSelectRoute }: { routes: RouteOption[]; selectedRoute?: RouteOption | undefined; synthesisRoute?: RouteOption | undefined; selectedCandidate?: SynthesisCandidate | undefined; callsign?: string | undefined; onSelectRoute: (route: RouteOption) => void }) {
   const [overlapChoices, setOverlapChoices] = useState<RouteOption[]>([]);
+  const overlapCloseRef = useRef<HTMLButtonElement>(null);
+  const overlapOpen = overlapChoices.length > 0;
+  // The chooser opens from an SVG hit-line click that carries no focusable
+  // target: move focus into the dialog (onto Close, the first focusable
+  // control) so keyboard users can act on it, and let Escape dismiss it like
+  // every other transient surface.
+  useEffect(() => {
+    if (overlapOpen) requestAnimationFrame(() => overlapCloseRef.current?.focus());
+  }, [overlapOpen]);
+  // Closing the chooser unmounts whichever button held focus; return focus to
+  // the map heading so keyboard users are not dropped to the body (webkit)
+  // or left on a ghost position (chromium).
+  const closeOverlapChooser = () => {
+    setOverlapChoices([]);
+    requestAnimationFrame(() => document.getElementById("map-heading")?.focus());
+  };
   const [endpoints, setEndpoints] = useState<{ departure?: EndpointLocation | undefined; arrival?: EndpointLocation | undefined }>({});
   const [view, setView] = useState<TileView>({ lat: 20, lon: 0, zoom: 2 });
   const [tilesEnabled, setTilesEnabled] = useState(true);
   const [tilesFailed, setTilesFailed] = useState(false);
   const [stageSize, setStageSize] = useState<MapSize>(DEFAULT_SIZE);
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<{ pointerId: number; startX: number; startY: number } | null>(null);
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; captured?: boolean } | null>(null);
   const [hovered, setHovered] = useState<{ route: RouteOption; x: number; y: number } | undefined>(undefined);
   const tilesOn = tilesEnabled && !tilesFailed;
 
@@ -1073,7 +1097,9 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
     // control activation, so drags only begin on the map surface itself.
     if (event.target instanceof Element && event.target.closest("button, a, input, select, textarea, [role='dialog']")) return;
     dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
-    if (typeof event.currentTarget.setPointerCapture === "function") event.currentTarget.setPointerCapture(event.pointerId);
+    // Pointer capture is deferred until the drag actually moves (see
+    // onPointerMove): capturing on pointerdown retargets the click event to
+    // the stage and swallows route-selection clicks on the SVG hit lines.
   };
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
@@ -1081,6 +1107,10 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
     const dx = event.clientX - drag.startX;
     const dy = event.clientY - drag.startY;
     if (Math.abs(dx) + Math.abs(dy) < 3) return;
+    if (!drag.captured && typeof event.currentTarget.setPointerCapture === "function") {
+      try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* pointer already released */ }
+      drag.captured = true;
+    }
     drag.startX = event.clientX; drag.startY = event.clientY;
     setView((current) => viewFromPixelDelta(dx, dy, current, stageSize));
   };
@@ -1135,12 +1165,12 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
     {tilesOn && Number.isFinite(view.lat) && <div className="map-scalebar" aria-hidden="true"><span className="scalebar-bar" style={{ width: scaleBar.px }} /><span className="scalebar-label">{scaleBar.label}</span></div>}
     {tilesOn && <div className="graticule-labels" aria-hidden="true">{graticule.verticals.map((v) => <span key={`v-${v.lon}-${Math.round(v.x)}`} className="grat-label" style={{ left: v.x }}>{`${Math.abs(Math.round(v.lon))}°${v.lon < 0 ? "W" : v.lon > 0 ? "E" : ""}`}</span>)}{graticule.horizontals.map((h) => <span key={`h-${h.lat}`} className="grat-label" style={{ top: h.y }}>{`${Math.abs(Math.round(h.lat))}°${h.lat < 0 ? "S" : h.lat > 0 ? "N" : ""}`}</span>)}</div>}
     {hovered && <div className="route-tooltip" aria-hidden="true" style={{ left: hovered.x + 12, top: hovered.y + 12 }}>{hovered.route.callsign} · {formatDistance(hovered.route.distanceNm)}</div>}
-    {overlapChoices.length > 0 && <section className="map-overlap-chooser" role="dialog" aria-modal="false" aria-label="Choose an overlapping recorded flight"><div><strong>{overlapChoices.length} routes overlap here</strong><button type="button" className="quiet-button" onClick={() => setOverlapChoices([])}>Close</button></div>{overlapChoices.map((route) => <button key={route.flightId} type="button" onClick={() => { setOverlapChoices([]); onSelectRoute(route); }}><strong>{route.callsign}</strong><span>{route.origin} → {route.destination}</span></button>)}</section>}
+    {overlapChoices.length > 0 && <section className="map-overlap-chooser" role="dialog" aria-modal="false" aria-label="Choose an overlapping recorded flight" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeOverlapChooser(); } }}><div><strong>{overlapChoices.length} routes overlap here</strong><button ref={overlapCloseRef} type="button" className="quiet-button" onClick={closeOverlapChooser}>Close</button></div>{overlapChoices.map((route) => <button key={route.flightId} type="button" onClick={() => { closeOverlapChooser(); onSelectRoute(route); }}><strong>{route.callsign}</strong><span>{route.origin} → {route.destination}</span></button>)}</section>}
     <div className="map-fallback-banner"><span className="map-pin">◇</span><span>{banner}</span></div>
     <div className="map-zoom-controls" role="group" aria-label="Map zoom and base layer">
       <button type="button" aria-label="Zoom in" disabled={!tilesOn || view.zoom >= MAX_ZOOM} onClick={() => setView((current) => ({ ...current, zoom: clampZoom(current.zoom + 1) }))}>+</button>
       <button type="button" aria-label="Zoom out" disabled={!tilesOn || view.zoom <= MIN_ZOOM} onClick={() => setView((current) => ({ ...current, zoom: clampZoom(current.zoom - 1) }))}>−</button>
-      <button type="button" aria-pressed={tilesOn} onClick={() => { setTilesEnabled((current) => !current); setTilesFailed(false); }}>Toggle base map</button>
+      <button type="button" aria-pressed={tilesEnabled} onClick={() => { setTilesEnabled((current) => !current); setTilesFailed(false); }}>Toggle base map</button>
     </div>
     {displayRoute && <section className="map-endpoints" aria-label="Route endpoint locations"><div className="map-endpoint departure"><b>Departure</b><span>{departureLabel}</span></div><div className="map-endpoint arrival"><b>Arrival</b><span>{arrivalLabel}</span></div></section>}
     {!hasAnyLine && <div className="map-empty"><span>◎</span><strong>{routes.length ? "No resolved geometry returned" : "No overview routes to display"}</strong><p>{routes.length ? "The world map does not infer a line across missing route data." : "Clear the callsign filter or retry the all-flight overview."}</p></div>}
