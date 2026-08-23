@@ -434,6 +434,15 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 .potential-route-options strong, .potential-route-options small { display: block; }.potential-route-options strong { color: var(--ink); font-size: .78rem; }.potential-route-options small, .potential-route-options > button > span:last-child { color: var(--muted); font-size: .66rem; }
 @media (width <= 760px) { .potential-route-prompt { align-items: flex-start; flex-direction: column; gap: 8px; }.potential-route-options button { align-items: flex-start; flex-direction: column; gap: 4px; } }
 @media (forced-colors: active) { .route-path-potential { stroke: Highlight; }.legend-line-potential { background: repeating-linear-gradient(90deg, CanvasText 0 5px, transparent 5px 9px); } }
+
+/* D7 — map & spatial UX (adversarial sweep 2026-08-23): the pressed base-map
+   toggle and the overlap-chooser focus state were invisible under forced
+   colors once every border collapsed to ButtonBorder. Kept in a separate
+   block so the first forced-colors block stays inside its pinned window. */
+@media (forced-colors: active) {
+  .map-zoom-controls button[aria-pressed="true"] { border-color: Highlight; color: Highlight; }
+  .map-overlap-chooser button:focus-visible, .map-overlap-chooser .quiet-button:focus-visible { outline-color: Highlight; }
+}
 .synthesis-status { border-left: 3px solid var(--blue); padding: 4px 0 4px 10px; color: var(--muted); font-size: .68rem; line-height: 1.4; }
 .synthesis-status.synthesis-unavailable { border-left-color: var(--amber); }
 .synthesis-candidates { display: grid; gap: 8px; }
@@ -592,4 +601,27 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
   .compare-columns { grid-template-columns: 1fr; }
   .legend-key summary { display: list-item; }
 }
+
+/* D7 — map & spatial UX (adversarial sweep 2026-08-23). */
+
+/* Pan affordance: the tile stage is draggable but gave no cursor hint, and
+   dragging selected banner/HUD text. The grab cursor only appears while the
+   tile layer is actually rendered (schematic mode rejects drags), and the
+   grabbing state is suppressed while a stacked button is the active element
+   so control presses never advertise a pan. */
+.map-stage { user-select: none; }
+.map-overlap-chooser { user-select: text; }
+.map-stage:has(.tile-layer) { cursor: grab; }
+.map-stage:active:has(.tile-layer):not(:has(button:active)) { cursor: grabbing; }
+
+/* The centred overlap chooser (z-index 8) covers the zoom stack on narrow
+   stages; the controls must stay pointer-reachable while it is open. */
+.map-zoom-controls { z-index: 9; }
+
+/* The base-map toggle's pressed state was a border tint only; add a fill so
+   "base map ON" reads at a glance against the two zoom buttons. */
+.map-zoom-controls button[aria-pressed="true"] { background: color-mix(in srgb, var(--chart-magenta) 12%, var(--sheet)); }
+
+/* Keyboard focus must be visible on every overlap-chooser hit target. */
+.map-overlap-chooser button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 
