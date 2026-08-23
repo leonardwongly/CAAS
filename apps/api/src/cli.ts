@@ -57,17 +57,25 @@ export function parseEnvFileEntries(contents: string): EnvFileEntry[] {
   return entries;
 }
 
-async function loadExplicitLocalEnv(envFile: string): Promise<void> {
-  const workingDirectory = resolve(process.cwd());
+// Node ≥20.6 ships its own built-in --env-file flag and consumes it before this
+// script ever sees process.argv (an unresolvable path aborts the runtime with
+// exit code 9). The guard below therefore protects the fallback code path —
+// programmatic callers and older runtimes — and is exported so adversarial
+// coverage can attack the containment rule directly.
+export function assertLocalEnvPath(envFile: string, workingDirectory: string = resolve(process.cwd())): string {
   const path = resolve(workingDirectory, envFile);
   const relativePath = relative(workingDirectory, path);
-  if (relativePath.startsWith("..") || relativePath.includes("/") && !relativePath.startsWith("./")) {
+  if (relativePath.startsWith("..") || (relativePath.includes("/") && !relativePath.startsWith("./"))) {
     throw new Error("--env-file must point to the local .env file");
   }
   if (path !== resolve(workingDirectory, ".env")) {
     throw new Error("--env-file must point to the local .env file");
   }
+  return path;
+}
 
+async function loadExplicitLocalEnv(envFile: string): Promise<void> {
+  const path = assertLocalEnvPath(envFile);
   const contents = await readFile(path, "utf8");
   for (const { key, value } of parseEnvFileEntries(contents)) {
     if (process.env[key] === undefined) process.env[key] = value;
