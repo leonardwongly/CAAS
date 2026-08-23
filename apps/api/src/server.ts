@@ -1047,7 +1047,10 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     assertEmptyQuery(request);
     const snapshot = store.requireSnapshot();
     const body = bodyObject(request, ["limit", "cursor"]);
-    const limit = parseLimit(body.limit ?? 25);
+    // The overview default is 25, but a present-but-null limit is still a
+    // type error: `?? 25` would silently default it while every other paging
+    // family rejects null with INVALID_LIMIT. Keep parseLimit strict here.
+    const limit = parseLimit(body.limit === undefined ? 25 : body.limit);
     const context = "all-flight-routes";
     const offset = body.cursor === undefined ? 0 : cursorOffset(body.cursor, snapshot, context, limit, "overview-cursor", now);
     const data = snapshot.flights.slice(offset, offset + limit).map((flight) => overviewRouteDto(snapshot, flight));
