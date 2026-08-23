@@ -24,7 +24,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -175,6 +175,17 @@ test("assets.directory names the web build output: declared, produced at build t
   assert.match(webPackage.scripts.build ?? "", /vite build/, "the web build must be produced by vite build");
   const viteConfig = await readFile(resolve(root, "apps/web/vite.config.ts"), "utf8");
   assert.ok(!/outDir/.test(viteConfig), "vite config must not redirect build output via outDir; the default dist/ is the contract");
+  // Graceful local-only sanity: when a build has already produced the output
+  // directory (never the case on a fresh CI checkout, which runs this lane
+  // before any web build), it must contain the SPA entrypoint — a dist/ with
+  // no index.html is a stale or interrupted build, not deployable assets.
+  const declaredAssetsDirectory = resolve(root, config.assets.directory.replace(/^\.\//, ""));
+  if (existsSync(declaredAssetsDirectory)) {
+    assert.ok(
+      existsSync(join(declaredAssetsDirectory, "index.html")),
+      `local build output ${config.assets.directory} exists but contains no index.html — stale or partial build`,
+    );
+  }
   // git check-ignore exits 0 only when the path matches an ignore pattern.
   let ignored = false;
   try {
