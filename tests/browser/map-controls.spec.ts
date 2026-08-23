@@ -319,12 +319,14 @@ test("synthesis renders borrowed geometry dotted, fits it with the source, and k
   await expect(drawer.getByText(/rank/i)).toHaveCount(0);
 
   // The first candidate is auto-selected: borrowed geometry renders dotted
-  // (dasharray 4,7) while the source segments stay solid.
+  // (dasharray 6/6) while the source segments stay solid. The draw-on
+  // animation runs once per displayed flight (~420ms), so the solid check
+  // polls until the steady-state computed dasharray settles.
   const borrowed = page.locator("path.route-path-potential").first();
   await expect(borrowed).toBeVisible();
-  expect(await borrowed.evaluate((path: SVGElement) => getComputedStyle(path).strokeDasharray)).toBe("4px, 7px");
+  expect(await borrowed.evaluate((path: SVGElement) => getComputedStyle(path).strokeDasharray)).toBe("6px, 6px");
   for (const solid of await page.locator("g.route-line-selected path.route-path").elementHandles()) {
-    expect(await solid.evaluate((path: SVGElement) => getComputedStyle(path).strokeDasharray)).toBe("none");
+    await expect.poll(() => solid.evaluate((path: SVGElement) => getComputedStyle(path).strokeDasharray)).toBe("none");
   }
 
   // The fit-view transition bounds source + borrowed geometry; the tile layer

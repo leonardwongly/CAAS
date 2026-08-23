@@ -168,7 +168,7 @@ export default function ApiDataPage({ selectedFlight, selectedRoute, onBack }: {
     <div className="api-data-header" role="region" aria-label="API data overview">
       <div>
         <p className="eyebrow">FLIGHT ROUTE EXPLORER</p>
-        <h1 id="api-data-heading" tabIndex={-1}>API data</h1>
+        <h2 id="api-data-heading" tabIndex={-1}>API data</h2>
         <p className="lede">Live generation summary, every application endpoint with raw responses, and bulk browsing of the normalized datasets. Airway values are never exposed — counts only.</p>
       </div>
       <button className="quiet-button" type="button" onClick={onBack}>Back to map</button>
@@ -204,7 +204,7 @@ export default function ApiDataPage({ selectedFlight, selectedRoute, onBack }: {
             <button className="retry-button explorer-run" type="button" onClick={card.run} disabled={state.loading || card.disabled}>{state.loading ? <span className="spinner dark" /> : "Run"}</button>
             {card.disabled && card.disabledHint && <p className="helper-text">{card.disabledHint}</p>}
             {state.error && <div className="notice error-notice" role="alert"><span>{state.error}</span></div>}
-            {state.result !== undefined && <pre className="explorer-json">{JSON.stringify(state.result, null, 2)}</pre>}
+            {state.result !== undefined && <pre className="explorer-json">{JSON.stringify(state.result, null, 2).split("\n").map((line, index) => <span className="json-line" key={index}>{line}</span>)}</pre>}
           </div>;
         })}
       </div>

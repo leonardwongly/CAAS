@@ -90,7 +90,9 @@ describe("API data page", () => {
     await user.clear(within(card).getByRole("textbox", { name: "Query" }));
     await user.type(within(card).getByRole("textbox", { name: "Query" }), "FIXTURE1");
     await user.click(within(card).getByRole("button", { name: "Run" }));
-    await waitFor(() => expect(within(card).getByText(/FIXTURE1/)).toBeTruthy());
+    // Line-numbered JSON (Task 10): each result row is its own .json-line
+    // span, so both FIXTURE1 matches surface as separate text elements.
+    await waitFor(() => expect(within(card).getAllByText(/FIXTURE1/).length).toBeGreaterThanOrEqual(1));
 
     const searchCalls = stub.calls.filter((call) => call.url === "/api/v1/callsigns/search");
     expect(searchCalls.length).toBeGreaterThanOrEqual(1);

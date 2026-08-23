@@ -15,6 +15,9 @@ const webRoot = resolve(import.meta.dirname, "../../apps/web/src");
 const html = readFileSync(resolve(webRoot, "../index.html"), "utf8");
 const styles = readFileSync(resolve(webRoot, "styles.css"), "utf8");
 
+// Slices a fixed 2000-char window from the FIRST occurrence of the needle;
+// pinned media blocks must stay shorter than the window and (for the
+// max-width literals below) the sole occurrence in styles.css.
 function blockAfter(needle: string): string {
   const start = styles.indexOf(needle);
   expect(start, `expected styles.css to contain ${needle}`).toBeGreaterThan(-1);
@@ -34,24 +37,22 @@ describe("responsive and adaptive CSS contract (design §15.7)", () => {
     expect(styles).toMatch(/body\s*\{[^}]*min-width:\s*320px/);
   });
 
-  it("keeps the page-title h1 in the accessibility tree at mobile (never display:none)", () => {
+  it("ships the DISPATCH breakpoints", () => {
+    // blockAfter resolves the first occurrence, so the pinned literals must
+    // remain unique; earlier Task-6/7 mobile blocks use `width <= 760px`
+    // range syntax to keep it that way.
+    expect(styles.split("@media (max-width: 1279px)").length - 1).toBe(1);
+    expect(styles.split("@media (max-width: 760px)").length - 1).toBe(1);
+    const mid = blockAfter("@media (max-width: 1279px)");
+    expect(mid).toMatch(/\.workbench\s*\{[^}]*max-height:\s*55vh/);
+    expect(mid).toMatch(/\.manifest\s*\{\s*display:\s*none/);
     const mobile = blockAfter("@media (max-width: 760px)");
+    // The h1 must stay in the accessibility tree at mobile: sr-only clip
+    // technique, never display:none.
     expect(mobile).not.toMatch(/\.product-mark\s*\{\s*display:\s*none/);
-    // The brand block is removed from grid layout (position: absolute) and
-    // visually hidden with the .sr-only technique, so axe still counts the
-    // h1 as present (page-has-heading-one) at 320 px. Caught in the real
-    // browser; this pins the contract so jsdom's lack of CSS cannot miss it.
-    expect(mobile).toMatch(
-      /\.product-mark\s*\{\s*clip:\s*rect\(0\s+0\s+0\s+0\);\s*clip-path:\s*inset\(50%\);[^}]*height:\s*1px;[^}]*overflow:\s*hidden;[^}]*position:\s*absolute;[^}]*width:\s*1px/
-    );
-  });
-
-  it("ships a mobile breakpoint that reflows the drawer and map chrome at <= 760 px", () => {
-    const mobile = blockAfter("@media (max-width: 760px)");
-    expect(mobile).toMatch(/\.map-topbar\s*\{\s*grid-template-columns:\s*1fr auto/);
-    expect(mobile).toMatch(/\.map-drawer\s*\{\s*bottom:\s*44px;\s*left:\s*8px;\s*max-width:\s*none;\s*top:\s*auto;\s*width:\s*calc\(100% - 16px\)/);
-    expect(mobile).toMatch(/\.map-first-panel\s*>\s*\.map-legend/);
-    expect(mobile).toMatch(/\.map-first-panel \.map-endpoints/);
+    expect(mobile).toMatch(/\.map-cell \.map-stage\s*\{\s*height:\s*55vh/);
+    expect(mobile).toMatch(/\.product-mark\s*\{\s*clip:\s*rect\(0\s+0\s+0\s+0\);\s*clip-path:\s*inset\(50%\);[^}]*height:\s*1px;[^}]*overflow:\s*hidden;[^}]*position:\s*absolute;[^}]*width:\s*1px/);
+    expect(mobile).toMatch(/\.doc-control-footer span:not\(\.footer-asof\)/);
   });
 
   it("keeps the route table inside a named, independently scrollable region", () => {
@@ -93,6 +94,9 @@ describe("responsive and adaptive CSS contract (design §15.7)", () => {
       ".map-legend",
       ".restore-controls",
       ".map-rail button",
+      ".workbench-spine button",
+      ".compass-rose",
+      ".map-scalebar",
     ]) {
       expect(forced, `forced-colors block must style ${selector}`).toMatch(new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     }

@@ -1,0 +1,99 @@
+{
+  "recordKind": "lane-results",
+  "lane": "loopback-five-family-lane",
+  "subject": {
+    "type": "commit",
+    "identifiers": {
+      "commit": "0ad26fad2490"
+    },
+    "environment": "local-loopback-fixture-backed"
+  },
+  "startedAt": "2026-08-22T17:54:59.887Z",
+  "endedAt": "2026-08-22T17:54:59.967Z",
+  "mode": "mechanics",
+  "credentialHandling": "fixture apikey consumed only by the deterministic mock transport; no live CAAS origin call was made",
+  "checks": [
+    {
+      "checkId": "LANE-HEALTH-LIVE",
+      "name": "liveness endpoint",
+      "procedure": "GET /api/v1/health/live returns 200.",
+      "startedAt": "2026-08-22T17:54:59.939Z",
+      "endedAt": "2026-08-22T17:54:59.964Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "liveness endpoint",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "0fc8068be2ee3979b451c573325559169bf181af03279094dbe66c03df6a7ad8"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "c26825ffb1065a21a8e5cbfb2260d8fe2e87be4258ee57d0d992f6b88f7a3d55"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-STARTUP-READY",
+      "name": "startup readiness",
+      "procedure": "Cold startup completes five-family acquisition and reports started.",
+      "startedAt": "2026-08-22T17:54:59.939Z",
+      "endedAt": "2026-08-22T17:54:59.966Z",
+      "result": "pass",
+      "measurement": {
+        "summary": "startup readiness",
+        "value": true,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [
+        {
+          "path": "scripts/validation/loopback-lane.mjs",
+          "sha256": "0fc8068be2ee3979b451c573325559169bf181af03279094dbe66c03df6a7ad8"
+        },
+        {
+          "path": "scripts/validation/fixtures.mjs",
+          "sha256": "c26825ffb1065a21a8e5cbfb2260d8fe2e87be4258ee57d0d992f6b88f7a3d55"
+        }
+      ],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    },
+    {
+      "checkId": "LANE-RUN-CRASH",
+      "name": "lane execution",
+      "procedure": "Every lane check must complete; an exception fails the lane loudly instead of losing the evidence record.",
+      "startedAt": "2026-08-22T17:54:59.887Z",
+      "endedAt": "2026-08-22T17:54:59.967Z",
+      "result": "fail",
+      "measurement": {
+        "summary": "simulated mid-lane fetch failure",
+        "value": false,
+        "units": "boolean",
+        "sampleCount": 1
+      },
+      "artifacts": [],
+      "failureFallback": "Fail the lane loudly and keep the gate blocked."
+    }
+  ],
+  "summary": {
+    "checks": 3,
+    "passed": 2,
+    "blocked": 0,
+    "failed": 1
+  },
+  "artifacts": [
+    {
+      "path": "scripts/validation/loopback-lane.mjs",
+      "sha256": "0fc8068be2ee3979b451c573325559169bf181af03279094dbe66c03df6a7ad8"
+    },
+    {
+      "path": "scripts/validation/fixtures.mjs",
+      "sha256": "c26825ffb1065a21a8e5cbfb2260d8fe2e87be4258ee57d0d992f6b88f7a3d55"
+    }
+  ]
+}
