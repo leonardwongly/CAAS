@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Location } from "@flight-route-explorer/contracts";
+import type { Location } from "../../packages/contracts/src/index.ts";
 import { createApiServer, type ApiServerOptions } from "../../apps/api/src/index.ts";
 import { indexedReferenceResolution } from "../../apps/api/src/projection.ts";
 import { locationTokens, token, UNAVAILABLE_AIRPORT_NAME } from "../../apps/api/src/snapshot.ts";
