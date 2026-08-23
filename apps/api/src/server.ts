@@ -1002,9 +1002,14 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.post("/api/v1/callsigns/search", warm(searchCallsigns));
   app.post("/api/v1/search", warm(searchCallsigns));
   app.post("/api/v1/flights/search", warm(searchCallsigns));
-  app.get("/api/v1/callsigns/search", searchMethodNotAllowed);
-  app.get("/api/v1/search", searchMethodNotAllowed);
-  app.get("/api/v1/flights/search", searchMethodNotAllowed);
+  // Every wrong verb on the POST-only search surface answers the same bounded
+  // 405 envelope with Allow: POST — including PUT/DELETE/OPTIONS, which a bare
+  // GET handler would leave as unstructured 404s.
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/callsigns/search", handler: searchMethodNotAllowed });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/search", handler: searchMethodNotAllowed });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/flights/search", handler: searchMethodNotAllowed });
+  const methodGetOnly = (label: string) => async (_request: FastifyRequest, reply: FastifyReply) =>
+    reply.header("allow", "GET").code(405).send({ error: { code: "METHOD_NOT_ALLOWED", message: `${label} is available over GET only.` } });
 
   const browse = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
@@ -1030,6 +1035,9 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.get("/api/v1/routes/browse", warm(browse));
   app.get("/api/v1/browse", warm(browse));
   app.get("/api/v1/flights", warm(browse));
+  app.route({ method: ["POST", "PUT", "DELETE"], url: "/api/v1/routes/browse", handler: methodGetOnly("Route browse") });
+  app.route({ method: ["POST", "PUT", "DELETE"], url: "/api/v1/browse", handler: methodGetOnly("Route browse") });
+  app.route({ method: ["POST", "PUT", "DELETE"], url: "/api/v1/flights", handler: methodGetOnly("Route browse") });
 
   // Target overview contract: every safe flight appears exactly once in immutable
   // generation order, with every resolved route segment and explicit gap data.
@@ -1137,7 +1145,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     const donorIndex = decoded.i;
     const fromOrdinal = decoded.f;
     const toOrdinal = decoded.u;
-    if (typeof toOrdinal !== "number" || typeof donorIndex !== "number" || !Number.isInteger(donorIndex) || donorIndex < 0 || typeof fromOrdinal !== "number" || !Number.isInteger(fromOrdinal) || !Number.isInteger(toOrdinal) || toOrdinal < fromOrdinal || toOrdinal - fromOrdinal + 1 > MAX_ROUTE_POINTS) {
+    if (typeof toOrdinal !== "number" || typeof donorIndex !== "number" || !Number.isInteger(donorIndex) || donorIndex < 0 || typeof fromOrdinal !== "number" || !Number.isInteger(fromOrdinal) || fromOrdinal < 0 || !Number.isInteger(toOrdinal) || toOrdinal < fromOrdinal || toOrdinal - fromOrdinal + 1 > MAX_ROUTE_POINTS) {
       throw new ApiHttpError(400, "PROOF_INVALID", "The donor proof range is invalid.");
     }
     const flight = snapshot.flightByIndex.get(donorIndex);
@@ -1189,6 +1197,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     });
   };
   app.get("/api/v1/data/summary", warm(dataSummary));
+  app.route({ method: ["POST", "PUT", "DELETE"], url: "/api/v1/data/summary", handler: methodGetOnly("The data summary") });
 
   const browseFlights = async (request: FastifyRequest, reply: FastifyReply) => {
     assertEmptyQuery(request);
@@ -1212,6 +1221,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     return reply.send({ data: items, generation: generationSummary(snapshot, now()), ...(nextOffset < snapshot.flights.length ? { nextCursor: scopedToken(snapshot, "browse-cursor", { o: nextOffset, q: context, l: limit }) } : {}) });
   };
   app.post("/api/v1/data/flights", warm(browseFlights));
+  app.route({ method: ["GET", "PUT", "DELETE"], url: "/api/v1/data/flights", handler: methodNotAllowed("Flight browse") });
 
   const browseLocations = (family: string, kind: Location["kind"]) => async (request: FastifyRequest, reply: FastifyReply) => {
     assertEmptyQuery(request);
@@ -1227,6 +1237,9 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.post("/api/v1/data/fixes", warm(browseLocations("fixes", "place")));
   app.post("/api/v1/data/airports", warm(browseLocations("airports", "airport")));
   app.post("/api/v1/data/navaids", warm(browseLocations("navaids", "station")));
+  app.route({ method: ["GET", "PUT", "DELETE"], url: "/api/v1/data/fixes", handler: methodNotAllowed("Fix browse") });
+  app.route({ method: ["GET", "PUT", "DELETE"], url: "/api/v1/data/airports", handler: methodNotAllowed("Airport browse") });
+  app.route({ method: ["GET", "PUT", "DELETE"], url: "/api/v1/data/navaids", handler: methodNotAllowed("Navaid browse") });
 
   const routeOptions = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
@@ -1300,6 +1313,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   // the static routes below must beat the parametric GET /api/v1/routes/:routeId.
   app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/routes/options", handler: methodNotAllowed("Route options lookup") });
   app.post("/api/v1/route-options", warm(routeOptions));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/route-options", handler: methodNotAllowed("Route options lookup") });
 
   const routeDetail = async (request: FastifyRequest, reply: FastifyReply) => {
     queryObject(request, []);
@@ -1322,6 +1336,14 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.get("/api/v1/flight/:routeId", warm(routeDetail));
   app.get("/api/v1/flights/:routeId", warm(routeDetail));
   app.get("/api/v1/flights/:routeId/routes", warm(routeDetail));
+  // Wrong verbs on the GET detail resources answer 405 + Allow: GET. Static
+  // POST routes (overview, synthesis, detail, options, compare) beat these
+  // parametric handlers in find-my-way, so no POST surface is shadowed.
+  app.route({ method: ["POST", "PUT", "DELETE"], url: "/api/v1/routes/:routeId", handler: methodGetOnly("Route detail") });
+  app.route({ method: ["PUT", "DELETE"], url: "/api/v1/detail/:routeId", handler: methodGetOnly("Route detail") });
+  app.route({ method: ["PUT", "DELETE"], url: "/api/v1/flight/:routeId", handler: methodGetOnly("Route detail") });
+  app.route({ method: ["PUT", "DELETE"], url: "/api/v1/flights/:routeId", handler: methodGetOnly("Route detail") });
+  app.route({ method: ["PUT", "DELETE"], url: "/api/v1/flights/:routeId/routes", handler: methodGetOnly("Route detail") });
 
   const exactLookup = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
@@ -1359,6 +1381,11 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.get("/api/v1/points/lookup", warm(exactLookup));
   app.post("/api/v1/points/lookup", warm(exactLookup));
   app.post("/api/v1/points", warm(exactLookup));
+  const methodGetOrPostOnly = (label: string) => async (_request: FastifyRequest, reply: FastifyReply) =>
+    reply.header("allow", "GET, POST").code(405).send({ error: { code: "METHOD_NOT_ALLOWED", message: `${label} is available over GET and POST only.` } });
+  app.route({ method: ["PUT", "DELETE"], url: "/api/v1/points/lookup", handler: methodGetOrPostOnly("Point lookup") });
+  app.route({ method: ["GET", "PUT", "DELETE"], url: "/api/v1/points", handler: methodNotAllowed("Point lookup") });
+  app.route({ method: ["PUT", "DELETE"], url: "/api/v1/points/:reference", handler: methodGetOnly("Point lookup") });
 
   const refresh = async (request: FastifyRequest, reply: FastifyReply, signal?: AbortSignal) => {
     queryObject(request, []);
@@ -1387,6 +1414,8 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   };
   app.post("/api/v1/refresh", warm(refresh));
   app.post("/api/v1/admin/refresh", warm(refresh));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/refresh", handler: methodNotAllowed("Generation refresh") });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/admin/refresh", handler: methodNotAllowed("Generation refresh") });
 
   app.post("/api/v1/drafts", warm(async (request, reply) => {
     const snapshot = store.requireSnapshot();
@@ -1406,6 +1435,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     const draftId = store.rememberDraft(parsed.data, snapshot);
     return reply.code(201).send({ id: draftId, generation: generationSummary(snapshot, now()), draft: parsed.data });
   }));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/drafts", handler: methodNotAllowed("Draft creation") });
 
   const draftCompare = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
@@ -1427,6 +1457,8 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   };
   app.post("/api/v1/drafts/compare", warm(draftCompare));
   app.post("/api/v1/compare", warm(draftCompare));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/drafts/compare", handler: methodNotAllowed("Draft comparison") });
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS"], url: "/api/v1/compare", handler: methodNotAllowed("Draft comparison") });
 
   const compareRoutes = async (request: FastifyRequest, reply: FastifyReply) => {
     const snapshot = store.requireSnapshot();
