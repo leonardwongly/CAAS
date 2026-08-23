@@ -57,6 +57,22 @@ const SEARCH_DEBOUNCE_MS = 250;
 // events, and accepting every one slams the map through the zoom range.
 const WHEEL_ZOOM_DEBOUNCE_MS = 350;
 
+/** Tracks a viewport media query so copy can stay honest about which
+ *  surfaces are actually visible (the flight manifest is display:none below
+ *  1280px, so "map or list" would be a lie on narrower viewports). */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => (typeof window.matchMedia === "function" ? window.matchMedia(query).matches : false));
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(query);
+    const apply = () => setMatches(media.matches);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, [query]);
+  return matches;
+}
+
 function formatDistance(value: number | undefined): string {
   return value === undefined ? "Not supplied" : `${value.toFixed(1)} NM`;
 }
@@ -227,6 +243,10 @@ function App() {
   const compareTriggerRef = useRef<HTMLButtonElement>(null);
   const synthesisTriggerRef = useRef<HTMLButtonElement>(null);
   const mapOnlyTriggerRef = useRef<HTMLButtonElement>(null);
+  // The manifest (flight list) is display:none below 1280px, so the "select a
+  // route" copy must not promise a list that is not on screen.
+  const manifestVisible = useMediaQuery("(min-width: 1280px)");
+  const selectRouteCopy = manifestVisible ? "Select a route from the map or list." : "Select a route from the map.";
   const restoreControlsRef = useRef<HTMLButtonElement>(null);
   const apiDataTriggerRef = useRef<HTMLButtonElement>(null);
   const legendKeyRef = useRef<HTMLDetailsElement>(null);
@@ -257,6 +277,24 @@ function App() {
     const trigger = surface === "routes" ? routesTriggerRef : surface === "route-data" ? dataTriggerRef : surface === "editor" ? editorTriggerRef : surface === "compare" ? compareTriggerRef : surface === "synthesis" ? synthesisTriggerRef : undefined;
     if (trigger) requestAnimationFrame(() => trigger.current?.focus());
   }
+
+  // Escape closes the open workbench surface from anywhere on the page.
+  // WebKit does not focus buttons on mouse click, so an aside-level onKeyDown
+  // leaves a keyboard dead-end after clicking a spine trigger; a window-level
+  // listener closes the gap. defaultPrevented events are skipped so controls
+  // that own Escape (search type-ahead, point lookup, overlap chooser) keep
+  // their exclusive behaviour.
+  useEffect(() => {
+    if (primarySurface === "none") return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      if (primarySurface === "editor") resetDraftState();
+      closeSurface(primarySurface);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [primarySurface]);
 
   function resetDraftState() {
     draftRequest.current?.abort();
@@ -594,7 +632,7 @@ function App() {
         <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Dispatch briefing</h1></div>
         {page === "map" && <div className="toolbar-search"><SearchBox selected={selectedFlight} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={(match) => chooseFlight(match, true)} onCancelSearch={cancelSearch} /></div>}
         <div className={`toolbar-flight ${selectedFlight ? "has-selection" : ""}`} role="group" aria-label="Selected flight">
-          {selectedFlight ? <><div className="selected-route-label"><span className="selection-kicker">SELECTED ROUTE</span><strong>{selectedFlight.callsign}</strong></div><div className="selected-route-endpoints">{selectedFlight.departure} → {selectedFlight.destination}</div><div className="selected-route-distance">{selectedRoute?.complete ? <DistanceTick nm={selectedRoute.distanceNm} /> : "No complete recorded route available"}</div></> : <span>{overviewLoading ? "Loading the all-flight overview…" : `${filteredOverview.length} source flight record${filteredOverview.length === 1 ? "" : "s"} available. Select a route from the map or list.`}</span>}
+          {selectedFlight ? <><div className="selected-route-label"><span className="selection-kicker">SELECTED ROUTE</span><strong>{selectedFlight.callsign}</strong></div><div className="selected-route-endpoints">{selectedFlight.departure} → {selectedFlight.destination}</div><div className="selected-route-distance">{selectedRoute?.complete ? <DistanceTick nm={selectedRoute.distanceNm} /> : "No complete recorded route available"}</div></> : <span>{overviewLoading ? "Loading the all-flight overview…" : `${filteredOverview.length} source flight record${filteredOverview.length === 1 ? "" : "s"} available. ${selectRouteCopy}`}</span>}
         </div>
         {(generation || refreshError || readinessError) && (
           <div className="strip-gen" role="region" aria-label="Source data controls">
@@ -604,8 +642,8 @@ function App() {
           </div>
         )}
         <nav className="strip-pages" aria-label="View">
-          <button ref={mapOnlyTriggerRef} className="quiet-button toolbar-map-action" type="button" onClick={enterMapOnly} disabled={page !== "map"}>Map only</button>
-          <button className="quiet-button toolbar-clear" ref={apiDataTriggerRef} type="button" onClick={() => { setPage("api-data"); requestAnimationFrame(() => document.getElementById("api-data-heading")?.focus()); }}>API data</button>
+          <button ref={mapOnlyTriggerRef} className="quiet-button toolbar-map-action" type="button" onClick={enterMapOnly} disabled={page !== "map"} aria-pressed={mapOnly}>Map only</button>
+          <button className="quiet-button toolbar-clear" ref={apiDataTriggerRef} type="button" aria-pressed={page === "api-data"} onClick={() => { setPage("api-data"); requestAnimationFrame(() => document.getElementById("api-data-heading")?.focus()); }}>API data</button>
           <button className="quiet-button toolbar-clear" type="button" onClick={() => { setPrimarySurface("none"); resetAll(); }}>Clear session</button>
         </nav>
       </header>}
@@ -618,8 +656,8 @@ function App() {
         </aside>}
         <section className="map-panel map-first-panel map-cell" aria-labelledby="map-heading">
           <h2 className="sr-only" id="map-heading" tabIndex={-1}>Global route map</h2>
-          <RouteMap routes={filteredOverview} selectedRoute={selectedRoute} synthesisRoute={synthesisRoute} selectedCandidate={selectedCandidate} callsign={selectedFlight?.callsign} onSelectRoute={chooseOverviewRoute} />
-          <div className="map-hud">{selectedRoute ? <><span className="eyebrow">SELECTED SOURCE ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? <DistanceTick nm={selectedRoute.distanceNm} /> : "No complete source route available"}</span></> : synthesisRoute ? <><span className="eyebrow">OBSERVED-DONOR SYNTHESIS</span><strong>{synthesisRoute.label ?? synthesisRoute.callsign}</strong><span>Dotted segments were observed on other recorded routes in this generation—not estimates or suggestions.</span></> : <><span className="eyebrow">SOURCE ROUTE OVERVIEW</span><strong>{overviewLoading ? "Loading source route records…" : `${filteredOverview.length} of ${overview.length} source route records shown`}</strong><span>{overviewError ?? "Refreshed source data, not real-time tracking. Select a route from the map or list."}</span></>}</div>
+          <RouteMap routes={filteredOverview} selectedRoute={selectedRoute} synthesisRoute={synthesisRoute} selectedCandidate={selectedCandidate} callsign={selectedFlight?.callsign} overviewFailed={Boolean(overviewError)} onSelectRoute={chooseOverviewRoute} />
+          <div className="map-hud">{selectedRoute ? <><span className="eyebrow">SELECTED SOURCE ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? <DistanceTick nm={selectedRoute.distanceNm} /> : "No complete source route available"}</span></> : synthesisRoute ? <><span className="eyebrow">OBSERVED-DONOR SYNTHESIS</span><strong>{synthesisRoute.label ?? synthesisRoute.callsign}</strong><span>Dotted segments were observed on other recorded routes in this generation—not estimates or suggestions.</span></> : <><span className="eyebrow">SOURCE ROUTE OVERVIEW</span><strong>{overviewLoading ? "Loading source route records…" : `${filteredOverview.length} of ${overview.length} source route records shown`}</strong><span>{overviewError ?? `Refreshed source data, not real-time tracking. ${selectRouteCopy}`}</span></>}</div>
           {!mapOnly && selectedRoute && primarySurface !== "route-data" && <div className="map-left-stack"><RouteLegPanel route={selectedRoute} /></div>}
           {mapOnly && <button ref={restoreControlsRef} className="restore-controls" type="button" onClick={leaveMapOnly} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leaveMapOnly(); } }}>Restore controls</button>}
           {!mapOnly && <div className="map-legend" role="group" aria-label="Map legend"><details ref={legendKeyRef} className="legend-key"><summary>Key</summary><span><i className="legend-line" /> Selected source route</span><span><i className="legend-line legend-line-alt" /> Alternate source route</span><span><i className="legend-line legend-line-potential" /> Dotted segments: observed on another recorded route (same generation)</span><span><i className="legend-gap" /> Unresolved gap</span><span><i className="legend-dot legend-origin" /> Departure</span><span><i className="legend-dot legend-destination" /> Arrival</span></details></div>}
@@ -892,7 +930,7 @@ function DraftEditor({ draft, baseline, loading, error, onUpdate, onClose }: { d
       if (event.key === "ArrowDown" && hasMatches) { event.preventDefault(); setActiveIndex((index) => Math.min(index + 1, matches.length - 1)); }
       else if (event.key === "ArrowUp" && hasMatches) { event.preventDefault(); setActiveIndex((index) => Math.max(index - 1, 0)); }
       else if (event.key === "Enter") { event.preventDefault(); if (activeIndex >= 0 && matches[activeIndex]) commitMatch(matches[activeIndex]!); else void findReference(); }
-      else if (event.key === "Escape") { event.preventDefault(); setMatches([]); setLookupError(undefined); setActiveIndex(-1); }
+      else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setMatches([]); setLookupError(undefined); setActiveIndex(-1); }
     }} aria-expanded={hasMatches} aria-controls={hasMatches ? matchResultsId : undefined} aria-activedescendant={activeIndex >= 0 ? `draft-match-${activeIndex}` : undefined} aria-autocomplete="list" maxLength={64} placeholder="Search an exact fix, NAVAID, or airport" autoComplete="off" /><button className="search-button" type="button" onClick={() => void findReference()} disabled={lookupLoading || !query.trim()} aria-label="Find exact reference point">{lookupLoading ? <span className="spinner" /> : "Find"}</button></div>{lookupError && <p className="field-error" role="alert">{lookupError}</p>}<div className="sr-status" role="status" aria-live="polite">{lookupLoading ? "Looking up exact reference points." : matches.length ? `${matches.length} exact reference point${matches.length === 1 ? "" : "s"} available.` : ""}</div>
       {hasMatches && <div className="reference-picker" id={matchResultsId} role="listbox" aria-label="Resolved reference-point search results">{matches.map((match, index) => <div role="option" id={`draft-match-${index}`} aria-selected={activeIndex === index} className={activeIndex === index ? "is-active" : undefined} tabIndex={-1} key={`${match.identifier}-${match.coordinate.lat}-${match.coordinate.lon}`} onMouseDown={(event) => event.preventDefault()} onClick={() => commitMatch(match)}><span><strong>{match.identifier}</strong>{match.kind && <span className="kind-badge" aria-hidden="true">{match.kind}</span>}<small>{match.kind} · {match.coordinate.lat.toFixed(4)}, {match.coordinate.lon.toFixed(4)}{match.duplicateGroup ? " · multiple exact coordinates" : ""}</small></span><span>{match.duplicateGroup ? "Choose exact location" : "Add"}</span></div>)}</div>}
     </div>
@@ -908,7 +946,7 @@ function endpointReference(label: string): string {
   return /\(([A-Z]{4})\)$/.exec(label)?.[1] ?? label;
 }
 
-function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, callsign, onSelectRoute }: { routes: RouteOption[]; selectedRoute?: RouteOption | undefined; synthesisRoute?: RouteOption | undefined; selectedCandidate?: SynthesisCandidate | undefined; callsign?: string | undefined; onSelectRoute: (route: RouteOption) => void }) {
+function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, callsign, overviewFailed, onSelectRoute }: { routes: RouteOption[]; selectedRoute?: RouteOption | undefined; synthesisRoute?: RouteOption | undefined; selectedCandidate?: SynthesisCandidate | undefined; callsign?: string | undefined; overviewFailed?: boolean | undefined; onSelectRoute: (route: RouteOption) => void }) {
   const [overlapChoices, setOverlapChoices] = useState<RouteOption[]>([]);
   const overlapCloseRef = useRef<HTMLButtonElement>(null);
   const overlapOpen = overlapChoices.length > 0;
@@ -1184,12 +1222,13 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
     {overlapChoices.length > 0 && <section className="map-overlap-chooser" role="dialog" aria-modal="false" aria-label="Choose an overlapping recorded flight" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeOverlapChooser(); } }}><div><strong>{overlapChoices.length} routes overlap here</strong><button ref={overlapCloseRef} type="button" className="quiet-button" onClick={closeOverlapChooser}>Close</button></div>{overlapChoices.map((route) => <button key={route.flightId} type="button" onClick={() => { closeOverlapChooser(); onSelectRoute(route); }}><strong>{route.callsign}</strong><span>{route.origin} → {route.destination}</span></button>)}</section>}
     <div className="map-fallback-banner"><span className="map-pin">◇</span><span>{banner}</span></div>
     <div className="map-zoom-controls" role="group" aria-label="Map zoom and base layer">
-      <button type="button" aria-label="Zoom in" disabled={!tilesOn || view.zoom >= MAX_ZOOM} onClick={() => setView((current) => ({ ...current, zoom: clampZoom(current.zoom + 1) }))}>+</button>
-      <button type="button" aria-label="Zoom out" disabled={!tilesOn || view.zoom <= MIN_ZOOM} onClick={() => setView((current) => ({ ...current, zoom: clampZoom(current.zoom - 1) }))}>−</button>
+      <button type="button" aria-label="Zoom in" title={!tilesOn ? "Zoom is available on the tiled base map only" : undefined} disabled={!tilesOn || view.zoom >= MAX_ZOOM} onClick={() => setView((current) => ({ ...current, zoom: clampZoom(current.zoom + 1) }))}>+</button>
+      <button type="button" aria-label="Zoom out" title={!tilesOn ? "Zoom is available on the tiled base map only" : undefined} disabled={!tilesOn || view.zoom <= MIN_ZOOM} onClick={() => setView((current) => ({ ...current, zoom: clampZoom(current.zoom - 1) }))}>−</button>
       <button type="button" aria-pressed={tilesEnabled} onClick={() => { setTilesEnabled((current) => !current); setTilesFailed(false); }}>Toggle base map</button>
+      {!tilesOn && <span className="zoom-schematic-note">Zoom &amp; pan need the tiled base map</span>}
     </div>
     {displayRoute && <section className="map-endpoints" aria-label="Route endpoint locations"><div className="map-endpoint departure"><b>Departure</b><span>{departureLabel}</span></div><div className="map-endpoint arrival"><b>Arrival</b><span>{arrivalLabel}</span></div></section>}
-    {!hasAnyLine && <div className="map-empty"><span>◎</span><strong>{routes.length ? "No resolved geometry returned" : "No overview routes to display"}</strong><p>{routes.length ? "The world map does not infer a line across missing route data." : "Clear the callsign filter or retry the all-flight overview."}</p></div>}
+    {!hasAnyLine && <div className="map-empty"><span>◎</span><strong>{routes.length ? "No resolved geometry returned" : overviewFailed ? "All-flight overview unavailable" : "No overview routes to display"}</strong><p>{routes.length ? "The world map does not infer a line across missing route data." : overviewFailed ? "The all-flight overview could not be loaded. Use Retry overview in the flight list." : "Clear the callsign filter or retry the all-flight overview."}</p></div>}
     <div className="map-attribution">{tilesOn ? OSM_ATTRIBUTION : "Schematic base map only"}</div>
   </div>;
 }
