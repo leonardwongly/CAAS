@@ -22,9 +22,20 @@ export function airportNameForIcao(value: string): string | undefined {
   return /^[A-Z]{4}$/.test(normalized) ? names.get(normalized) : undefined;
 }
 
+const DISPLAY_NAME_LIMIT = 160;
+const DISPLAY_UNSAFE_CHARACTERS = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+/** Display-safe form of a candidate name, or undefined when nothing honest remains. */
+function displaySafeName(value: string): string | undefined {
+  const sanitized = value.replace(DISPLAY_UNSAFE_CHARACTERS, "").trim();
+  if (!sanitized) return undefined;
+  if (sanitized.length <= DISPLAY_NAME_LIMIT) return sanitized;
+  return `${sanitized.slice(0, DISPLAY_NAME_LIMIT - 1).trimEnd()}…`;
+}
+
 export function airportDisplayLabel(icao: string, suppliedName?: string): string {
   const code = icao.trim().toUpperCase();
-  const name = suppliedName?.trim() || airportNameForIcao(code);
+  const name = (suppliedName && displaySafeName(suppliedName)) ?? airportNameForIcao(code);
   return `${name ?? "Name unavailable"} (${code})`;
 }
 
