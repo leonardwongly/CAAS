@@ -351,7 +351,7 @@ function App() {
         setOverviewError(apiMessage(error));
         const prefix = overviewStatusPrefix.current;
         overviewStatusPrefix.current = undefined;
-        setStatus(prefix ? `${prefix} The refreshed overview could not be loaded.` : "The all-flight route overview could not be loaded.");
+        setStatus(prefix ? `${prefix} The refreshed overview could not be loaded.` : "The all-flight overview could not be loaded.");
       })
       .finally(() => { if (!controller.signal.aborted) setOverviewLoading(false); });
     return () => controller.abort();

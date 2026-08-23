@@ -58,6 +58,18 @@ export type StubOptions = {
   failCursor?: boolean | undefined;
   /** Fail the synthesis endpoint (500); `"once"` fails only the first call so retry recovery is observable. */
   failSynthesis?: boolean | "once" | undefined;
+  /**
+   * Fail the all-flight overview (502); `"once"` fails only the first call so
+   * the Retry overview recovery path is observable.
+   */
+  failOverview?: boolean | "once" | undefined;
+  /**
+   * Fail the data summary (500); `"once"` fails only the first call so the
+   * Retry summary recovery path is observable.
+   */
+  failSummary?: boolean | "once" | undefined;
+  /** Replace the default data-summary envelope (counts only, airways never valued). */
+  summary?: Record<string, unknown> | undefined;
   /** Override the default donor-subpath synthesis envelope. Takes precedence over the default envelope but not over `failSynthesis`; the whole envelope is replaced, not deep-merged, so it must be complete and valid. */
   synthesis?: Record<string, unknown> | undefined;
   /** Override the default donor-proof (source-occurrences) envelope. */
@@ -290,6 +302,8 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
   const draftResolvers: Array<() => void> = [];
   const searchResolvers: Array<() => void> = [];
   let synthesisFailuresRemaining = options.failSynthesis === "once" ? 1 : 0;
+  let overviewFailuresRemaining = options.failOverview === "once" ? 1 : 0;
+  let summaryFailuresRemaining = options.failSummary === "once" ? 1 : 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<StubResponse> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = (init?.method ?? "GET").toUpperCase();
@@ -297,6 +311,10 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
 
     // The app loads every overview page before declaring the map/list ready.
     if (method === "POST" && url === "/api/v1/routes/overview") {
+      if (options.failOverview === true || overviewFailuresRemaining > 0) {
+        if (overviewFailuresRemaining > 0) overviewFailuresRemaining -= 1;
+        return jsonResponse({ error: { message: "All-flight overview unavailable (stub).", code: "OVERVIEW_FAIL" } }, 502);
+      }
       return jsonResponse({ data: overviewRoutes, generation: generationFor(options), loaded: overviewRoutes.length, total: overviewRoutes.length });
     }
     // Callsign search: POST with the query in the body only; the query never
@@ -367,6 +385,11 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     // Bulk data browse: summary (counts only, airways never valued) and
     // paged family endpoints. Cursors are stubbed as opaque strings.
     if (method === "GET" && url === "/api/v1/data/summary") {
+      if (options.failSummary === true || summaryFailuresRemaining > 0) {
+        if (summaryFailuresRemaining > 0) summaryFailuresRemaining -= 1;
+        return jsonResponse({ error: { message: "Data summary unavailable (stub).", code: "SUMMARY_FAIL" } }, 500);
+      }
+      if (options.summary) return jsonResponse(options.summary);
       return jsonResponse({
         generation: generationFor(options),
         families: [
