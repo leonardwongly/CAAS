@@ -125,7 +125,7 @@ test("127 corridors at the MAX_ROUTE_POINTS occurrence bound assemble linearly i
     ]));
     expectedBorrowed += haversineDistanceNm(anchor(corridor), mid) + haversineDistanceNm(mid, anchor(corridor + 1));
   }
-  const occurrences: ObservedRoute["occurrences"] = [];
+  const occurrences: Array<ObservedRoute["occurrences"][number]> = [];
   for (let i = 0; i < anchorCount; i += 1) {
     if (i > 0) occurrences.push(gap(2 * i - 1));
     occurrences.push(pt(2 * i, `A${i}`, anchor(i).lat, anchor(i).lon));
