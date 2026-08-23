@@ -118,7 +118,7 @@ test("evidence records reference a real code-under-test commit", async (t) => {
       const isCiSubject = ciSubjects.some((ci) => ci.commit?.slice(0, recorded.length) === recorded && ci.digest === record.subject?.identifiers?.digest);
       if (isCiSubject) continue;
       const exists = execFileSync("git", ["rev-parse", "--verify", "--quiet", `${recorded}^{commit}`], { cwd: root, encoding: "utf8" }).trim();
-      assert.ok(exists.length > 0, `${name} records commit ${recorded} which must exist in git history`);
+      assert.ok(exists.length > 0, `${name} references commit ${recorded} which is absent from git history — records for orphaned/rebased-away commits belong in docs/evidence/archived/`);
     }
   }
 });
