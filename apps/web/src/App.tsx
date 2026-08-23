@@ -1104,6 +1104,10 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
+    // A move with no button held is hover, never a drag. A press released
+    // outside the stage before capture was acquired never delivers pointerup
+    // here; drop that stale state instead of panning on bare hover.
+    if (event.buttons === 0) { dragRef.current = null; return; }
     const dx = event.clientX - drag.startX;
     const dy = event.clientY - drag.startY;
     if (Math.abs(dx) + Math.abs(dy) < 3) return;
@@ -1116,6 +1120,14 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
   };
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+  };
+  // A press that leaves the stage before capture was acquired releases its
+  // pointerup on whatever element now owns the pointer, so the stage never
+  // hears it. Drop that uncaptured drag here; while capture is held the
+  // pointer never leaves (events stay retargeted to the stage), so an
+  // in-flight captured drag is untouched.
+  const onPointerLeave = () => {
+    if (dragRef.current && !dragRef.current.captured) dragRef.current = null;
   };
   const wheelLockRef = useRef(0);
   // React registers wheel listeners as passive, where preventDefault is a
@@ -1144,7 +1156,7 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
     stage.addEventListener("wheel", handleWheel, { passive: false });
     return () => stage.removeEventListener("wheel", handleWheel);
   }, []);
-  return <div className={`map-stage ${displayRoute ? "has-selected-route" : ""}`} ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+  return <div className={`map-stage ${displayRoute ? "has-selected-route" : ""}`} ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onPointerLeave={onPointerLeave}>
     <div className="map-canvas" role="img" aria-label={label}>
       {tilesOn && <TileLayer view={view} size={stageSize} onTileFailure={() => setTilesFailed(true)} />}
       <svg className="route-svg" viewBox={tilesOn ? `0 0 ${stageSize.width} ${stageSize.height}` : "0 0 800 440"} aria-hidden="true">
