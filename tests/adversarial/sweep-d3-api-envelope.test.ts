@@ -19,6 +19,14 @@ import { synthesisAdapter } from "../fixtures/synthesis-caas.ts";
 type ApiServer = Awaited<ReturnType<typeof createApiServer>>;
 type InjectResponse = Awaited<ReturnType<ApiServer["app"]["inject"]>>;
 
+/** The minimal inject shape this file uses (light-my-request's own type is not on this package's resolution path). */
+interface InjectRequest {
+  readonly method: "GET" | "POST";
+  readonly url: string;
+  readonly payload?: object | string;
+  readonly headers?: Record<string, string>;
+}
+
 async function newServer(t: test.TestContext, options: Parameters<typeof createApiServer>[0] = {}): Promise<ApiServer> {
   const server = await createApiServer({ adapter: synthesisAdapter(), ...options });
   t.after(() => server.app.close());
@@ -48,7 +56,7 @@ function assertEnvelope(response: InjectResponse, status: number, code: string, 
 
 test("D3 envelope: the common failure table keeps one bounded envelope shape", async (t) => {
   const server = await newServer(t);
-  const cases: Array<{ label: string; request: Parameters<ApiServer["app"]["inject"]>[0]; status: number; code: string }> = [
+  const cases: Array<{ label: string; request: InjectRequest; status: number; code: string }> = [
     { label: "malformed JSON", request: { method: "POST", url: "/api/v1/search", payload: "{not-json", headers: { "content-type": "application/json" } }, status: 400, code: "INVALID_JSON" },
     { label: "array body", request: { method: "POST", url: "/api/v1/routes/overview", payload: [1, 2] }, status: 400, code: "INVALID_BODY" },
     { label: "non-object body", request: { method: "POST", url: "/api/v1/routes/overview", payload: "\"just a string\"", headers: { "content-type": "application/json" } }, status: 400, code: "INVALID_BODY" },
