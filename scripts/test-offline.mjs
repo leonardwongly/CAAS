@@ -4,7 +4,11 @@ import { promisify } from "node:util";
 import { join, resolve } from "node:path";
 
 const execFileAsync = promisify(execFile);
-const root = resolve(import.meta.dirname, "..");
+// Optional --root=<dir> override so adversarial fixtures can exercise the
+// collector against a temp directory tree without touching the real repo.
+// Default behavior (repository root) is unchanged.
+const rootArgument = process.argv.find((argument) => argument.startsWith("--root="));
+const root = rootArgument ? resolve(rootArgument.slice("--root=".length)) : resolve(import.meta.dirname, "..");
 const testDirectories = [
   "tests",
   "apps/api/test",
@@ -36,9 +40,14 @@ const testFiles = (await Promise.all(testDirectories.map(async (relativeDirector
 }))).flat();
 
 try {
+  // Runner-internal state (NODE_TEST_CONTEXT et al.) must never leak into the
+  // child runner: when this lane is invoked under an outer `node --test`
+  // process, NODE_TEST_CONTEXT=child makes the child runner fail open and
+  // report success even while tests fail.
+  const childEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("NODE_TEST_")));
   const result = await execFileAsync(process.execPath, ["--test", "--experimental-strip-types", ...testFiles], {
     cwd: root,
-    env: { ...process.env, CI: "1" },
+    env: { ...childEnv, CI: "1" },
     maxBuffer: 10 * 1024 * 1024,
   });
   process.stdout.write(result.stdout);
