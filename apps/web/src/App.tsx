@@ -1042,7 +1042,11 @@ function RouteMap({ routes, selectedRoute, synthesisRoute, selectedCandidate, ca
       const unique = matches.filter((match) => !match.duplicateGroup);
       return unique.length === 1 ? unique[0] : undefined;
     };
-    if (!selectedRoute?.origin && !selectedRoute?.destination) { setEndpoints({}); return () => controller.abort(); }
+    // A new selection starts from a clean slate: the previous route's resolved
+    // endpoint pins must never linger on the map (or under the new route's
+    // identity) while the fresh lookups are still on the wire.
+    setEndpoints({});
+    if (!selectedRoute?.origin && !selectedRoute?.destination) { return () => controller.abort(); }
     void Promise.all([
       selectedRoute?.origin ? lookupPoint(endpointReference(selectedRoute.origin), controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
       selectedRoute?.destination ? lookupPoint(endpointReference(selectedRoute.destination), controller.signal).then((result) => exact(result.matches)).catch(() => undefined) : Promise.resolve(undefined),
