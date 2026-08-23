@@ -764,6 +764,11 @@ function registerStaticAssets(app: FastifyInstance, directory: string | undefine
   app.get("/*", async (request, reply) => {
     const requestedPath = String((request.params as { "*"?: string })["*"] ?? "");
     if (requestedPath === "api" || requestedPath.startsWith("api/")) return reply.code(404).send({ error: { code: "NOT_FOUND", message: "The requested resource was not found." } });
+    // R2-G5-BUG-1 (dotfile disclosure): any dot-leading path segment names a
+    // hidden file (.env, .git/config, .DS_Store) or a relative hop (. / ..).
+    // Such files are operator state, never SPA surface, so the whole family
+    // fails closed with the bounded 404 before any filesystem resolution.
+    if (requestedPath.split("/").some((segment) => segment.startsWith("."))) return reply.code(404).send({ error: { code: "NOT_FOUND", message: "The requested resource was not found." } });
     const candidate = resolve(join(root, requestedPath || "index.html"));
     if (candidate !== root && !candidate.startsWith(`${root}/`)) return reply.code(404).send({ error: { code: "NOT_FOUND", message: "The requested resource was not found." } });
     let file = candidate;
@@ -877,7 +882,10 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     const host = request.headers.host;
     let originHost: string | undefined;
     try { originHost = new URL(origin).host; } catch { originHost = undefined; }
-    if (originHost !== undefined && host !== undefined && originHost !== host) {
+    // An Origin that cannot be parsed to a host identifies no same-origin
+    // browser either (a browser always sends an absolute URL): fail closed
+    // exactly like the literal "null" origin, never silently skip the defense.
+    if (originHost === undefined || host === undefined || originHost !== host) {
       throw new ApiHttpError(403, "CROSS_ORIGIN_DENIED", "Cross-origin state-changing requests are not allowed.");
     }
     // Allowed: return nothing so Fastify continues the normal request chain
