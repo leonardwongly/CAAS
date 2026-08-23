@@ -5,8 +5,11 @@
 //   (including hostile string spellings that Number() would accept).
 // - the 64-character search-query bound is exact at the boundary.
 // - body-only routes reject every query-string shape before parsing.
-// - draft capacity fails closed at 512 live drafts and recovers exactly when
-//   the TTL expires (regression guard for the prune-on-access reclamation).
+//
+// Draft capacity (512 live drafts, 429 on overflow, TTL reclamation) is
+// owned by tests/adversarial/sec-r4-0.test.ts; the sweep's duplicate of that
+// sequence was consolidated there, keeping only this file's unique delta
+// assertions (unique burst ids, DRAFT_CAPACITY_REACHED, retryable: true).
 //
 // Complements adv-tokens-proofs (draft TTL token semantics) and
 // adv-api-concurrency (capacity under concurrency).
@@ -85,33 +88,4 @@ test("D3 boundaries: body-only routes reject every query string before parsing",
       assert.equal(parseCode(response), "INVALID_QUERY", `POST ${url}${suffix} must name INVALID_QUERY`);
     }
   }
-});
-
-test("D3 boundaries: draft capacity fails closed at 512 and recovers exactly on TTL expiry", async (t) => {
-  // A frozen clock keeps every issued draft alive until we advance past the
-  // 15-minute TTL — isolating the capacity bound from TTL reclamation.
-  const BASE = 1_800_000_000_000;
-  let clock = BASE;
-  const server = await newServer(t, { now: () => clock });
-
-  const ids = new Set<string>();
-  for (let index = 0; index < 512; index += 1) {
-    const response = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { origin: "A", destination: "B" } });
-    assert.equal(response.statusCode, 201, `draft ${index + 1} must be accepted, body=${response.body.slice(0, 160)}`);
-    const id = String((response.json() as { id: string }).id);
-    assert.ok(!ids.has(id), "every draft id must be unique");
-    ids.add(id);
-  }
-
-  const overflow = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { origin: "A", destination: "B" } });
-  assert.equal(overflow.statusCode, 429, "the 513th live draft must fail closed");
-  const envelope = overflow.json() as { error: { code: string; retryable?: boolean } };
-  assert.equal(envelope.error.code, "DRAFT_CAPACITY_REACHED", "capacity exhaustion names its code");
-  assert.equal(envelope.error.retryable, true, "capacity exhaustion is retryable");
-
-  // One second past the TTL, every draft is expired: prune-on-access must
-  // reclaim all 512 slots instead of pinning them for the generation's life.
-  clock = BASE + 15 * 60 * 1000 + 1000;
-  const recovered = await server.app.inject({ method: "POST", url: "/api/v1/drafts", payload: { origin: "A", destination: "B" } });
-  assert.equal(recovered.statusCode, 201, `expired drafts must free capacity, body=${recovered.body.slice(0, 160)}`);
 });
