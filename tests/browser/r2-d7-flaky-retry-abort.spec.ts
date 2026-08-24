@@ -68,7 +68,7 @@ test("a 500,500,200 overview sequence ends in a truthful success state", async (
   await expect(page.getByRole("button", { name: /FR7ALF/ })).toBeVisible({ timeout: 5000 });
   await expect(page.getByRole("button", { name: /FR7BET/ })).toBeVisible();
   await expect(manifest.locator('[role="alert"]')).toHaveCount(0);
-  await expect(page.locator(".sr-status")).toContainText("2 source flight records loaded.");
+  await expect(page.locator(".sr-status")).toContainText("2 flights loaded.");
 });
 
 test("a 500-then-recover route-options load retries cleanly inside the drawer", async ({ page }) => {

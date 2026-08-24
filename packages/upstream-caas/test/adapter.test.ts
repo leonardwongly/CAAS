@@ -20,7 +20,7 @@ function queued(...responses: CaasTransportResponse[]): { transport: CaasTranspo
   return { requests, transport: { async get(request) { requests.push(request); return responses[Math.min(index++, responses.length - 1)]!; } } };
 }
 
-test("uses only the fixed HTTPS GET family requests and hides airway values", async () => {
+test("uses only the fixed HTTPS GET family requests and retains recorded route-element airway labels", async () => {
   const { transport, requests } = queued(
     response(JSON.stringify([{
       id: "f-1", callsign: " ab123 ", departureAirport: { icao: "kjfk" }, destination: "KLAX",
@@ -34,7 +34,7 @@ test("uses only the fixed HTTPS GET family requests and hides airway values", as
   const airway = await adapter.airways();
   assert.equal(flight.records[0]!.callsign, "AB123");
   assert.deepEqual(flight.records[0]!.routeElements![1]!.coordinate, { lat: 40, lon: -73 });
-  assert.equal("airway" in flight.records[0]!.routeElements![0]!, false);
+  assert.equal(flight.records[0]!.routeElements![0]!.airway, "SECRET-AIRWAY");
   assert.equal("A1" in airway, false);
   assert.equal(airway.acceptedRecords, 2);
   assert.equal(airway.uniqueRecords, 1);
@@ -83,12 +83,10 @@ test("maps the live nested Flight Plan shape with an explicit safe allow-list", 
     departure: "KDEP",
     destination: "KARR",
     routeElements: [
-      { sequence: 4, identifier: "FIXALPHA" },
-      { sequence: 5, coordinate: { lat: 12.5, lon: -45.25 } },
+      { sequence: 4, identifier: "FIXALPHA", airway: "PLACEHOLDER-AIRWAY", airwayType: "PLACEHOLDER-AIRWAY-TYPE" },
+      { sequence: 5, coordinate: { lat: 12.5, lon: -45.25 }, airway: "ANOTHER-PLACEHOLDER-AIRWAY", airwayType: "ANOTHER-PLACEHOLDER-AIRWAY-TYPE" },
     ],
   });
-  assert.equal("airway" in result.records[0]!.routeElements![0]!, false);
-  assert.equal("airwayType" in result.records[0]!.routeElements![0]!, false);
   assert.equal("sensitiveField" in result.records[0]!, false);
   assert.equal("routeElements" in result.records[1]!, false);
   assert.deepEqual(result.records[2]!.routeElements, []);
@@ -105,10 +103,9 @@ test("preserves missing versus explicit-empty routes and coordinate-only occurre
   assert.equal(result.records.length, 4);
   assert.equal("routeElements" in result.records[0]!, false);
   assert.deepEqual(result.records[1]!.routeElements, []);
-  assert.deepEqual(result.records[2]!.routeElements, [{ sequence: 0, coordinate: { lat: 34, lon: 12 } }]);
+  assert.deepEqual(result.records[2]!.routeElements, [{ sequence: 0, coordinate: { lat: 34, lon: 12 }, airway: "DO-NOT-EXPOSE" }]);
   assert.equal(result.records[3]!.callsign, "OK");
   assert.deepEqual(result.records[3]!.routeElements, [{ sequence: 0, coordinate: { lat: 1, lon: 2 } }]);
-  assert.equal("airway" in result.records[2]!.routeElements![0]!, false);
 });
 
 test("accepts 254 endpoint-interior elements but rejects the next bounded record", async () => {

@@ -14,7 +14,7 @@ import test from "node:test";
 import { createApiServer, type CaasAdapter } from "../../apps/api/src/index.ts";
 import { scopedToken } from "../../apps/api/src/snapshot.ts";
 import type { Snapshot } from "../../apps/api/src/snapshot.ts";
-import { synthesisAdapter } from "../fixtures/synthesis-caas.ts";
+import { caasFixtureAdapter } from "../fixtures/caas-fixtures.ts";
 
 type ApiServer = Awaited<ReturnType<typeof createApiServer>>;
 type InjectResponse = Awaited<ReturnType<ApiServer["app"]["inject"]>>;
@@ -28,7 +28,7 @@ interface InjectRequest {
 }
 
 async function newServer(t: test.TestContext, options: Parameters<typeof createApiServer>[0] = {}): Promise<ApiServer> {
-  const server = await createApiServer({ adapter: synthesisAdapter(), ...options });
+  const server = await createApiServer({ adapter: caasFixtureAdapter(), ...options });
   t.after(() => server.app.close());
   return server;
 }
@@ -134,22 +134,6 @@ test("D3 envelope: route-options identifier errors stay bounded and unreflected"
   // before any candidate enumeration starts.
   const notAirports = await server.app.inject({ method: "POST", url: "/api/v1/route-options", payload: { originId: scopedToken(snapshot, "location", { i: 99999 }), destinationId: scopedToken(snapshot, "location", { i: 99998 }) } });
   assertEnvelope(notAirports, 400, "INVALID_ENDPOINTS", "non-airport endpoint tokens");
-});
-
-test("D3 envelope: donor-proof validation rejects garbage and negative ordinal ranges", async (t) => {
-  const server = await newServer(t);
-  const snapshot: Snapshot = server.store.requireSnapshot();
-
-  assertEnvelope(await server.app.inject({ method: "POST", url: "/api/v1/routes/source-occurrences", payload: { proofId: "garbage-proof" } }), 400, "PROOF_INVALID", "garbage proofId");
-  assertEnvelope(await server.app.inject({ method: "POST", url: "/api/v1/routes/source-occurrences", payload: {} }), 400, "INVALID_BODY", "missing proofId");
-
-  // Regression (D3 fix): a validly signed donor proof with a negative ordinal
-  // range previously answered 200 with occurrence data. The range bounds must
-  // be validated alongside the donor index.
-  const negativeRange = scopedToken(snapshot, "donor-proof", { i: 0, f: -5, u: -1 });
-  assertEnvelope(await server.app.inject({ method: "POST", url: "/api/v1/routes/source-occurrences", payload: { proofId: negativeRange } }), 400, "PROOF_INVALID", "negative ordinal range");
-  const negativeFrom = scopedToken(snapshot, "donor-proof", { i: 0, f: -1, u: 3 });
-  assertEnvelope(await server.app.inject({ method: "POST", url: "/api/v1/routes/source-occurrences", payload: { proofId: negativeFrom } }), 400, "PROOF_INVALID", "negative lower bound only");
 });
 
 test("D3 envelope: forged cursors and draft ids fail closed", async (t) => {

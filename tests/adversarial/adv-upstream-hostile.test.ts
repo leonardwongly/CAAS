@@ -26,7 +26,7 @@ import {
   type CaasTransportResponse,
 } from "../../packages/upstream-caas/src/index.ts";
 import { sanitizedAdapter, sanitizedFlights, sanitizedLocations } from "../fixtures/sanitized-caas.ts";
-import { synthesisAdapter, synthesisFlights } from "../fixtures/synthesis-caas.ts";
+import { caasFixtureAdapter, caasFixtureFlights } from "../fixtures/caas-fixtures.ts";
 
 const previousKey = process.env.apikey;
 test.after(() => {
@@ -310,11 +310,11 @@ test("exactly maxRecords displayAll records are accepted; the limit is inclusive
 // ---------------------------------------------------------------------------
 
 test("offline fixtures are stable and every fixture route satisfies engine bounds", () => {
-  // Generation counts are fixed: a drifting fixture would corrupt synthesis assumptions.
+  // Generation counts are fixed: a drifting fixture would corrupt downstream assumptions.
   assert.equal(sanitizedFlights.length, 2, "sanitized fixture flight count must be stable");
-  assert.equal(synthesisFlights.length, 7, "synthesis fixture flight count must be stable");
+  assert.equal(caasFixtureFlights.length, 7, "CAAS fixture flight count must be stable");
 
-  for (const flights of [sanitizedFlights, synthesisFlights]) {
+  for (const flights of [sanitizedFlights, caasFixtureFlights]) {
     const ids = flights.map((flight) => flight.id);
     assert.equal(new Set(ids).size, ids.length, "fixture flight ids must be unique");
     const callsigns = flights.map((flight) => flight.callsign);
@@ -338,7 +338,7 @@ test("offline fixtures are stable and every fixture route satisfies engine bound
 });
 
 test("offline fixture adapters are deterministic across repeated calls", async () => {
-  for (const make of [() => sanitizedAdapter(), () => synthesisAdapter()]) {
+  for (const make of [() => sanitizedAdapter(), () => caasFixtureAdapter()]) {
     const adapter = make();
     const first = await adapter.displayAll();
     const second = await adapter.displayAll();

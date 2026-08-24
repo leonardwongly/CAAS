@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createApiServer } from "../../apps/api/src/index.ts";
-import { synthesisAdapter } from "../fixtures/synthesis-caas.ts";
+import { caasFixtureAdapter } from "../fixtures/caas-fixtures.ts";
 
 type ApiServer = Awaited<ReturnType<typeof createApiServer>>;
 
@@ -40,7 +40,7 @@ async function assetServer(t: test.TestContext): Promise<AssetDirectory> {
   await writeFile(join(root, ".git", "config"), "[core]\n\tbare = false\n", "utf8");
   await writeFile(join(root, ".well-known", "probe.txt"), "well-known-marker", "utf8");
   await writeFile(join(root, "assets", ".DS_Store"), "binary-ds-store-marker", "utf8");
-  const server = await createApiServer({ adapter: synthesisAdapter(), assetDirectory: root });
+  const server = await createApiServer({ adapter: caasFixtureAdapter(), assetDirectory: root });
   t.after(async () => {
     await server.app.close();
     await rm(root, { recursive: true, force: true });

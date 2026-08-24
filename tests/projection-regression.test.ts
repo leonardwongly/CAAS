@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createApiServer } from "../../apps/api/src/index.ts";
-import { sanitizedAdapter } from "../fixtures/sanitized-caas.ts";
+import { createApiServer } from "../apps/api/src/index.ts";
+import { sanitizedAdapter } from "./fixtures/sanitized-caas.ts";
 
 // Golden DTO surfaces captured from the pre-refactor server. Token-like values
 // (keys id/flightId/routeId/nextCursor) are regenerated per process and
@@ -32,7 +32,7 @@ const GOLDEN_DETAIL = JSON.parse(`{"data":{"id":"<token>","flightId":"<token>","
 
 const GOLDEN_COMPARE = JSON.parse(`{"baseline":{"id":"<token>","flightId":"<token>","callsign":"FIXTURE1","status":"complete","label":"FIXTURE1 route","origin":"Name unavailable (KOR1)","destination":"Name unavailable (KDS1)","pointCount":3,"complete":true,"legs":[{"id":"<token>","sequence":0,"kind":"segment","status":"resolved","from":"Name unavailable (KOR1)","to":"MIDPT","distanceNm":861.9162052838809},{"id":"<token>","sequence":9007199254740991,"kind":"segment","status":"resolved","from":"MIDPT","to":"Name unavailable (KDS1)","distanceNm":1394.3296742569005}],"distanceNm":2256.2458795407815,"geometry":{"type":"LineString","coordinates":[[-73,40],[-90,35],[-118,33]]},"segments":[{"type":"LineString","coordinates":[[-73,40],[-90,35],[-118,33]]}],"provenance":"CAAS normalized live generation","freshness":"<timestamp>","safety":"Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.","gaps":[]},"target":{"id":"<token>","origin":"Name unavailable (KOR1)","destination":"Name unavailable (KDS1)","legs":[{"id":"<token>","sequence":0,"kind":"segment","status":"resolved","from":"Name unavailable (KOR1)","to":"MIDPT","distanceNm":861.9162052838809},{"id":"<token>","sequence":1,"kind":"segment","status":"resolved","from":"MIDPT","to":"Name unavailable (KDS1)","distanceNm":1394.3296742569005}],"gaps":[],"distanceNm":2256.2458795407815,"geometry":{"type":"LineString","coordinates":[[-73,40],[-90,35],[-118,33]]},"provenance":"CAAS normalized live generation","freshness":"<timestamp>","safety":"Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated."},"comparison":{"status":"complete","message":"Directional modeled-distance difference from baseline to target. This is not an operational recommendation.","distanceDeltaNm":0,"percentageDistanceDelta":0,"addedWaypointCount":0,"removedWaypointCount":0,"waypointDifferences":[]},"generation":{"id":"<token>","retrievedAt":"<timestamp>","live":{"state":"fresh","retrievedAt":"<timestamp>","freshUntil":"<timestamp>","staleUntil":"<timestamp>"},"reference":{"state":"fresh","retrievedAt":"<timestamp>","freshUntil":"<timestamp>","staleUntil":"<timestamp>"},"overall":"fresh"}}`) as unknown;
 
-test("source projection DTO surface is byte-stable across the synthesis refactor", async (t) => {
+test("source projection DTO surface is byte-stable for the normalized route DTO", async (t) => {
   const server = await createApiServer({ adapter: sanitizedAdapter() });
   t.after(() => server.app.close());
 

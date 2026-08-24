@@ -25,7 +25,7 @@ test.after(() => {
   else process.env.apikey = previousKey;
 });
 
-test("uses only fixed allow-listed requests and redacts airway values from normalized data", async () => {
+test("uses only fixed allow-listed requests; retains recorded route-element airway labels but keeps the airway-name list counts-only", async () => {
   process.env.apikey = "offline-fixture-key";
   const { transport, requests } = queued(
     response(JSON.stringify([{ id: "fixture-flight", callsign: " f1 ", departure: "KOR1", destination: "KDS1", route: [{ ident: "MIDPT", airway: "hidden-airway-value" }] }]), "displayAll"),
@@ -37,7 +37,8 @@ test("uses only fixed allow-listed requests and redacts airway values from norma
   const adapter = createCaasAdapter({ transport });
   const [flights, airways, fixes, airports, navaids] = await Promise.all([adapter.displayAll(), adapter.airways(), adapter.fixes(), adapter.airports(), adapter.navaids()] as const);
   assert.equal(flights.records[0]?.callsign, "F1");
-  assert.equal("airway" in (flights.records[0]?.routeElements?.[0] ?? {}), false);
+  assert.equal(flights.records[0]?.routeElements?.[0]?.airway, "HIDDEN-AIRWAY-VALUE");
+  assert.equal(flights.records[0]?.routeElements?.[0]?.identifier, "MIDPT");
   assert.equal("A1" in airways, false);
   assert.equal(airways.uniqueRecords, 1);
   assert.equal(fixes.points.length, 1);

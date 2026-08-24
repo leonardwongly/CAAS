@@ -686,3 +686,22 @@ test("404s /api/v1/data/airways because no airways route is registered", async (
   assert.equal(response.statusCode, 404);
   assert.equal((response.json() as { error: { code: string } }).error.code, "NOT_FOUND");
 });
+
+test("serves a genuine computed direct great-circle alternate from resolved airport coordinates", async (t) => {
+  const server = await createApiServer({ adapter: fixtureAdapter(), refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  const search = await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query: "TEST123" } });
+  assert.equal(search.statusCode, 200);
+  const flightId = (search.json() as { data: Array<{ id: string }> }).data[0]!.id;
+  const response = await server.app.inject({ method: "POST", url: "/api/v1/routes/alternate", payload: { flightId } });
+  assert.equal(response.statusCode, 200);
+  const body = response.json() as { data: { kind: string; origin: string; destination: string; distanceNm: number; geometry: { type: string; coordinates: number[][] } } };
+  assert.equal(body.data.kind, "direct-great-circle");
+  assert.ok(body.data.origin.includes("KJFK"));
+  assert.ok(body.data.destination.includes("KLAX"));
+  assert.ok(Number.isFinite(body.data.distanceNm) && body.data.distanceNm > 0);
+  assert.equal(body.data.geometry.type, "LineString");
+  assert.ok(body.data.geometry.coordinates.length >= 2);
+  assert.deepEqual(body.data.geometry.coordinates[0], [-73.7781, 40.6413]);
+  assert.deepEqual(body.data.geometry.coordinates[body.data.geometry.coordinates.length - 1], [-118.4085, 33.9416]);
+});

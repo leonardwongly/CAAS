@@ -71,5 +71,5 @@ test("the closed workbench names real controls and the toolbar distinguishes loa
   const toolbar = page.locator(".toolbar-flight");
   await expect(toolbar).toContainText("Loading the all-flight overview…");
   // …and only flips to the settled count once records arrive.
-  await expect(toolbar).toContainText("1 source flight record available. Select a route from the map or list.", { timeout: 5000 });
+  await expect(toolbar).toContainText("1 flight available. Select a route from the map or list.", { timeout: 5000 });
 });

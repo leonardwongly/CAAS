@@ -12,21 +12,20 @@
 //   rejects traversal.
 //
 // Complements (does not duplicate) sec-4 (unknown-path/wrong-method envelope
-// on a few paths), sec-5 (routes/options + routes/compare GET 405), and
-// adv-api-malformed (synthesis/source-occurrences 405s).
+// on a few paths) and sec-5 (routes/options + routes/compare GET 405).
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createApiServer } from "../../apps/api/src/index.ts";
-import { synthesisAdapter } from "../fixtures/synthesis-caas.ts";
+import { caasFixtureAdapter } from "../fixtures/caas-fixtures.ts";
 
 type ApiServer = Awaited<ReturnType<typeof createApiServer>>;
 type InjectResponse = Awaited<ReturnType<ApiServer["app"]["inject"]>>;
 
 async function newServer(t: test.TestContext): Promise<ApiServer> {
-  const server = await createApiServer({ adapter: synthesisAdapter() });
+  const server = await createApiServer({ adapter: caasFixtureAdapter() });
   t.after(() => server.app.close());
   return server;
 }
@@ -49,8 +48,6 @@ const POST_ONLY_ALLOW_POST = [
   "/api/v1/search",
   "/api/v1/flights/search",
   "/api/v1/routes/overview",
-  "/api/v1/routes/synthesis",
-  "/api/v1/routes/source-occurrences",
   "/api/v1/routes/options",
   "/api/v1/route-options",
   "/api/v1/data/flights",
@@ -134,7 +131,6 @@ test("D3 methods: trailing-slash, case, and version variants are bounded 404s wi
     "/api/v1/routes/overview/",
     "/api/v1/Routes/Overview",
     "/API/V1/ROUTES/OVERVIEW",
-    "/api/v1/routes/synthesis/extra",
     "/api/v2/routes/overview",
     "/api/v1//routes/overview",
   ];
@@ -174,7 +170,7 @@ test("D3 methods: the static-asset fallback serves the SPA and rejects traversal
   await mkdir(join(directory, "assets"), { recursive: true });
   await writeFile(join(directory, "index.html"), "<!doctype html><title>probe</title>", "utf8");
   await writeFile(join(directory, "assets", "app.js"), "export const probe = 1;", "utf8");
-  const server = await createApiServer({ adapter: synthesisAdapter(), assetDirectory: directory });
+  const server = await createApiServer({ adapter: caasFixtureAdapter(), assetDirectory: directory });
   t.after(async () => { await server.app.close(); await rm(directory, { recursive: true, force: true }); });
 
   const root = await server.app.inject({ method: "GET", url: "/" });

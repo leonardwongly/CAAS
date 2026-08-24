@@ -16,13 +16,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApiServer } from "../../apps/api/src/index.ts";
-import { synthesisAdapter } from "../fixtures/synthesis-caas.ts";
+import { caasFixtureAdapter } from "../fixtures/caas-fixtures.ts";
 
 type ApiServer = Awaited<ReturnType<typeof createApiServer>>;
 type InjectResponse = Awaited<ReturnType<ApiServer["app"]["inject"]>>;
 
 async function newServer(t: test.TestContext, options: Parameters<typeof createApiServer>[0] = {}): Promise<ApiServer> {
-  const server = await createApiServer({ adapter: synthesisAdapter(), ...options });
+  const server = await createApiServer({ adapter: caasFixtureAdapter(), ...options });
   t.after(() => server.app.close());
   return server;
 }
@@ -79,7 +79,6 @@ test("D3 boundaries: body-only routes reject every query string before parsing",
     "/api/v1/drafts",
     "/api/v1/drafts/compare",
     "/api/v1/routes/compare",
-    "/api/v1/routes/synthesis",
   ];
   for (const url of urls) {
     for (const suffix of ["?probe=1", "?limit=1", "?="] as const) {

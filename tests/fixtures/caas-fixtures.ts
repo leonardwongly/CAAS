@@ -1,9 +1,5 @@
 import type { CaasAdapter, DatasetEvidence, FlightPlanRecord, ReferenceDatasetResult, ReferencePoint } from "../../packages/upstream-caas/src/index.ts";
 
-export const SYNTHESIS_COORDS = Object.freeze({
-  A: [10, 0] as const, C: [10, 10] as const, D: [10, 20] as const,
-  X: [20, 30] as const, E: [10, 40] as const, Y: [30, 30] as const, B: [10, -10] as const,
-});
 // lat, lon order for reference data:
 const fixes = [["X", 20, 30], ["Y", 30, 30]] as const;
 const airports = [["A", 10, 0], ["B", 10, -10], ["C", 10, 10], ["D", 10, 20], ["E", 10, 40]] as const;
@@ -12,14 +8,14 @@ function flight(id: string, callsign: string, departure: string, destination: st
   return Object.freeze({ id, callsign, departure, destination, routeElements: Object.freeze(via.map((identifier, index) => Object.freeze({ sequence: index, identifier }))) });
 }
 
-export const synthesisFlights: readonly FlightPlanRecord[] = Object.freeze([
-  flight("synth-r1", "SYNTH1", "A", "D", ["C"]),            // R1: A -> C -> D
-  flight("synth-r2", "SYNTH2", "B", "E", ["D", "X"]),       // R2: B -> D -> X -> E (donor)
-  flight("synth-r3", "SYNTH3", "C", "E", ["D", "NOSUCHFIX"]), // R3: target C -> D -> [gap] -> E
-  flight("synth-r4", "SYNTH4", "E", "D", ["X"]),            // R4: reverse-only negative
-  flight("synth-r5", "SYNTH5", "B", "E", ["D", "ALSO_MISSING"]), // R5: discontinuous negative
-  flight("synth-r6", "SYNTH6", "B", "E", ["D", "Y"]),       // R6: distinct alternative
-  flight("synth-r7", "SYNTH7", "B", "E", ["D", "X"]),       // R7: duplicate geometry/provenance
+export const caasFixtureFlights: readonly FlightPlanRecord[] = Object.freeze([
+  flight("fixture-r1", "FX1", "A", "D", ["C"]),
+  flight("fixture-r2", "FX2", "B", "E", ["D", "X"]),
+  flight("fixture-r3", "FX3", "C", "E", ["D", "NOSUCHFIX"]),
+  flight("fixture-r4", "FX4", "E", "D", ["X"]),
+  flight("fixture-r5", "FX5", "B", "E", ["D", "ALSO_MISSING"]),
+  flight("fixture-r6", "FX6", "B", "E", ["D", "Y"]),
+  flight("fixture-r7", "FX7", "B", "E", ["D", "X"]),
 ]);
 
 function evidence(family: DatasetEvidence["family"], records: number): DatasetEvidence {
@@ -37,9 +33,9 @@ function references(dataset: "fixes" | "airports" | "navaids", values: readonly 
   return Object.freeze({ dataset, points: Object.freeze(points), index, evidence: evidence(dataset, points.length) });
 }
 
-export function synthesisAdapter(): CaasAdapter {
+export function caasFixtureAdapter(): CaasAdapter {
   return Object.freeze({
-    displayAll: async () => Object.freeze({ records: Object.freeze([...synthesisFlights]), evidence: evidence("displayAll", synthesisFlights.length) }),
+    displayAll: async () => Object.freeze({ records: Object.freeze([...caasFixtureFlights]), evidence: evidence("displayAll", caasFixtureFlights.length) }),
     airways: async () => Object.freeze({ family: "airways", bytes: 64, records: 0, acceptedRecords: 0, rejectedRecords: 0, uniqueRecords: 0, retried: false, durationMs: 0 }),
     fixes: async () => references("fixes", fixes),
     airports: async () => references("airports", airports),

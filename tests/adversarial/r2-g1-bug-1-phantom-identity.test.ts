@@ -4,7 +4,7 @@ import type { Location } from "../../packages/contracts/src/index.ts";
 import { createApiServer, type ApiServerOptions } from "../../apps/api/src/index.ts";
 import { indexedReferenceResolution } from "../../apps/api/src/projection.ts";
 import { locationTokens, token, UNAVAILABLE_AIRPORT_NAME } from "../../apps/api/src/snapshot.ts";
-import { synthesisAdapter } from "../fixtures/synthesis-caas.ts";
+import { caasFixtureAdapter } from "../fixtures/caas-fixtures.ts";
 
 // Domain tag: R2-G1 — snapshot location index (node lane), round-2 gap-fill
 // 2026-08-23.
@@ -57,7 +57,7 @@ test("a genuinely named airport still contributes its name token", () => {
 });
 
 test("the snapshot index never contains the phantom placeholder token", async (t) => {
-  const server = await createApiServer({ adapter: synthesisAdapter(), refreshMinIntervalMs: 0 });
+  const server = await createApiServer({ adapter: caasFixtureAdapter(), refreshMinIntervalMs: 0 });
   t.after(() => server.app.close());
   const snapshot = server.store.requireSnapshot();
 
@@ -66,7 +66,7 @@ test("the snapshot index never contains the phantom placeholder token", async (t
 });
 
 test("resolving 'Name unavailable' is a not-found gap, never phantom ambiguity", async (t) => {
-  const server = await createApiServer({ adapter: synthesisAdapter(), refreshMinIntervalMs: 0 });
+  const server = await createApiServer({ adapter: caasFixtureAdapter(), refreshMinIntervalMs: 0 });
   t.after(() => server.app.close());
   const snapshot = server.store.requireSnapshot();
 
@@ -76,11 +76,11 @@ test("resolving 'Name unavailable' is a not-found gap, never phantom ambiguity",
 });
 
 test("unnamed airports remain individually reachable by code, without cross-resolving", async (t) => {
-  const server = await createApiServer({ adapter: synthesisAdapter(), refreshMinIntervalMs: 0 });
+  const server = await createApiServer({ adapter: caasFixtureAdapter(), refreshMinIntervalMs: 0 });
   t.after(() => server.app.close());
   const snapshot = server.store.requireSnapshot();
 
-  // The synthesis fixture's airports use single-letter identifiers (A–E),
+  // The CAAS fixture's airports use single-letter identifiers (A–E),
   // which are not valid ICAO codes and therefore have no bundled name. Each
   // must still resolve to exactly one location by its code, and two distinct
   // unnamed airports must never be joined through the phantom placeholder.

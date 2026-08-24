@@ -55,7 +55,7 @@ test("loads the complete overview, keeps API calls same-origin, and selects a ro
   await expect(safetyBanner).toContainText("Demonstration only");
   await expect(safetyBanner).toContainText("Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.");
   await expect(page.getByRole("region", { name: "Full flight list" })).toBeVisible();
-  await expect(page.getByText("2 of 2 source route records shown")).toBeVisible();
+  await expect(page.getByText("2 of 2 routes shown")).toBeVisible();
 
   await page.getByRole("combobox", { name: "Flight number or code" }).fill("BROWSER1");
   await page.keyboard.press("Enter");

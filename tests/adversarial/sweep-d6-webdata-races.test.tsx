@@ -5,12 +5,10 @@ import {
   browseFlights,
   browseNavaids,
   fetchDataSummary,
-  fetchDonorProof,
   fetchReadiness,
   fetchRouteData,
   fetchRouteOptions,
   fetchRouteOverview,
-  fetchSynthesis,
   lookupPoint,
   refreshLiveData,
   searchCallsigns,
@@ -22,7 +20,7 @@ import {
  *
  * Abort and ordering races at the api.ts data layer itself (the UI-level
  * supersession guards are owned by typeahead-race.test.tsx and
- * adv-synthesis-ui-races.test.tsx; abort semantics for search-only and
+ * sweep-d6-webdata-races.test.tsx; abort semantics for search-only and
  * pre-abort are owned by adv-web-api-client.test.tsx).
  *
  * Covered here, previously uncovered:
@@ -82,8 +80,6 @@ function jsonResponse(payload: unknown): Response {
 const ENDPOINTS: Array<{ name: string; url: string; invoke: (signal: AbortSignal) => Promise<unknown> }> = [
   { name: "searchCallsigns", url: "/api/v1/callsigns/search", invoke: (signal) => searchCallsigns("D6", signal) },
   { name: "fetchRouteOptions", url: "/api/v1/routes/options", invoke: (signal) => fetchRouteOptions("flight-1", signal) },
-  { name: "fetchSynthesis", url: "/api/v1/routes/synthesis", invoke: (signal) => fetchSynthesis("flight-1", undefined, signal) },
-  { name: "fetchDonorProof", url: "/api/v1/routes/source-occurrences", invoke: (signal) => fetchDonorProof("proof-1", signal) },
   { name: "fetchRouteOverview", url: "/api/v1/routes/overview", invoke: (signal) => fetchRouteOverview(signal) },
   { name: "fetchReadiness", url: "/api/v1/readiness", invoke: (signal) => fetchReadiness(signal) },
   { name: "refreshLiveData", url: "/api/v1/refresh", invoke: (signal) => refreshLiveData(signal) },

@@ -56,8 +56,6 @@ export type StubOptions = {
   deferSearch?: boolean | undefined;
   /** Fail bulk browse requests with 409 CURSOR_EXPIRED. */
   failCursor?: boolean | undefined;
-  /** Fail the synthesis endpoint (500); `"once"` fails only the first call so retry recovery is observable. */
-  failSynthesis?: boolean | "once" | undefined;
   /**
    * Fail the all-flight overview (502); `"once"` fails only the first call so
    * the Retry overview recovery path is observable.
@@ -70,10 +68,6 @@ export type StubOptions = {
   failSummary?: boolean | "once" | undefined;
   /** Replace the default data-summary envelope (counts only, airways never valued). */
   summary?: Record<string, unknown> | undefined;
-  /** Override the default donor-subpath synthesis envelope. Takes precedence over the default envelope but not over `failSynthesis`; the whole envelope is replaced, not deep-merged, so it must be complete and valid. */
-  synthesis?: Record<string, unknown> | undefined;
-  /** Override the default donor-proof (source-occurrences) envelope. */
-  donorProof?: Record<string, unknown> | undefined;
   /** Replace the default overview with this many distinct renderable flights. */
   overviewCount?: number | undefined;
   /** Return two flights with exactly overlapping rendered paths. */
@@ -238,39 +232,6 @@ const pointMatches: Record<string, unknown> = {
   MIDPT: { matches: [{ id: "loc-MIDPT", callsign: "MIDPT", name: "MIDPT", kind: "place", coordinate: { lat: 35, lon: -90 } }] },
 };
 
-/**
- * Deterministic donor-subpath synthesis envelope matching fetchSynthesis in
- * apps/web/src/api.ts. The borrowed GeoJSON subpath is geometry "observed on
- * a donor record" bridging the fixture's unresolved gap; nothing here is
- * client-interpolated.
- */
-const synthesisResult = {
-  status: "full",
-  corridorCount: 1,
-  corridorsCovered: 1,
-  algorithmVersion: "stub-donor-subpath-v1",
-  candidates: [
-    {
-      candidateId: "candidate-1",
-      segments: [
-        {
-          kind: "borrowed",
-          geometry: { type: "LineString", coordinates: [[-80, 39], [-80.5, 38.8]] },
-          distanceNm: 32.4,
-          matchMethod: "exact-coordinate",
-          donorCount: 1,
-          proofIds: ["proof-fixture-1"],
-        },
-      ],
-      sourceResolvedDistanceNm: 480.1,
-      borrowedDistanceNm: 32.4,
-      estimatedTotalDistanceNm: 512.5,
-      corridorsCovered: 1,
-    },
-  ],
-  safety: "Stub synthesis note: borrowed subpaths are copied unchanged from donor records in the same generation.",
-};
-
 type StubResponse = {
   ok: boolean;
   status: number;
@@ -301,7 +262,6 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
   const overviewRoutes = overviewRoutesFor(options);
   const draftResolvers: Array<() => void> = [];
   const searchResolvers: Array<() => void> = [];
-  let synthesisFailuresRemaining = options.failSynthesis === "once" ? 1 : 0;
   let overviewFailuresRemaining = options.failOverview === "once" ? 1 : 0;
   let summaryFailuresRemaining = options.failSummary === "once" ? 1 : 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<StubResponse> => {
@@ -342,6 +302,25 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
     if (method === "POST" && url === "/api/v1/routes/detail") {
       return jsonResponse({ data: routeOptions[0] });
     }
+    // Direct great-circle alternate: POST { flightId } -> { data, generation }.
+    if (method === "POST" && url === "/api/v1/routes/alternate") {
+      return jsonResponse({
+        data: {
+          flightId: String(bodyOf(init).flightId ?? ""),
+          callsign: "FIXTURE1",
+          origin: "KOR1",
+          destination: "KDS1",
+          kind: "direct-great-circle",
+          label: "Direct (great-circle) alternate",
+          geometry: { type: "LineString", coordinates: [[-73, 40], [-118, 33]] },
+          distanceNm: 2100,
+          provenance: "CAAS normalized live generation",
+          freshness: "2026-08-23T00:00:00.000Z",
+          safety: SAFETY_NOTICE,
+        },
+        generation: generationFor(options),
+      });
+    }
     // Draft validation: single two-operand POST carrying baselineId + targetDraft.
     if (method === "POST" && url === "/api/v1/routes/compare") {
       if (options.failDraft) return jsonResponse({ error: { message: "Draft validation unavailable (stub).", code: "DRAFT_FAIL" } }, 500);
@@ -350,18 +329,6 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
         return new Promise<StubResponse>((resolve) => { draftResolvers.push(() => resolve(jsonResponse({ target: draftCompareTarget, comparison: draftCompareComparison }))); });
       }
       return jsonResponse({ target: draftCompareTarget, comparison: draftCompareComparison });
-    }
-    // Donor-subpath synthesis: POST { flightId, cursor? } -> bounded candidates.
-    if (method === "POST" && url === "/api/v1/routes/synthesis") {
-      if (options.failSynthesis === true || synthesisFailuresRemaining > 0) {
-        if (synthesisFailuresRemaining > 0) synthesisFailuresRemaining -= 1;
-        return jsonResponse({ error: { message: "Synthesis unavailable (stub).", code: "SYNTHESIS_FAIL" } }, 500);
-      }
-      return jsonResponse(options.synthesis ?? synthesisResult);
-    }
-    // Donor proof: POST { proofId } -> { data: { flightId, occurrences } }.
-    if (method === "POST" && url === "/api/v1/routes/source-occurrences") {
-      return jsonResponse(options.donorProof ?? { data: { flightId: "donor-proof-flight", occurrences: [] } });
     }
     // Readiness on mount and live refresh.
     if (method === "GET" && url === "/api/v1/readiness") {

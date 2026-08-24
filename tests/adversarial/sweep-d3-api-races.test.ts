@@ -1,16 +1,16 @@
 // Adversarial sweep owner/domain: D3 — API HTTP surface & envelope.
 //
-// Store/state races at the HTTP surface (not synthesis internals — A5 owns
+// Store/state races at the HTTP surface (capacity is owned by a dedicated lane; here we cover
 // those): concurrent draft creation, reads racing an in-flight refresh,
 // overlapping HTTP refreshes, and draft survival across a FAILED refresh.
 //
-// Complements adv-api-concurrency (synthesis/cursor/2MiB races),
+// Complements the concurrency and cursor/2MiB race lanes,
 // generation-concurrency (store state machine windows), and server.test
 // (single-threaded draft invalidation after a successful refresh).
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApiServer, type CaasAdapter } from "../../apps/api/src/index.ts";
-import { synthesisAdapter } from "../fixtures/synthesis-caas.ts";
+import { caasFixtureAdapter } from "../fixtures/caas-fixtures.ts";
 
 type ApiServer = Awaited<ReturnType<typeof createApiServer>>;
 
@@ -27,7 +27,7 @@ async function createDraft(server: ApiServer): Promise<string> {
 }
 
 test("D3 races: a concurrent draft-creation burst issues unique ids with zero 5xx", async (t) => {
-  const server = await createApiServer({ adapter: synthesisAdapter() });
+  const server = await createApiServer({ adapter: caasFixtureAdapter() });
   t.after(() => server.app.close());
 
   const responses = await Promise.all(
@@ -44,7 +44,7 @@ test("D3 races: a concurrent draft-creation burst issues unique ids with zero 5x
 test("D3 races: reads racing an in-flight refresh observe one atomic generation swap", async (t) => {
   // The refresh acquisition is deliberately slowed so the read storm lands
   // squarely inside the swap window.
-  const inner = synthesisAdapter();
+  const inner = caasFixtureAdapter();
   let displayCalls = 0;
   const adapter: CaasAdapter = {
     ...inner,
@@ -90,7 +90,7 @@ test("D3 races: reads racing an in-flight refresh observe one atomic generation 
 });
 
 test("D3 races: overlapping HTTP refreshes converge on the single served generation", async (t) => {
-  const inner = synthesisAdapter();
+  const inner = caasFixtureAdapter();
   let displayCalls = 0;
   const adapter: CaasAdapter = {
     ...inner,
@@ -133,7 +133,7 @@ test("D3 races: overlapping HTTP refreshes converge on the single served generat
 test("D3 races: drafts survive a failed refresh and die only with their generation", async (t) => {
   // Call 1 (initial acquisition) succeeds, call 2 (first refresh) fails,
   // call 3 (second refresh) succeeds again.
-  const inner = synthesisAdapter();
+  const inner = caasFixtureAdapter();
   let displayCalls = 0;
   const adapter: CaasAdapter = {
     ...inner,

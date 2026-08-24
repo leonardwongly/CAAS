@@ -54,56 +54,13 @@ const FIT_COORDINATES = [
   { lat: 33, lon: -118 },
 ];
 
-// Incomplete source record (one gap between two resolved segments) that
-// drives the observed-donor synthesis lane.
-const incompleteRoute = {
-  id: "route-map-3", flightId: "flight-map-3", callsign: "MAPGAP3", status: "incomplete", complete: false,
-  label: "Incomplete source route", origin: "KOR1", destination: "KDS1", pointCount: 3,
-  legs: [
-    { id: "gap-leg-1", sequence: 1, kind: "direct", from: "KOR1", to: "MIDPT", distanceNm: 240.5, status: "resolved" },
-    { id: "gap-leg-2", sequence: 2, kind: "gap", from: "MIDPT", to: "KDS1", status: "gap", reason: "not-found" },
-  ],
-  segments: [
-    { type: "LineString", coordinates: [[-73, 40], [-90, 35]] },
-    { type: "LineString", coordinates: [[-118, 33], [-120, 34]] },
-  ],
-  gaps: [{ sequence: 2, status: "gap", reason: "not-found" }],
-  provenance: "CAAS normalized live generation",
-};
-
-// Borrowed donor geometry bridging the corridor between the resolved segments.
-const borrowedGeometry = { type: "LineString", coordinates: [[-90, 35], [-104, 34], [-118, 33]] };
-const synthesisResult = {
-  status: "full", corridorCount: 1, corridorsCovered: 1,
-  candidates: [{
-    candidateId: "candidate-map-1",
-    segments: [{ geometry: borrowedGeometry, matchMethod: "reference", donorCount: 2, proofIds: ["proof-map-1"] }],
-    sourceResolvedDistanceNm: 512.4, borrowedDistanceNm: 418.7, estimatedTotalDistanceNm: 931.1, corridorsCovered: 1,
-  }],
-  safety: "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated.",
-};
-// Fit union for the synthesis target: every drawn line bounds the view — the
-// target's resolved segments, the borrowed donor geometry, and the dimmed
-// complete alternates still visible in the overview.
-const SYNTHESIS_FIT_COORDINATES = [
-  ...route.geometry.coordinates.map(toCoordinate),
-  ...alternateRoute.geometry.coordinates.map(toCoordinate),
-  ...incompleteRoute.segments.flatMap((segment) => segment.coordinates.map(toCoordinate)),
-  ...borrowedGeometry.coordinates.map(toCoordinate),
-];
-
 async function installMapFixture(page: Page) {
   await page.route("**/api/**", async (routeRequest) => {
     const request = routeRequest.request();
     const url = new URL(request.url());
     const respond = (payload: unknown) => routeRequest.fulfill({ contentType: "application/json", body: JSON.stringify(payload) });
     if (url.pathname === "/api/v1/readiness") return respond({ status: "ready", generation });
-    if (url.pathname === "/api/v1/routes/overview" && request.method() === "POST") return respond({ data: [route, alternateRoute, incompleteRoute], generation, loaded: 3, total: 3 });
-    if (url.pathname === "/api/v1/routes/synthesis" && request.method() === "POST") {
-      const body = JSON.parse(request.postData() ?? "{}") as { flightId?: string };
-      if (body.flightId !== "flight-map-3") return respond({ status: "not-needed", corridorCount: 0, corridorsCovered: 0, candidates: [] });
-      return respond(synthesisResult);
-    }
+    if (url.pathname === "/api/v1/routes/overview" && request.method() === "POST") return respond({ data: [route, alternateRoute], generation, loaded: 2, total: 2 });
     if (url.pathname === "/api/v1/callsigns/search" && request.method() === "POST") return respond({ data: [{ id: "flight-map-1", flightId: "flight-map-1", callsign: "MAPFIX1", departure: "KOR1", destination: "KDS1", routePointCount: 3 }] });
     if (url.pathname === "/api/v1/routes/options" && request.method() === "POST") return respond({ data: [route], generation });
     if (url.pathname === "/api/v1/points/lookup" && request.method() === "POST") {
@@ -302,52 +259,5 @@ test("selecting a route fits its full geometry, alternates included, without cli
   await toggle.click();
   await expect(tileImgs(page).first()).toBeVisible();
   expect(zoomOf(await tileImgs(page).first().getAttribute("src"))).toBe(expected.zoom);
-});
-
-test("synthesis renders borrowed geometry dotted, fits it with the source, and keeps tiles interactive", async ({ page }) => {
-  await installMapFixture(page);
-  await page.goto("/");
-
-  // The synthesis drawer opens from the incomplete-routes prompt, and the
-  // target is chosen inside the drawer chooser (only incomplete records list).
-  await page.getByRole("button", { name: "Show observed-donor synthesis" }).click();
-  const drawer = page.locator(".map-drawer");
-  await expect(drawer).toContainText("OBSERVED-DONOR SYNTHESIS");
-  await drawer.locator(".potential-route-options button", { hasText: "MAPGAP3" }).click();
-  await expect(drawer).toContainText("Candidate 1");
-  await expect(drawer).toContainText("Estimated total");
-  await expect(drawer.getByText(/rank/i)).toHaveCount(0);
-
-  // The first candidate is auto-selected: borrowed geometry renders dotted
-  // (dasharray 6/6) while the source segments stay solid. The draw-on
-  // animation runs once per displayed flight (~420ms), so the solid check
-  // polls until the steady-state computed dasharray settles.
-  const borrowed = page.locator("path.route-path-potential").first();
-  await expect(borrowed).toBeVisible();
-  expect(await borrowed.evaluate((path: SVGElement) => getComputedStyle(path).strokeDasharray)).toBe("6px, 6px");
-  for (const solid of await page.locator("g.route-line-selected path.route-path").elementHandles()) {
-    await expect.poll(() => solid.evaluate((path: SVGElement) => getComputedStyle(path).strokeDasharray)).toBe("none");
-  }
-
-  // The fit-view transition bounds source + borrowed geometry; the tile layer
-  // stays enabled at the fitted zoom throughout.
-  const stageBox = await page.locator(".map-stage").boundingBox();
-  if (!stageBox) throw new Error("Stage bounding box unavailable.");
-  const expected = fitViewToCoordinates(SYNTHESIS_FIT_COORDINATES, { width: stageBox.width, height: stageBox.height });
-  if (!expected) throw new Error("Synthesis coordinates did not produce a fit.");
-  await expect.poll(async () => zoomOf(await tileImgs(page).first().getAttribute("src"))).toBe(expected.zoom);
-  const borrowedBox = await borrowed.boundingBox();
-  if (!borrowedBox) throw new Error("Missing borrowed geometry bounding box.");
-  expect(borrowedBox.x >= stageBox.x - 2 && borrowedBox.y >= stageBox.y - 2 &&
-    borrowedBox.x + borrowedBox.width <= stageBox.x + stageBox.width + 2 &&
-    borrowedBox.y + borrowedBox.height <= stageBox.y + stageBox.height + 2, "borrowed geometry clipped by the stage").toBe(true);
-
-  // Real pointer interactions still pan the map with synthesis geometry drawn.
-  const srcBefore = await tileImgs(page).first().getAttribute("src");
-  await page.mouse.move(stageBox.x + stageBox.width / 2, stageBox.y + stageBox.height / 2);
-  await page.mouse.down();
-  for (let i = 1; i <= 5; i++) await page.mouse.move(stageBox.x + stageBox.width / 2 + i * 40, stageBox.y + stageBox.height / 2 + i * 20);
-  await page.mouse.up();
-  await expect.poll(async () => await tileImgs(page).first().getAttribute("src")).not.toBe(srcBefore);
 });
 

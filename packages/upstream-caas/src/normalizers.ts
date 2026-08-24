@@ -161,6 +161,8 @@ function normalizeRouteElement(value: unknown, index: number): NormalizedRouteEl
   const coordinate = designatedPoint.coordinate
     ?? (position ? firstCoordinateValue(position, ["coordinate", "coordinates"]) ?? coordinateValue(position) : undefined)
     ?? (firstCoordinateValue(record, ["coordinate", "coord", "coordinates"]) ?? coordinateValue(record));
+  const airway = firstReferenceValue(record, ["airway", "airwayName", "airwayDesignator"]);
+  const airwayType = firstBoundedText(record, ["airwayType"], MAX_REFERENCE_LENGTH)?.toUpperCase();
   if (!identifier && !coordinate) return null;
   const sequenceValue = firstValue(record, ["seqNum", "sequence", "seq", "order", "index"]);
   // §10.4: each seqNum must be a non-negative safe integer. Missing, null,
@@ -193,7 +195,7 @@ function normalizeRouteElement(value: unknown, index: number): NormalizedRouteEl
     sequence = index;
     sequenceFallback = true;
   }
-  return { sequence, sequenceFallback, ...(identifier ? { identifier } : {}), ...(coordinate ? { coordinate } : {}) };
+  return { sequence, sequenceFallback, ...(identifier ? { identifier } : {}), ...(coordinate ? { coordinate } : {}), ...(airway ? { airway } : {}), ...(airwayType ? { airwayType } : {}) };
 }
 
 function normalizeFlightRecord(value: unknown, index: number): FlightPlanRecord | null {
@@ -239,7 +241,7 @@ function normalizeFlightRecord(value: unknown, index: number): FlightPlanRecord 
     departure,
     destination,
     // The internal sequenceFallback marker never leaves the normalizer.
-    ...(routeElements ? { routeElements: Object.freeze(routeElements.map((element): FlightRouteElement => Object.freeze({ sequence: element.sequence, ...(element.identifier ? { identifier: element.identifier } : {}), ...(element.coordinate ? { coordinate: element.coordinate } : {}) }))) } : {}),
+    ...(routeElements ? { routeElements: Object.freeze(routeElements.map((element): FlightRouteElement => Object.freeze({ sequence: element.sequence, ...(element.identifier ? { identifier: element.identifier } : {}), ...(element.coordinate ? { coordinate: element.coordinate } : {}), ...(element.airway ? { airway: element.airway } : {}), ...(element.airwayType ? { airwayType: element.airwayType } : {}) }))) } : {}),
   });
 }
 

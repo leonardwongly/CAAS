@@ -139,7 +139,7 @@ describe("ARIA structure", () => {
     expect(table.getAttribute("aria-labelledby")).toBe("route-legs-heading");
     expect(heading.getAttribute("id")).toBe("route-legs-heading");
     const columns = within(panel).getAllByRole("columnheader");
-    expect(columns.map((cell) => cell.textContent)).toEqual(["Sequence", "From", "To", "Distance", "Status"]);
+    expect(columns.map((cell) => cell.textContent)).toEqual(["Sequence", "From", "To", "Airway", "Distance", "Status"]);
     expect(screen.getAllByRole("rowheader").length).toBeGreaterThanOrEqual(2);
     const region = screen.getByLabelText("Scrollable route-leg table");
     expect(region.getAttribute("tabindex")).toBe("0");
@@ -178,7 +178,7 @@ describe("ARIA structure", () => {
     render(<App />);
 
     expect(screen.getByText(SAFETY_NOTICE)).toBeTruthy();
-    await waitFor(() => expect(screen.getByText("3 of 3 source route records shown")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("3 of 3 routes shown")).toBeTruthy());
 
     await selectFixtureFlight(user);
     await user.click(screen.getByRole("button", { name: "Routes" }));

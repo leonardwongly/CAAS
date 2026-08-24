@@ -61,24 +61,6 @@ describe("interaction review", () => {
     expect(screen.queryByText("Recorded routes with visible gaps")).toBeNull();
   });
 
-  it("renders dotted borrowed donor geometry without changing recorded route facts", async () => {
-    installApiStub();
-    const user = userEvent.setup();
-    const { container } = render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "Show observed-donor synthesis" }));
-    const drawer = await screen.findByRole("region", { name: "Observed-donor synthesis" });
-    await user.click(within(drawer).getByRole("button", { name: /Recorded with unresolved gap/ }));
-
-    await waitFor(() => expect(container.querySelectorAll(".route-path-potential")).toHaveLength(1));
-    // The client midpoint machinery is gone: no client-derived dots render.
-    expect(container.querySelectorAll(".potential-derived-point")).toHaveLength(0);
-    expect(screen.getByRole("img", { name: /observed-donor synthesis/ })).toBeTruthy();
-    await waitFor(() => expect(within(drawer).getByText(/Observed subpath copied without modification from 1 donor route\(s\)/)).toBeTruthy());
-    expect(within(drawer).getByText("Synthesized candidates are inspection aids only. They are not operational routes and never modify the source record.")).toBeTruthy();
-    expect(within(drawer).getByRole("button", { name: /Observed on 1 donor route\(s\) · borrowed 32\.4 NM/, pressed: true })).toBeTruthy();
-  });
-
   it("draws every returned route on the map with alternates dimmed and moves the highlight on selection", async () => {
     installApiStub();
     const user = userEvent.setup();
@@ -192,10 +174,10 @@ describe("interaction review", () => {
 
     await user.click(screen.getByRole("button", { name: "Clear session" }));
     expect((screen.getByRole("combobox", { name: "Flight number or code" }) as HTMLInputElement).value).toBe("");
-    expect(screen.getByText("3 of 3 source route records shown")).toBeTruthy();
+    expect(screen.getByText("3 of 3 routes shown")).toBeTruthy();
     const fullList = screen.getByRole("region", { name: "Full flight list" });
     expect(fullList.querySelectorAll(".overview-flight-buttons button")).toHaveLength(3);
-    expect(within(fullList).getByText("Visible gap")).toBeTruthy();
+    expect(within(fullList).getByText("Incomplete")).toBeTruthy();
     expect(screen.getByRole("status").textContent).toBe("Session reset.");
     expect((screen.getByRole("button", { name: "Compare" }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -206,12 +188,12 @@ describe("interaction review", () => {
     render(<App />);
     await selectFixtureFlight(user);
 
-    const controls = await screen.findByRole("region", { name: "Source data controls" });
-    expect(within(controls).getByRole("button", { name: "Refresh source data" })).toBeTruthy();
+    const controls = await screen.findByRole("region", { name: "Data controls" });
+    expect(within(controls).getByRole("button", { name: "Refresh data" })).toBeTruthy();
     expect(screen.queryByText("Source data stale")).toBeNull();
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    await user.click(within(controls).getByRole("button", { name: "Refresh source data" }));
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Source data refreshed at"));
+    await user.click(within(controls).getByRole("button", { name: "Refresh data" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Data refreshed at"));
 
     expect((screen.getByRole("combobox", { name: "Flight number or code" }) as HTMLInputElement).value).toBe("");
     expect((screen.getByRole("button", { name: "Routes" }) as HTMLButtonElement).disabled).toBe(true);
@@ -238,7 +220,7 @@ describe("interaction review", () => {
     installApiStub({ overviewCount: 12 });
     const { container } = render(<App />);
 
-    await screen.findByText("12 of 12 source route records shown");
+    await screen.findByText("12 of 12 routes shown");
     const fullList = screen.getByRole("region", { name: "Full flight list" });
     expect(within(fullList).getAllByRole("button")).toHaveLength(12);
     expect(container.querySelectorAll(".route-hit")).toHaveLength(12);
@@ -260,7 +242,7 @@ describe("interaction review", () => {
   it("keeps map selection synchronized with the full list and HUD", async () => {
     installApiStub();
     const { container } = render(<App />);
-    await screen.findByText("3 of 3 source route records shown");
+    await screen.findByText("3 of 3 routes shown");
 
     const hits = container.querySelectorAll(".route-hit");
     fireEvent.click(hits[1]!);
@@ -287,10 +269,10 @@ describe("interaction review", () => {
     installApiStub({ overviewCount: 12 });
     const user = userEvent.setup();
     const { container } = render(<App />);
-    await screen.findByText("12 of 12 source route records shown");
+    await screen.findByText("12 of 12 routes shown");
 
     await user.type(screen.getByRole("combobox", { name: "Flight number or code" }), "BULK11");
-    await screen.findByText("1 of 12 source route records shown");
+    await screen.findByText("1 of 12 routes shown");
     const fullList = screen.getByRole("region", { name: "Full flight list" });
     expect(within(fullList).getAllByRole("button")).toHaveLength(1);
     expect(within(fullList).getByText("BULK11")).toBeTruthy();
@@ -300,7 +282,7 @@ describe("interaction review", () => {
   it("offers an explicit chooser for exactly overlapping route paths", async () => {
     installApiStub({ overlappingOverview: true });
     const { container } = render(<App />);
-    await screen.findByText("2 of 2 source route records shown");
+    await screen.findByText("2 of 2 routes shown");
 
     fireEvent.click(container.querySelector(".route-hit")!);
     const chooser = await screen.findByRole("dialog", { name: "Choose an overlapping recorded flight" });
