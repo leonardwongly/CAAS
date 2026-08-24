@@ -29,9 +29,9 @@ not substitutes ([`docs/data-use/caas-contract.md`](caas-contract.md)).
 
 | Field | Decision |
 |---|---|
-| Datasets | Flight Plan (`displayAll`); Airways (fetch/schema/count only — values/types are never exposed); Fixes; Airports; NAVAIDs |
-| Data form | Normalized public DTOs only (`id`, `flightId`, `callsign`, `origin`, `destination`, `pointCount`, route geometry, gaps, provenance, freshness, safety; distance/rank only when complete). **Never** raw upstream records, credentials, restricted identifiers beyond the active request, or airway values/types |
-| Normalized-field list approved for the audience | **All normalized public DTO fields the application serves** — per the owner decision "All the fields can be shown if need to." The standing exclusions are unchanged and are not overridden by this approval: raw upstream records, credentials, restricted identifiers beyond the active request, and airway values/types are never exposed. |
+| Datasets | Flight Plan (`displayAll`); Airways reference list (fetch/schema/count only); Fixes; Airports; NAVAIDs |
+| Data form | Normalized public DTOs only (`id`, `flightId`, `callsign`, `origin`, `destination`, `pointCount`, route geometry, gaps, provenance, freshness, safety; recorded route-element airway labels; distance/rank only when complete). **Never** raw upstream records, credentials, restricted identifiers beyond the active request, or the airway-name reference list values |
+| Normalized-field list approved for the audience | **All normalized public DTO fields the application serves** — per the owner decision "All the fields can be shown if need to." The standing exclusions are unchanged and are not overridden by this approval: raw upstream records, credentials, restricted identifiers beyond the active request, and the airway-name reference list values are never exposed. Recorded route-element airway labels (the `airway`/`airwayType` carried on a flight-plan leg) are approved for display on resolved legs. |
 | Sanitization proof | Reference to the sanitizer and to tests proving raw fields never cross the BFF boundary |
 | Snapshot reference | The commit retaining this filled record (SHA-256 of this file recorded in `docs/data-use/data-use-authorization-gate-status.yaml`) |
 
@@ -114,24 +114,12 @@ navaids` and `/api/v1/data/summary`) serve only the normalized public DTO
 fields already defined by this record's normalized-field list: flight
 summaries (callsign, departure, destination, recorded point count) and
 fix/airport/navaid identifiers with coordinates through the public location
-DTO. Airway values/types are never exposed — counts only. Raw upstream
-records, credentials, and restricted identifiers beyond the active request
-remain excluded, and the standing 24-hour teardown / 7-day governance-max
-retention decisions are unchanged by this addendum.
+DTO. The airway-name reference list is never exposed — counts only. Raw
+upstream records, credentials, and restricted identifiers beyond the active
+request remain excluded, and the standing 24-hour teardown / 7-day
+governance-max retention decisions are unchanged by this addendum.
 
 
-## 12. Addendum — incomplete-route distance annotation (owner request 2026-08-16)
+## 12. Retired — incomplete-route distance annotation and donor-subpath synthesis
 
-The owner authorized a client-only, non-operational distance annotation derived from exact normalized route coordinates already delivered under Section 3. Release 1 computes ephemeral geometric lower bounds in the browser and adds no normalized API field, endpoint, log, export, evidence payload, or persisted state. It therefore does not expand the currently exposed source-data field list.
-
-Release 2 code may train only from a separately approved offline historical corpus. This record does **not** authorize the application to accumulate active/previous generations, retain flight histories, or commit raw training routes. Before a production model artifact is generated, the corpus source, grouping key, retention period, permitted derivative use, deletion procedure, and audience must receive a new recorded decision. A permitted browser artifact is aggregate-only: model cells, independent-route counts, conformal residuals, validation metrics, and a corpus digest; it contains no callsign, flight identifier, named fix, raw coordinate, or individual route. Until that decision and the statistical release gates pass, the bundled model remains explicitly unavailable.
-
-## 13. Addendum — donor-subpath synthesis (owner direction 2026-08-18)
-
-The owner direction of 2026-08-18 authorized server-side donor-subpath synthesis for incomplete recorded routes ([ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md)). This addendum records the data-use boundary of that capability:
-
-- **No new dataset, no new upstream request.** Synthesis reuses the already-acquired in-memory five-family generation; it adds no CAAS request, no persistence, and no flight-history accumulation.
-- **Exposed fields remain within the approved normalized-field list.** `POST /api/v1/routes/synthesis` and `POST /api/v1/routes/source-occurrences` serve only normalized public DTO shapes: opaque scoped tokens, borrowed geometry, distances, completeness/status, and aggregate donor counts. `source-occurrences` resolves a service-issued proof token to the donor flight's own normalized route occurrences over the exact issued range — the same sanitized projection the overview/detail surfaces already produce.
-- **Standing exclusions unchanged.** Raw upstream records, credentials, restricted identifiers beyond the active request, airway values/types, donor callsigns, and raw flight indices are never exposed through synthesis responses. Identifiers and tokens travel in POST bodies only, never URLs.
-- **Source data integrity.** Synthesis never mutates the recorded route's occurrences, gaps, distance, signature, comparison eligibility, or ordering; it is additive only.
-- **Retention unchanged.** Proofs and cursors are generation-bound and expire with the generation; the standing 24-hour teardown / 7-day governance-max retention decisions are unaffected by this addendum.
+The client-only statistical distance annotation (owner request 2026-08-16) and the server-side donor-subpath synthesis capability (owner direction 2026-08-18, [ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md)) were removed on 2026-08-23 and superseded by [ADR-0003](../adr/0003-airway-labels-and-direct-alternate.md). No synthesis, donor-proof, or statistical gap-distance endpoints, fields, or retention surfaces remain. Recorded route-element airway labels are approved for display, while the airway-name reference list stays counts-only.

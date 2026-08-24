@@ -36,7 +36,7 @@ Discovery began at `2026-08-12T09:30:06Z` and recorded these aggregate observati
 
 The full secret-free aggregate record and response-hash locators are [here](../evidence/pg-00-live-api-discovery.json). A hash prefix is an evidence locator, not an upstream version identifier.
 
-## Hidden Airways semantics
+## Airway label semantics
 
 Discovery observed `DIRECT`, `NAMED`, `SID`, and `STAR` types. There were 889 route elements with airway values; 653 values appeared in the separate airway list and 236 did not. Route-text association was inconsistent, and no authoritative occurrence/inbound-leg/outbound-leg relation was established.
 
@@ -44,9 +44,9 @@ Implementation consequences:
 
 1. Always acquire and validate Airways because it is a required family.
 2. Count it in internal generation-health evidence without returning its values/types.
-3. Do not put airway fields in public DTOs, error details, logs, signatures, route diffs, map labels, geometry, completeness, or route comparison.
+3. Surface the recorded route-element airway labels (`airway`/`airwayType`) on resolved route legs only; keep the separate airway-name list counts-only and never put it in public DTOs, error details, logs, signatures, route diffs, geometry, completeness, or route comparison.
 4. Do not infer a directed graph from adjacency or name matching.
-5. Record the user-approved graphical-airway variance honestly in evidence.
+5. Record the user-approved airway-label display decision honestly in evidence.
 
 ## Schema and resolution rules
 
@@ -56,23 +56,9 @@ For each reference string, parse a bounded identifier plus latitude/longitude an
 
 CAAS Airports remain authoritative only for exact endpoint code/coordinate resolution in this POC. Display-name enrichment is a separate governed metadata layer documented in [airport-name reference governance](airport-name-reference.md): exact ICAO join only, pinned/checksummed OurAirports bundle, `Name unavailable (ICAO)` fallback, no fuzzy/proximity/generated-code join, and no runtime third-party lookup.
 
-## Synthesis of incomplete recorded routes (additive, 2026-08-18)
+## Alternate route (computed, 2026-08-23)
 
-Synthesis adds no new upstream dataset and no new CAAS request. It reuses the already-acquired, in-memory five-family generation: for an incomplete recorded route, the server may assemble candidate completions using ONLY contiguous forward gap-free coordinate slices observed on other flights in the SAME immutable data generation. The recorded route's exact resolution, gaps, distance, signature, comparison behavior, and ordering are never mutated.
-
-Four data states stay separate:
-
-- **Source:** the route's own exact resolved occurrences and explicit gaps.
-- **Borrowed:** donor subpaths copied without modification from same-generation observed routes.
-- **Estimated:** candidate distances partition into source-resolved and borrowed components; any estimated total is their sum, labelled separately, and never a route suggestion.
-- **Unsupported:** gaps no same-generation donor geometry can join remain explicit gaps.
-
-Two POST-only endpoints carry identifiers/tokens in request bodies, never URLs:
-
-- `POST /api/v1/routes/synthesis` — `{flightId, cursor?}` → status, corridorCount, corridorsCovered, a candidate page of at most 5, and nextCursor. Statuses fail closed: `not-needed`, `full`, `ambiguous`, `partial`, `unavailable`, `over-limit`, `candidate-limit-exceeded`.
-- `POST /api/v1/routes/source-occurrences` — `{proofId}` → the donor flight's observed occurrences for auditing. Proofs are generation-bound scoped tokens; cross-generation or forged proofs fail closed with `PROOF_INVALID`.
-
-Bounds: at most 256 endpoint-inclusive points per candidate, at most 20 candidates, a 2 MiB response page, a 5-second warm deadline, and at most 8 provenance entries per deduplicated geometry (`donorTruncated` beyond that). Joining requires exact reference identity or exact coordinate; conflicted reference ids are unjoinable with no coordinate fallback; slices are forward-only and contiguous, with no interpolation or fuzzy matching. Candidates are never ranked (algorithm `donor-subpath-v1`). Synthesis responses expose opaque tokens, borrowed geometry, distances, and aggregate donor counts only — never donor upstream identifiers, callsigns, or raw flight indices — so the standing runtime contract (no raw upstream objects, no credentials, bounded sanitized responses) is unchanged. See [ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md).
+The optional alternate-route task is implemented as a single computed, coordinate-derived path: `POST /api/v1/routes/alternate` (`{flightId}`) returns the densified direct great-circle LineString between the resolved departure and destination airports plus its full-precision distance. It is labelled `direct-great-circle`, carries the persistent demonstration-only safety copy, and is never a recommendation, a cleared route, or a source-route mutation. The donor-subpath synthesis and statistical gap-distance capabilities documented in earlier revisions were removed on 2026-08-23 and superseded by [ADR-0003](../adr/0003-airway-labels-and-direct-alternate.md).
 
 ## HTTP surface tightening (adversarial sweep, 2026-08-23)
 

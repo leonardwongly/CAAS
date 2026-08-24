@@ -93,8 +93,9 @@ distance as operational advice.
 
 **Exclusion.** No topology is ever inferred: no adjacency inference, list-
 membership inference, name-similarity inference, or route-text inference. No
-airway or airway-type value appears in any product-facing DTO, log,
-signature, diff, route table, map label, geometry, completeness, or route comparison.
+airway-name-list value appears in any product-facing DTO, log, signature,
+diff, geometry, completeness, or route comparison. Recorded route-element
+airway labels are leg annotations only and never supply connectivity.
 Route graphics use only exact resolved waypoint/reference coordinates.
 
 **Reason — safety.** The POC boundary document records that Airways is a
@@ -106,10 +107,6 @@ operational conformance the data cannot support. A continuous line must never
 cross a gap, and an unresolved point is a diagnostic, never a nearest-neighbor
 choice.
 
-The owner-approved conservative potential layer is not topology: it was a client-only, dotted visual estimate between exact anchors with no span-distance upper limit; its synthetic unnamed midpoint rendering was retired on 2026-08-20 (ADR-0002), and the estimate survives only as a separate descriptive statistical annotation. It does not alter recorded geometry, source DTOs, completeness, source `distanceNm`, comparison, ranking, export, or the original gap; ambiguous and endpoint-only gaps remain unresolved.
-
-A client-only distance annotation may describe an exact-anchor geometric minimum and, after separate historical release gates pass, a conformal statistical interval. It is not a reconstructed route or a complete-route modeled-distance operand. Consecutive missing records sharing one anchor pair are one corridor; no missing fix, airway, or intermediate topology is inferred. Annotation values are prohibited inputs to route ordering, comparison, preference language, public DTOs, server state, logging, and export. An absent or out-of-support model fails closed to the geometric minimum or unavailable state.
-
 **Acceptance evidence keeping it excluded.** The offline suites pin
 ambiguity-preserving exact resolution: ambiguous draft waypoints fail closed
 with gap reason `"ambiguous"` until a generation-bound explicit selection
@@ -117,10 +114,10 @@ binds the exact coordinate, and geometry passes through the chosen coordinate
 with no proximity guess (`tests/route-safety/explicit-selection.test.ts`).
 The API payload regression scan rejects any candidate-qualifying copy
 (`tests/route-safety/safety-ranking.test.ts`), and the web copy scan pins the
-same (`tests/route-safety/web-copy.test.ts`). The gap-distance suites additionally pin corridor grouping, hidden-point feature isolation, route-group-held-out calibration, source immutability, API absence, lower-bound copy, and fail-closed model behavior (`packages/route-engine/test/gap-distance.test.ts`, `tests/route-safety/estimated-distance.test.ts`, `tests/e2e/gap-distance.test.tsx`, and `tests/a11y/gap-distance.test.tsx`). The discovery manifest
+same (`tests/route-safety/web-copy.test.ts`). The discovery manifest
 (`docs/evidence/pg-00-live-api-discovery.json`) and the POC boundary
-document's Airways variance record the unproved occurrence-to-leg relation
-that motivates the exclusion.
+document's Airways labels record the unproved occurrence-to-leg relation
+that motivates the no-topology exclusion.
 
 **Re-entry gate.** Only a later authoritative contract proving the
 route-occurrence-to-directed-leg relation may permit airway-topology

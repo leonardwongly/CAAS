@@ -35,21 +35,19 @@ The final POC may package these responsibilities in one non-root Linux image. Pa
 
 ## Data and route behavior
 
-Flight Plan records support callsign search, duplicate disambiguation, selection, and recorded-route display. Fixes and NAVAIDs resolve intermediate identifiers; Airports resolve endpoints. Resolution is exact and ambiguity-preserving. A missing or multiply matched point is an explicit gap/diagnostic, not a nearest-neighbor choice. A continuous **recorded** route line must never cross a gap. The separately labelled client-only potential layer may render a dotted visual estimate between exact anchors without a span-distance upper limit; it never changes recorded geometry, completeness, source distance, DTOs, or server state.
+Flight Plan records support callsign search, duplicate disambiguation, selection, and recorded-route display. Fixes and NAVAIDs resolve intermediate identifiers; Airports resolve endpoints. Resolution is exact and ambiguity-preserving. A missing or multiply matched point is an explicit gap/diagnostic, not a nearest-neighbor choice. A continuous **recorded** route line must never cross a gap.
 
-Within that client-only layer, exact-anchor corridors may expose separately named geometric lower bounds. A versioned aggregate model may additionally expose a non-operational statistical annotation only after offline complete-route masking, route-group-held-out validation, conformal calibration, and historical-corpus authorization pass. The model artifact contains no route identifiers or coordinates; the API does not train, serve, persist, log, compare, rank, or export annotation values. Missing support leaves the statistical value unavailable while preserving the visual span and lower bound.
-
-Distance uses full-precision Haversine legs and totals with Earth radius `3440.065 NM`; visible totals round to `0.1 NM`. Modeled distance is descriptive only. Same-endpoint recorded routes use selected-first immutable source order, with canonical signature only as a deterministic final fallback. Incomplete routes remain visible with explicit gaps and unavailable **source totals**; any client annotation remains outside the source DTO and complete-route comparison contract. Public DTOs omit `rank`, `rankDistanceNm`, `rankLabel`, and `operationalProxy`.
+Distance uses full-precision Haversine legs and totals with Earth radius `3440.065 NM`; visible totals round to `0.1 NM`. Modeled distance is descriptive only. Same-endpoint recorded routes use selected-first immutable source order, with canonical signature only as a deterministic final fallback. Incomplete routes remain visible with explicit gaps and unavailable **source totals**. Public DTOs omit `rank`, `rankDistanceNm`, `rankLabel`, and `operationalProxy`.
 
 After readiness, the client traverses every generation-bound overview cursor exactly once and shows every safe flight plus every available resolved component without a 10-route cap. Map, full list, callsign filter, HUD, and details share one selected `flightId`; exact overlapping paths use an explicit chooser and the list is the keyboard-equivalent path.
 
 Airport endpoints use `Full Airport Name (ICAO)` with `Name unavailable (ICAO)` fallback from the pinned 10,444-record OurAirports exact-ICAO bundle. It is community-maintained, Public Domain/Unlicense, and not an official ICAO publication; no fuzzy or runtime lookup is permitted.
 
-## Airways variance
+## Airways labels
 
 Airways is a mandatory runtime input and must be fetched, parsed, schema/count validated, and represented in sanitized internal acquisition evidence. Discovery found 9,319 airway-list records; route elements reported 889 airway values, of which 236 were absent from the separate list. The relationship between a route occurrence and a directed leg was not proved.
 
-Therefore `airway` and `airwayType` are hidden from every product-facing DTO and from logs, signatures, diffs, route tables, map labels, geometry, completeness, and route comparison. Route graphics use only exact resolved waypoint/reference coordinates. This is an explicit safety-driven POC variance from a literal requirement to draw recorded airway topology. Never infer topology from adjacency, list membership, name similarity, or route text. Do not claim airway-topology conformance unless a later authoritative contract proves the relation.
+The separate airway-name list remains counts-only and never enters any product-facing DTO, log, signature, diff, geometry, completeness, or route comparison. The recorded `airway`/`airwayType` carried on a flight-plan route element is a leg annotation only: it is surfaced on resolved route legs but never supplies coordinates, connectivity, or topology. Route graphics still draw from exact resolved waypoint/reference coordinates. Never infer topology from adjacency, list membership, name similarity, or route text, and do not claim airway-topology conformance unless a later authoritative contract proves the relation.
 
 ## Safety boundary
 

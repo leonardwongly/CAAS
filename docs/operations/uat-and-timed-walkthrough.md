@@ -24,7 +24,7 @@ The walkthrough must describe modeled distance as descriptive only, show neutral
   1. Problem, safety boundary, architecture, code structure — 2 minutes.
   2. Real API evidence, sanitization, live refresh, limits — 2 minutes.
   3. All-flight overview, shared map/list/callsign selection, real route map/table — 3 minutes.
-  4. Gaps, airport-name provenance/fallback, hidden Airways, descriptive distance, neutral comparison — 3 minutes.
+  4. Gaps, airport-name provenance/fallback, recorded airway labels, descriptive distance, neutral comparison — 3 minutes.
   5. Explore a route variation and directed variation comparison — 3 minutes.
   6. Tests, accessibility/failure states, build/test/deploy code — 3 minutes.
   7. Exact digest, direct Azure POC deployment, auth, rollback — 2 minutes.
@@ -50,12 +50,12 @@ deployed digest (or, before deployment authorization, the exact local subject):
 | 7 | Safety wording | The safety copy is exactly: "Demonstration only. Operational weather, NOTAM, ATC, fuel, aircraft suitability, and regulatory constraints are not evaluated."; no candidate called valid/recommended/safe/cleared/best | Exact strings recorded |
 | 8 | Errors and failure states | Cold-start/refresh failure, stale generation, cursor expiry, capacity errors surface as bounded fail-closed errors; no silent truncation | Error codes observed |
 | 9 | Limitations walkthrough | The presenter explains descriptive modeled distance, neutral ordering, non-official airport metadata, historical evidence limits, and the absence of deployment/data-sharing authority | Notes |
-| 10 | Donor-subpath synthesis (additive, 2026-08-18) | Select an incomplete route and open the on-demand synthesis chooser; candidate page returns a fail-closed status (`not-needed`/`full`/`ambiguous`/`partial`/`unavailable`/`over-limit`/`candidate-limit-exceeded`) with at most 5 candidates; borrowed geometry renders dotted over solid recorded geometry with provenance copy and aggregate donor counts only; a `proofIds` token resolves via `source-occurrences` to the donor's observed occurrences; the source route DTO (occurrences, gaps, distance, signature, comparison eligibility, ordering) is unchanged after synthesis; no donor callsign or identifier appears in URLs or responses | Status observed, candidate count, screenshots, proof resolution transcript, before/after source DTO comparison |
+| 10 | Computed alternate route (2026-08-23) | Select a flight and press "Show direct alternate"; the densified direct great-circle path renders dashed and clearly labelled over the unchanged solid recorded geometry with its full-precision distance; no flight identifier appears in URLs or responses; the source route DTO is unchanged | Screenshots, before/after source DTO comparison |
 
-Synthesis demonstration fits inside the existing fixed walkthrough segments
-(no new segment or timing): segment 4 (gaps and descriptive distance) is the
-natural home for the chooser. The timed 20+10 minute format is unchanged; a
-synthesis rehearsal that overruns a segment is a timing defect like any other.
+The alternate demonstration fits inside the existing fixed walkthrough
+segments (no new segment or timing): segment 4 (gaps and descriptive distance)
+is the natural home. The timed 20+10 minute format is unchanged; an alternate
+rehearsal that overruns a segment is a timing defect like any other.
 
 ## 4. Timed walkthrough record (template)
 
