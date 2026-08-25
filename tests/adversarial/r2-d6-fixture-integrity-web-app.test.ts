@@ -33,6 +33,7 @@ import {
   browseNavaids,
   fetchDataSummary,
   fetchReadiness,
+  fetchAlternates,
   fetchRouteData,
   fetchRouteOptions,
   fetchRouteOverview,
@@ -116,6 +117,12 @@ test("every live client function consumes the default stub payloads", async (t) 
 
   const detail = await fetchRouteData("route-1");
   assert.equal(detail.id, "route-1");
+
+  const alternates = await fetchAlternates("flight-1");
+  assert.equal(alternates.length, 2, "both alternate candidates surface");
+  assert.equal(alternates[0]!.kind, "direct-great-circle");
+  assert.equal(alternates[1]!.kind, "via-waypoint");
+  assert.ok(alternates.every((candidate) => candidate.geometry.length >= 2 && candidate.distanceNm > 0), "alternate candidates normalize geometry and distance");
 
   const lookup = await lookupPoint("MIDPT");
   assert.equal(lookup.matches.length, 1, "the fixture fix resolves to one match");

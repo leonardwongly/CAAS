@@ -705,3 +705,50 @@ test("serves a genuine computed direct great-circle alternate from resolved airp
   assert.deepEqual(body.data.geometry.coordinates[0], [-73.7781, 40.6413]);
   assert.deepEqual(body.data.geometry.coordinates[body.data.geometry.coordinates.length - 1], [-118.4085, 33.9416]);
 });
+
+test("serves selectable alternate candidates including great-circle via recorded waypoints", async (t) => {
+  const server = await createApiServer({ adapter: fixtureAdapter(), refreshSecret: "test-refresh" });
+  t.after(() => server.app.close());
+  const find = async (query: string) => {
+    const search = await server.app.inject({ method: "POST", url: "/api/v1/callsigns/search", payload: { query } });
+    assert.equal(search.statusCode, 200);
+    return (search.json() as { data: Array<{ id: string }> }).data[0]!.id;
+  };
+
+  // TESTGAP has one resolved interior waypoint (DCT), so it yields the direct
+  // candidate plus a via-waypoint candidate.
+  const gapId = await find("TESTGAP");
+  const gap = await server.app.inject({ method: "POST", url: "/api/v1/routes/alternates", payload: { flightId: gapId } });
+  assert.equal(gap.statusCode, 200);
+  const gapBody = gap.json() as {
+    data: { alternates: Array<{ kind: string; label: string; origin: string; destination: string; distanceNm: number; geometry: { type: string; coordinates: number[][] }; safety: string }> };
+  };
+  assert.equal(gapBody.data.alternates.length, 2);
+  const [direct, via] = gapBody.data.alternates;
+  assert.equal(direct.kind, "direct-great-circle");
+  assert.equal(direct.label, "Direct (great-circle) alternate");
+  assert.equal(via.kind, "via-waypoint");
+  assert.equal(via.label, "Via DCT (great-circle)");
+  for (const candidate of gapBody.data.alternates) {
+    assert.ok(candidate.origin.includes("KJFK") && candidate.destination.includes("KLAX"));
+    assert.ok(Number.isFinite(candidate.distanceNm) && candidate.distanceNm > 0);
+    assert.equal(candidate.geometry.type, "LineString");
+    assert.ok(candidate.geometry.coordinates.length >= 2);
+    assert.ok(candidate.safety.length > 0);
+  }
+  // A routed via-waypoint path must be strictly longer than the direct great circle.
+  assert.ok(via.distanceNm > direct.distanceNm, "via-waypoint distance must exceed the direct distance");
+  // The via geometry joins exactly at the recorded DCT coordinate (35, -90).
+  assert.ok(via.geometry.coordinates.some(([lon, lat]) => Math.abs(lat - 35) < 1e-9 && Math.abs(lon - -90) < 1e-9), "via geometry must pass through DCT");
+
+  // TEST123 has no interior waypoints: only the direct candidate is served.
+  const emptyId = await find("TEST123");
+  const empty = await server.app.inject({ method: "POST", url: "/api/v1/routes/alternates", payload: { flightId: emptyId } });
+  assert.equal(empty.statusCode, 200);
+  const emptyBody = empty.json() as { data: { alternates: Array<{ kind: string }> } };
+  assert.deepEqual(emptyBody.data.alternates.map((candidate) => candidate.kind), ["direct-great-circle"]);
+
+  // Wrong verbs answer a bounded 405, matching the singular alternate route.
+  const wrongVerb = await server.app.inject({ method: "GET", url: "/api/v1/routes/alternates" });
+  assert.equal(wrongVerb.statusCode, 405);
+});

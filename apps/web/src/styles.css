@@ -286,6 +286,14 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 .toolbar-flight.has-selection .selected-route-label strong { display: block; margin-top: 2px; }
 .toolbar-flight.has-selection strong { color: var(--ink); font-size: .98rem; letter-spacing: .01em; }
 .toolbar-flight.has-selection span:not(.selection-kicker), .toolbar-flight.has-selection small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alternate-controls { align-items: stretch; display: flex; flex-direction: column; gap: 7px; margin-top: 7px; min-width: 0; }
+.alternate-controls .alternate-options { display: flex; flex-direction: column; gap: 4px; }
+.alternate-controls .alternate-option { background: transparent; border: 1px solid var(--hairline); border-radius: 2px; color: var(--ink-60); display: flex; gap: 8px; justify-content: space-between; padding: 6px 9px; text-align: left; }
+.alternate-controls .alternate-option:hover { border-color: var(--ink); color: var(--ink); }
+.alternate-controls .alternate-option.is-active { background: color-mix(in srgb, var(--blue) 12%, var(--sheet)); border-color: var(--blue); color: var(--ink); }
+.alternate-controls .alternate-option-distance { color: var(--muted); font-size: .72rem; white-space: nowrap; }
+.alternate-controls .alternate-option.is-active .alternate-option-distance { color: var(--ink-60); }
+.alternate-controls .alternate-distance { color: var(--ink-60); font-size: .8rem; }
 .map-first-panel { background: var(--sheet); border: 1px solid var(--line); border-radius: 2px; min-height: inherit; overflow: hidden; position: relative; }.map-first-panel .map-stage { height: min(780px, calc(100vh - 270px)); min-height: 500px; }.map-first-panel .map-fallback-banner { bottom: 58px; left: auto; right: 20px; top: auto; }.map-first-panel .map-endpoints { bottom: 37px; left: auto; right: 20px; }.map-first-panel .map-attribution { bottom: 56px; }
 .map-hud { background: var(--sheet); border: 1px solid var(--hairline); border-radius: 2px; display: grid; gap: 3px; left: 20px; max-width: min(390px, calc(100% - 120px)); padding: 10px 12px; position: absolute; top: 18px; z-index: 3; }.map-hud .eyebrow { margin: 0; }.map-hud strong { color: var(--ink); font-size: .84rem; }.map-hud > span:last-child { color: var(--muted); font-size: .69rem; line-height: 1.35; }
 .rail-entry { position: relative; }

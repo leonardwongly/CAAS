@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ApiError,
-  fetchAlternate,
+  fetchAlternates,
   fetchReadiness,
   fetchRouteOverview,
   fetchRouteOptions,
@@ -159,7 +159,8 @@ function App() {
   const [search, setSearch] = useState<SearchState>(emptySearch);
   const [options, setOptions] = useState<RouteOption[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<RouteOption>();
-  const [alternate, setAlternate] = useState<AlternateRoute>();
+  const [alternates, setAlternates] = useState<AlternateRoute[]>([]);
+  const [selectedAlternate, setSelectedAlternate] = useState<AlternateRoute>();
   const [alternateLoading, setAlternateLoading] = useState(false);
   const [alternateError, setAlternateError] = useState<string>();
   const [routeLoading, setRouteLoading] = useState(false);
@@ -355,7 +356,8 @@ function App() {
     searchRequest.current?.abort();
     if (searchTimer.current !== undefined) { window.clearTimeout(searchTimer.current); searchTimer.current = undefined; }
     setSelectedFlight(match);
-    setAlternate(undefined);
+    setAlternates([]);
+    setSelectedAlternate(undefined);
     setAlternateError(undefined);
     setSelectedRoute(overview.find((route) => route.flightId === match.flightId));
     setSearch(preserveSearchFilter ? { query: match.callsign, matches: [], loading: false, searched: false } : emptySearch);
@@ -374,22 +376,30 @@ function App() {
     setSelectedRoute(route);
   }
 
-  function clearAlternate() {
-    setAlternate(undefined);
+  function clearAlternates() {
+    setAlternates([]);
+    setSelectedAlternate(undefined);
     setAlternateError(undefined);
     setAlternateLoading(false);
   }
 
-  async function loadAlternate(route: RouteOption) {
-    clearAlternate();
+  async function loadAlternates(route: RouteOption) {
+    clearAlternates();
     setAlternateLoading(true);
     try {
-      setAlternate(await fetchAlternate(route.flightId));
+      const candidates = await fetchAlternates(route.flightId);
+      setAlternates(candidates);
+      setSelectedAlternate(candidates[0]);
     } catch (error) {
       setAlternateError(apiMessage(error));
     } finally {
       setAlternateLoading(false);
     }
+  }
+
+  function selectAlternate(candidate: AlternateRoute) {
+    setSelectedAlternate(candidate);
+    setAlternateError(undefined);
   }
 
   useEffect(() => {
@@ -518,7 +528,7 @@ function App() {
         <div className="product-mark"><p className="eyebrow">FLIGHT ROUTE EXPLORER</p><h1>Flight routes</h1></div>
         {page === "map" && <div className="toolbar-search"><SearchBox selected={selectedFlight} state={search} onFocus={() => undefined} onQuery={updateQuery} onSearch={() => void runSearch()} onSelect={(match) => chooseFlight(match, true)} onCancelSearch={cancelSearch} /></div>}
         <div className={`toolbar-flight ${selectedFlight ? "has-selection" : ""}`} role="group" aria-label="Selected flight">
-          {selectedFlight ? <><div className="selected-route-label"><span className="selection-kicker">SELECTED ROUTE</span><strong>{selectedFlight.callsign}</strong></div><div className="selected-route-endpoints">{selectedFlight.departure} → {selectedFlight.destination}</div><div className="selected-route-distance">{selectedRoute?.complete ? <DistanceTick nm={selectedRoute.distanceNm} /> : `${selectedRoute?.gaps.length ?? 0} unresolved gap${(selectedRoute?.gaps.length ?? 0) === 1 ? "" : "s"} · distance unavailable`}</div><button className="quiet-button" type="button" disabled={!selectedRoute || alternateLoading} onClick={() => { if (alternate) { clearAlternate(); } else if (selectedRoute) { void loadAlternate(selectedRoute); } }}>{alternateLoading ? "Computing alternate…" : alternate ? "Hide direct alternate" : "Show direct alternate"}</button>{alternate && <span className="alternate-distance" aria-label={`Direct alternate distance ${formatDistance(alternate.distanceNm)}`}>Direct alternate · {formatDistance(alternate.distanceNm)}</span>}{alternateError && <span className="refresh-error" role="alert">{alternateError}</span>}</> : <span>{overviewLoading ? "Loading the all-flight overview…" : `${filteredOverview.length} flight${filteredOverview.length === 1 ? "" : "s"} available. ${selectRouteCopy}`}</span>}
+          {selectedFlight ? <><div className="selected-route-label"><span className="selection-kicker">SELECTED ROUTE</span><strong>{selectedFlight.callsign}</strong></div><div className="selected-route-endpoints">{selectedFlight.departure} → {selectedFlight.destination}</div><div className="selected-route-distance">{selectedRoute?.complete ? <DistanceTick nm={selectedRoute.distanceNm} /> : `${selectedRoute?.gaps.length ?? 0} unresolved gap${(selectedRoute?.gaps.length ?? 0) === 1 ? "" : "s"} · distance unavailable`}</div><div className="alternate-controls">{alternates.length > 0 ? <><div className="alternate-options" role="group" aria-label="Alternate routes">{alternates.map((candidate) => <button key={`${candidate.kind}-${candidate.label}`} type="button" className={`alternate-option${selectedAlternate && selectedAlternate.kind === candidate.kind && selectedAlternate.label === candidate.label ? " is-active" : ""}`} aria-pressed={selectedAlternate?.kind === candidate.kind && selectedAlternate?.label === candidate.label} onClick={() => selectAlternate(candidate)}><span className="alternate-option-label">{candidate.label}</span><span className="alternate-option-distance">{formatDistance(candidate.distanceNm)} NM</span></button>)}</div><button className="quiet-button" type="button" onClick={clearAlternates}>Hide alternates</button></> : <button className="quiet-button" type="button" disabled={!selectedRoute || alternateLoading} onClick={() => { if (selectedRoute) void loadAlternates(selectedRoute); }}>{alternateLoading ? "Computing alternates…" : "Show alternates"}</button>}{selectedAlternate && <span className="alternate-distance" aria-label={`Selected alternate distance ${formatDistance(selectedAlternate.distanceNm)}`}>{selectedAlternate.label} · {formatDistance(selectedAlternate.distanceNm)} NM</span>}{alternateError && <span className="refresh-error" role="alert">{alternateError}</span>}</div></> : <span>{overviewLoading ? "Loading the all-flight overview…" : `${filteredOverview.length} flight${filteredOverview.length === 1 ? "" : "s"} available. ${selectRouteCopy}`}</span>}
         </div>
         {(generation || refreshError || readinessError) && (
           <div className="strip-gen" role="region" aria-label="Data controls">
@@ -542,7 +552,7 @@ function App() {
         </aside>}
         <section className="map-panel map-first-panel map-cell" aria-labelledby="map-heading">
           <h2 className="sr-only" id="map-heading" tabIndex={-1}>Global route map</h2>
-          <RouteMap routes={filteredOverview} selectedRoute={selectedRoute} alternateGeometry={alternate?.geometry} alternateLabel={alternate?.label} callsign={selectedFlight?.callsign} overviewFailed={Boolean(overviewError)} onSelectRoute={chooseOverviewRoute} />
+          <RouteMap routes={filteredOverview} selectedRoute={selectedRoute} alternateGeometry={selectedAlternate?.geometry} alternateLabel={selectedAlternate?.label} callsign={selectedFlight?.callsign} overviewFailed={Boolean(overviewError)} onSelectRoute={chooseOverviewRoute} />
           <div className="map-hud">{selectedRoute ? <><span className="eyebrow">SELECTED ROUTE</span><strong>{selectedRoute.label ?? selectedFlight?.callsign ?? "Selected route"}</strong><span>{selectedRoute.complete ? <DistanceTick nm={selectedRoute.distanceNm} /> : `${selectedRoute.gaps.length} unresolved gap${selectedRoute.gaps.length === 1 ? "" : "s"} · recorded distance unavailable`}</span></> : <><span className="eyebrow">ROUTE OVERVIEW</span><strong>{overviewLoading ? "Loading routes…" : `${filteredOverview.length} of ${overview.length} routes shown`}</strong><span>{overviewError ?? `Refreshed dataset, not real-time tracking. ${selectRouteCopy}`}</span></>}</div>
           {!mapOnly && selectedRoute && primarySurface !== "route-data" && <div className="map-left-stack"><RouteLegPanel route={selectedRoute} /></div>}
           {mapOnly && <button ref={restoreControlsRef} className="restore-controls" type="button" onClick={leaveMapOnly} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); leaveMapOnly(); } }}>Restore controls</button>}

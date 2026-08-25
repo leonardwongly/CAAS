@@ -28,6 +28,29 @@ async function selectFixtureFlight(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("interaction review", () => {
+  it("lets the user show and select among computed alternates", async () => {
+    installApiStub();
+    const user = userEvent.setup();
+    render(<App />);
+    await selectFixtureFlight(user);
+
+    await user.click(screen.getByRole("button", { name: "Show alternates" }));
+    const group = await screen.findByRole("group", { name: "Alternate routes" });
+    const options = within(group).getAllByRole("button");
+    expect(options).toHaveLength(2);
+    expect(options[0]!.textContent).toContain("Direct (great-circle) alternate");
+    expect(options[1]!.textContent).toContain("Via MIDPT (great-circle)");
+    expect(options[0]!.getAttribute("aria-pressed")).toBe("true");
+
+    await user.click(options[1]!);
+    expect(options[1]!.getAttribute("aria-pressed")).toBe("true");
+    expect(options[0]!.getAttribute("aria-pressed")).toBe("false");
+    await waitFor(() => expect(screen.getByLabelText(/Selected alternate distance/).textContent).toContain("2300"));
+
+    await user.click(screen.getByRole("button", { name: "Hide alternates" }));
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Alternate routes" })).toBeNull());
+  });
+
   it("keeps the expanded left-side leg table visible while route details open", async () => {
     installApiStub();
     const user = userEvent.setup();
