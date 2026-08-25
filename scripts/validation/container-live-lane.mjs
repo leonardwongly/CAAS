@@ -20,7 +20,6 @@ import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { CheckCollector, isoNow, reportAndExit, root, sha256Hex, shortSha, writeJsonRecord } from "./lib-evidence.mjs";
-import { SYNTHESIS_PAGE } from "../../packages/contracts/src/index.ts";
 import { FIXTURE_API_KEY } from "./fixtures.mjs";
 
 const short = shortSha();
@@ -119,7 +118,6 @@ if (!configured) {
     ["CONTAINER-LIVE-LIVENESS", "container liveness", "Pending authorized execution: GET /api/v1/health/live on the running container returns 200."],
     ["CONTAINER-LIVE-FIVE-FAMILY", "container five-family acquisition", "Pending authorized execution: the container acquires and validates all five families from the real origin."],
     ["CONTAINER-LIVE-BROWSE-EXACT-ONCE", "container browse exact-once", "Pending authorized execution: cursor traversal returns every flight exactly once."],
-    ["CONTAINER-LIVE-SYNTHESIS-AGGREGATE", "container synthesis honest aggregation", "Pending authorized execution: up to 5 incomplete targets in generation order each receive a bounded, honest synthesis outcome and the aggregate counts are recorded. Zero synthesizable targets is a legitimate live result."],
     ["CONTAINER-LIVE-SECRET-EXCLUDED", "credential never surfaces", "Pending authorized execution: the runtime key never appears in any API response."],
   ]) {
     collector.add({ checkId, name, procedure, startedAt, endedAt: isoNow(), result: "blocked", measurement: { summary: "pending authorized execution", value: null, units: "boolean", sampleCount: 1 }, artifacts: artifactsFor(), failureFallback: "PG-03 cannot lift until an authorized container run on the exact digest records a real pass." });
@@ -220,52 +218,6 @@ try {
   const unique = new Set(seen).size === seen.length;
   collector.pass("CONTAINER-LIVE-BROWSE-EXACT-ONCE", "container browse exact-once traversal", "Cursor traversal from first page to terminal cursor returns every flight exactly once and terminates within the page cap.", startedAt, isoNow(),
     unique && cursor === undefined, "flights", seen.length, artifactsFor());
-
-  // Honest synthesis aggregation (issue #44 task 11): after acquiring the
-  // generation, select up to 5 incomplete target flights in deterministic
-  // generation order, call /api/v1/routes/synthesis for each on the
-  // container's own API, and retain aggregate outcome counts as evidence.
-  // The lane passes when responses are bounded and honest — NOT when a
-  // synthesizable target exists (live data may legitimately produce zero).
-  // This check is new evidence for the feature commit; pre-feature lane
-  // records are never reused as proof.
-  // Every status the engine can honestly return for an incomplete target is
-  // accepted, including "over-limit" (every assembled candidate exceeds the
-  // point cap); "not-needed" cannot occur because targets are filtered on
-  // complete === false.
-  const SYNTHESIS_OUTCOMES = ["full", "ambiguous", "partial", "unavailable", "over-limit", "candidate-limit-exceeded"];
-  const post = async (path, payload) => {
-    const response = await fetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
-    const body = await response.text();
-    return { status: response.status, body, json: () => JSON.parse(body) };
-  };
-  const targets = [];
-  let overviewCursor;
-  let overviewPages = 0;
-  while (targets.length < 5 && overviewPages < MAX_BROWSE_PAGES) {
-    const page = await post("/api/v1/routes/overview", overviewCursor === undefined ? { limit: 100 } : { limit: 100, cursor: overviewCursor });
-    if (page.status !== 200) throw new Error(`container overview paging failed with ${page.status}`);
-    const parsed = page.json();
-    for (const route of parsed.data) {
-      if (route.complete === false && targets.length < 5) targets.push(route.flightId);
-    }
-    overviewCursor = parsed.nextCursor;
-    overviewPages += 1;
-    if (overviewCursor === undefined) break;
-  }
-  const outcomeCounts = Object.fromEntries(SYNTHESIS_OUTCOMES.map((status) => [status, 0]));
-  let synthesisBoundedAndHonest = true;
-  for (const flightId of targets) {
-    const response = await post("/api/v1/routes/synthesis", { flightId });
-    if (response.status !== 200) { synthesisBoundedAndHonest = false; continue; }
-    const body = response.json();
-    if (!SYNTHESIS_OUTCOMES.includes(body.status)) { synthesisBoundedAndHonest = false; continue; }
-    outcomeCounts[body.status] += 1;
-    if (!Array.isArray(body.candidates) || body.candidates.length > SYNTHESIS_PAGE) synthesisBoundedAndHonest = false;
-  }
-  collector.pass("CONTAINER-LIVE-SYNTHESIS-AGGREGATE", "container synthesis honest aggregation", "Up to 5 incomplete targets in generation order each receive a 200 synthesis response from the container with an honest outcome status and a candidate page bounded to SYNTHESIS_PAGE; zero synthesizable targets is a legitimate live result and never fails the lane.", startedAt, isoNow(),
-    synthesisBoundedAndHonest, "targets", targets.length,
-    artifactsFor([{ path: "raw", sha256: "none", metadata: { targets: targets.length, outcomeCounts } }]));
 
   const secretExcluded = !live.body.includes(apikey) && !readyRes.body.includes(apikey);
   collector.pass("CONTAINER-LIVE-SECRET-EXCLUDED", "credential never surfaces", "The runtime key never appears in any API response from the container.", startedAt, isoNow(), secretExcluded, "boolean", 1, artifactsFor());

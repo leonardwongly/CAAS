@@ -7,6 +7,9 @@ export interface FlightRouteElement {
   readonly sequence: number;
   readonly identifier?: string;
   readonly coordinate?: Coordinate;
+  /** Outbound airway from this occurrence to the next retained occurrence. */
+  readonly airway?: string;
+  readonly airwayType?: string;
 }
 
 export interface FlightPlanRecord {

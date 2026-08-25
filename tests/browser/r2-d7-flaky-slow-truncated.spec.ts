@@ -67,7 +67,7 @@ test("a slow readiness and overview shows an honest loading state with no early 
   // When the response finally lands the success state is truthful.
   await expect(page.getByRole("button", { name: /FR7SLO1/ })).toBeVisible({ timeout: 8000 });
   await expect(manifest.getByText("Loading all route pages…")).toHaveCount(0);
-  await expect(page.locator(".sr-status")).toContainText("1 source flight record loaded.");
+  await expect(page.locator(".sr-status")).toContainText("1 flight loaded.");
 });
 
 test("a truncated JSON body mid-pagination is a bounded error standing alone, and Retry recovers", async ({ page }) => {
@@ -108,7 +108,7 @@ test("a truncated JSON body mid-pagination is a bounded error standing alone, an
   await alert.getByRole("button", { name: "Retry overview" }).click();
   await expect(page.getByRole("button", { name: /FR7SLO1/ })).toBeVisible({ timeout: 5000 });
   await expect(page.getByRole("button", { name: /FR7PG2/ })).toBeVisible();
-  await expect(page.locator(".sr-status")).toContainText("2 source flight records loaded.");
+  await expect(page.locator(".sr-status")).toContainText("2 flights loaded.");
 });
 
 test("a structurally valid but non-object overview body is a bounded error, never a crash", async ({ page }) => {

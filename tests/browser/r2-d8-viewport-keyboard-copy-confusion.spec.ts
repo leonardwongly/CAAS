@@ -3,8 +3,8 @@
 // the backend is down (#2), viewport-honest "map or list" copy (#3), legend not
 // occluding the base-map toggle with the drawer open (#4), an active indicator
 // on the Map-only/API-data view toggle (#6), an explanation when the schematic
-// basemap disables zoom (#7), Escape/focus closure of the synthesis drawer (#8),
-// and no favicon 404 (#9). Also documents two justified keeps: the native
+// basemap disables zoom (#7), and no favicon 404 (#9). Also documents two
+// justified keeps: the native
 // refresh confirm (pinned by round-1 e2e) with in-app feedback (#1) and the
 // separation of the brand accent from the error palette on pressed states (#5).
 import { expect, test, type Page } from "@playwright/test";
@@ -39,7 +39,6 @@ function installApi(page: Page, opts: { overviewFail?: boolean } = {}) {
       if (opts.overviewFail) return routeRequest.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: { code: "UPSTREAM_UNAVAILABLE", message: "Upstream is down." } }) });
       return respond({ data: [route], generation, loaded: 1, total: 1 });
     }
-    if (url.pathname === "/api/v1/routes/synthesis" && request.method() === "POST") return respond({ status: "unavailable", corridorCount: 1, corridorsCovered: 0, candidates: [] });
     if (url.pathname === "/api/v1/refresh" && request.method() === "POST") return respond({ status: "refreshed", generation });
     if (url.pathname === "/api/v1/points/lookup" && request.method() === "POST") return respond({ matches: [] });
     if (url.pathname === "/api/v1/callsigns/search" && request.method() === "POST") return respond({ matches: [] });
@@ -95,7 +94,7 @@ test("#3 narrow viewport hides the list and the copy stops promising one", async
   await expect(page.getByRole("region", { name: "Full flight list" })).toBeHidden();
   // …so the visible map HUD copy must not claim a list exists.
   const hud = page.locator(".map-hud");
-  await expect(hud).toContainText("Select a route from the map.", { timeout: 5000 });
+  await expect(hud).toContainText("Search a flight number, or select a flight on the map, to see its route.", { timeout: 5000 });
   await expect(hud).not.toContainText("or list");
 });
 
@@ -104,7 +103,7 @@ test("#3 wide viewport keeps the manifest and the 'map or list' copy", async ({ 
   await installTiles(page);
   await page.goto("/");
   await expect(page.getByRole("region", { name: "Full flight list" })).toBeVisible();
-  await expect(page.locator(".toolbar-flight")).toContainText("Select a route from the map or list.", { timeout: 5000 });
+  await expect(page.locator(".toolbar-flight")).toContainText("Search a flight number, or select a flight from the list, to see its route.", { timeout: 5000 });
 });
 
 test("#4 the legend never occludes the base-map toggle with the drawer open", async ({ page }) => {
@@ -114,8 +113,9 @@ test("#4 the legend never occludes the base-map toggle with the drawer open", as
   await page.goto("/");
 
   // Open the workbench drawer so the map narrows (the occlusion condition).
-  await page.getByRole("button", { name: "Synthesis", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Observed-donor synthesis" })).toBeVisible();
+  await page.locator(".overview-flight-buttons button").first().click();
+  await page.getByRole("button", { name: "Routes", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Route chooser" })).toBeVisible();
 
   const legendBox = await page.locator(".map-legend").boundingBox();
   const toggleBox = await page.getByRole("button", { name: "Toggle base map" }).boundingBox();
@@ -160,24 +160,6 @@ test("#7 the schematic basemap explains why zoom is disabled", async ({ page }) 
   await expect(note).toHaveCount(0);
 });
 
-test("#8 Escape closes the synthesis drawer and returns focus to its trigger", async ({ page }) => {
-  await installApi(page);
-  await installTiles(page);
-  await page.goto("/");
-
-  await page.getByRole("button", { name: "Synthesis", exact: true }).click();
-  const drawer = page.getByRole("region", { name: "Observed-donor synthesis" });
-  await expect(drawer).toBeVisible();
-
-  // Real keyboard Escape (focus is on the rail trigger inside the workbench).
-  // The closed workbench keeps .workbench-empty mounted-but-hidden (pinned CSS),
-  // so the honest signals are: the drawer region hides and the spine unpresses.
-  await page.keyboard.press("Escape");
-  await expect(drawer).toBeHidden();
-  await expect(page.getByRole("button", { name: "Synthesis", exact: true })).toHaveAttribute("aria-pressed", "false");
-  await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim() ?? "")).toBe("Synthesis");
-});
-
 test("#9 the document ships an inline icon so no favicon 404 is requested", async ({ page }) => {
   const favicon404: string[] = [];
   page.on("response", (response) => { if (/\/favicon\.ico$/.test(new URL(response.url()).pathname) && response.status() === 404) favicon404.push(response.url()); });
@@ -199,13 +181,13 @@ test("#1 (documented) refresh confirms via the pinned native dialog and then giv
   await installTiles(page);
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Refresh source data" }).click();
+  await page.getByRole("button", { name: "Refresh data" }).click();
   // The native confirm is the round-1-pinned destructive guard; its message
   // explains exactly what will happen so the user knows what they confirm.
-  expect(dialogMessage).toContain("Refresh the source-data snapshot?");
+  expect(dialogMessage).toContain("Refresh the dataset?");
   expect(dialogMessage).toContain("current flight selection will be cleared");
   // After accepting, the app surfaces the outcome in-app (status region).
-  await expect(page.locator(".sr-status")).toContainText("Source data refreshed at", { timeout: 8000 });
+  await expect(page.locator(".sr-status")).toContainText("Data refreshed at", { timeout: 8000 });
 });
 
 test("#5 (documented) pressed controls use the brand accent, not the error palette", async ({ page }) => {
@@ -215,7 +197,8 @@ test("#5 (documented) pressed controls use the brand accent, not the error palet
 
   // Open a surface so a spine button is pressed, then compare its colour to
   // the error palette: an active state must never read as an error.
-  await page.getByRole("button", { name: "Synthesis", exact: true }).click();
+  await page.locator(".overview-flight-buttons button").first().click();
+  await page.getByRole("button", { name: "Routes", exact: true }).click();
   const colors = await page.evaluate(() => {
     const pressed = document.querySelector('.workbench-spine button[aria-pressed="true"]');
     const error = document.querySelector(".error-notice") ?? document.createElement("div");

@@ -6,26 +6,18 @@ import {
   MAX_ROUTE_POINTS,
   PERSISTENT_SAFETY_COPY,
   RouteDraftSchema,
-  SourceOccurrencesRequestSchema,
-  SynthesisRequestSchema,
-  SYNTHESIS_PAGE,
   type Coordinate,
   type Location,
   type RouteDraft,
   type RouteDraftSelection,
 } from "@flight-route-explorer/contracts";
 import {
-  assembleSynthesisCandidates,
-  buildSynthesisIndex,
   compareDistanceOperands,
+  directGreatCircleAlternate,
   haversineDistanceNm,
   resolveExactReference,
-  SYNTHESIS_ALGORITHM_VERSION,
   toGeoJsonLineString,
-  type AssembledCandidate,
-  type ObservedRoute,
   type ResolutionResult,
-  type SynthesisIndex,
 } from "@flight-route-explorer/route-engine";
 import {
   createCaasAdapter,
@@ -79,13 +71,6 @@ const AMBIGUITY_HARD_TOTAL = 500;
 // Plan §6.1: browser response hard limit 2 MiB — a larger payload fails
 // closed with a bounded error instead of emitting an over-limit body.
 const MAX_BROWSER_RESPONSE_BYTES = 2 * 1024 * 1024;
-
-// Synthesis observability: bounded per-generation outcome counters and a
-// histogram of candidate-set sizes. Counters are keyed by snapshot (WeakMap)
-// so a refresh starts a clean accounting; nothing here is request identity.
-const SYNTHESIS_OUTCOME_COUNTS = ["full", "partial", "ambiguous", "unavailable", "over-limit", "candidate-limit-exceeded", "not-needed"] as const;
-const synthesisCounters = new WeakMap<Snapshot, { seenTargets: Set<number>; counts: Record<string, number>; histogram: Record<string, number> }>();
-const synthesisIndexes = new WeakMap<Snapshot, SynthesisIndex>();
 
 function securityHeaders(reply: FastifyReply): FastifyReply {
   return reply
@@ -478,45 +463,6 @@ function selectedLocation(snapshot: Snapshot, selection: RouteDraftSelection, re
 
 export function flightId(snapshot: Snapshot, flightIndex: number): string {
   return scopedToken(snapshot, "flight", { i: flightIndex });
-}
-
-/**
- * Reduce an overview projection to the route-engine's observed-route input:
- * endpoint-inclusive ordinals and exact join identities only. Donor/target
- * flight identities travel as opaque generation-order keys, never upstream ids.
- */
-export function observedRouteFromProjection(projection: RouteProjection<ProjectionEndpoint>): ObservedRoute {
-  return {
-    flightKey: String(projection.flight.index),
-    occurrences: projection.occurrences.map((occurrence) => "gap" in occurrence
-      ? { ordinal: occurrence.gap.ordinal, gapReason: occurrence.gap.reason }
-      : { ordinal: occurrence.point.ordinal, ...(occurrence.point.referenceId ? { referenceId: occurrence.point.referenceId } : {}), coordinate: occurrence.point.coordinate, label: occurrence.point.label }),
-  };
-}
-
-function synthesisCandidateDto(snapshot: Snapshot, candidate: AssembledCandidate, orderIndex: number): Record<string, unknown> {
-  return {
-    candidateId: scopedToken(snapshot, "synthesis-candidate", { i: orderIndex }),
-    segments: candidate.borrowedSegments.map((segment) => ({
-      kind: "borrowed",
-      geometry: toGeoJsonLineString(segment.coordinates),
-      distanceNm: segment.distanceNm,
-      matchMethod: segment.matchMethod,
-      donorCount: segment.donorCount,
-      ...(segment.donorTruncated ? { donorTruncated: true } : {}),
-      proofIds: segment.donorOrdinals.map((ordinal) => {
-        // ObservedRoute.flightKey is String(flight.index); resolve O(1) and
-        // fail closed at issuance rather than minting a bogus proof token.
-        const donor = snapshot.flightByIndex.get(Number(ordinal.flightKey));
-        if (!donor) throw new ApiHttpError(500, "INTERNAL_ERROR", "The route service encountered an internal error.");
-        return scopedToken(snapshot, "donor-proof", { i: donor.index, f: ordinal.fromOrdinal, u: ordinal.toOrdinal });
-      }),
-    })),
-    sourceResolvedDistanceNm: candidate.sourceResolvedDistanceNm,
-    borrowedDistanceNm: candidate.borrowedDistanceNm,
-    ...(candidate.estimatedTotalDistanceNm !== undefined ? { estimatedTotalDistanceNm: candidate.estimatedTotalDistanceNm } : {}),
-    corridorsCovered: candidate.corridorsCovered,
-  };
 }
 
 function waypointKey(waypoint: PublicWaypoint): string {
@@ -1080,102 +1026,6 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   app.post("/api/v1/overview", warm(routeOverview));
   app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/routes/overview", handler: methodNotAllowed("Route overview") });
 
-  // Donor-subpath synthesis: for an incomplete recorded route, assemble bounded
-  // candidate geometries borrowed from other recorded routes between the exact
-  // anchors around each gap run. The response exposes opaque tokens, borrowed
-  // geometry, and distances only — never donor upstream ids, callsigns, or raw
-  // flight indices. Candidates are cursor-paged with a fixed SYNTHESIS_PAGE.
-  const synthesize = async (request: FastifyRequest, reply: FastifyReply) => {
-    assertEmptyQuery(request);
-    const snapshot = store.requireSnapshot();
-    const parsed = SynthesisRequestSchema.safeParse(bodyObject(request, ["flightId", "cursor"]));
-    if (!parsed.success) throw new ApiHttpError(400, "INVALID_BODY", "The synthesis request body is invalid.");
-    const flightIndex = decodeScoped(parsed.data.flightId, snapshot, "flight", now);
-    const flight = snapshot.flightByIndex.get(flightIndex);
-    if (!flight || !flight.record.departure || !flight.record.destination) throw new ApiHttpError(404, "FLIGHT_NOT_FOUND", "The selected flight was not found.");
-
-    const projection = overviewProjection(snapshot, flight);
-    let index = synthesisIndexes.get(snapshot);
-    if (!index) {
-      const observed = snapshot.flights.map((candidate) => observedRouteFromProjection(overviewProjection(snapshot, candidate)));
-      index = buildSynthesisIndex(observed);
-      synthesisIndexes.set(snapshot, index);
-    }
-    const outcome = assembleSynthesisCandidates(index, observedRouteFromProjection(projection), { complete: projection.complete });
-
-    let counters = synthesisCounters.get(snapshot);
-    if (!counters) {
-      counters = { seenTargets: new Set(), counts: Object.fromEntries(SYNTHESIS_OUTCOME_COUNTS.map((status) => [status, 0])), histogram: {} };
-      synthesisCounters.set(snapshot, counters);
-    }
-    if (!counters.seenTargets.has(flightIndex) && counters.seenTargets.size < snapshot.flights.length) {
-      counters.seenTargets.add(flightIndex);
-      counters.counts[outcome.status] = (counters.counts[outcome.status] ?? 0) + 1;
-      const bucket = outcome.candidates.length === 0 ? "0" : outcome.candidates.length <= 2 ? "1-2" : outcome.candidates.length <= 5 ? "3-5" : "6-20";
-      counters.histogram[bucket] = (counters.histogram[bucket] ?? 0) + 1;
-    }
-
-    const offset = parsed.data.cursor === undefined ? 0
-      : cursorOffset(parsed.data.cursor, snapshot, `${flightIndex}|${SYNTHESIS_ALGORITHM_VERSION}`, SYNTHESIS_PAGE, "synthesis-cursor", now);
-    const page = outcome.candidates.slice(offset, offset + SYNTHESIS_PAGE);
-    const candidates = page.map((candidate, pageIndex) => synthesisCandidateDto(snapshot, candidate, offset + pageIndex));
-    const nextOffset = offset + page.length;
-    const payload = {
-      status: outcome.status,
-      flightId: parsed.data.flightId,
-      corridorCount: outcome.corridorCount,
-      corridorsCovered: outcome.corridorsCovered,
-      algorithmVersion: outcome.algorithmVersion,
-      candidates,
-      ...(nextOffset < outcome.candidates.length ? { nextCursor: scopedToken(snapshot, "synthesis-cursor", { o: nextOffset, q: `${flightIndex}|${SYNTHESIS_ALGORITHM_VERSION}`, l: SYNTHESIS_PAGE }) } : {}),
-      generation: generationSummary(snapshot, now()),
-      safety: PERSISTENT_SAFETY_COPY,
-    };
-    if (Buffer.byteLength(JSON.stringify(payload), "utf8") > MAX_BROWSER_RESPONSE_BYTES) {
-      throw new ApiHttpError(409, "SYNTHESIS_RESPONSE_TOO_LARGE", "The synthesis page exceeds the browser response limit. The candidate set is paginated; retry with the issued cursor.", true);
-    }
-    return reply.send(payload);
-  };
-  app.post("/api/v1/routes/synthesis", warm(synthesize));
-  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/routes/synthesis", handler: methodNotAllowed("Route synthesis") });
-
-  // Canonical donor proofs: a synthesis proof token resolves to the donor
-  // flight's own occurrences over the exact issued ordinal range — same
-  // projection the overview/detail surfaces produce, never a reconstructed or
-  // inferred path. Forged, expired, cross-generation, or out-of-bounds proofs
-  // fail closed; a missing donor flight means an older generation (410).
-  const sourceOccurrences = async (request: FastifyRequest, reply: FastifyReply) => {
-    assertEmptyQuery(request);
-    const snapshot = store.requireSnapshot();
-    const parsed = SourceOccurrencesRequestSchema.safeParse(bodyObject(request, ["proofId"]));
-    if (!parsed.success) throw new ApiHttpError(400, "INVALID_BODY", "The source-occurrences request body is invalid.");
-    const decoded = readScoped(parsed.data.proofId, snapshot);
-    if (!decoded || decoded.g !== snapshot.id || decoded.t !== "donor-proof" || typeof decoded.e !== "number" || decoded.e < now() || typeof decoded.n !== "string") {
-      throw new ApiHttpError(400, "PROOF_INVALID", "The donor proof is not a valid service-issued proof.");
-    }
-    const donorIndex = decoded.i;
-    const fromOrdinal = decoded.f;
-    const toOrdinal = decoded.u;
-    if (typeof toOrdinal !== "number" || typeof donorIndex !== "number" || !Number.isInteger(donorIndex) || donorIndex < 0 || typeof fromOrdinal !== "number" || !Number.isInteger(fromOrdinal) || fromOrdinal < 0 || !Number.isInteger(toOrdinal) || toOrdinal < fromOrdinal || toOrdinal - fromOrdinal + 1 > MAX_ROUTE_POINTS) {
-      throw new ApiHttpError(400, "PROOF_INVALID", "The donor proof range is invalid.");
-    }
-    const flight = snapshot.flightByIndex.get(donorIndex);
-    if (!flight) throw new ApiHttpError(410, "GENERATION_EXPIRED", "The donor proof belongs to an older data generation.");
-    const projection = overviewProjection(snapshot, flight);
-    const occurrences = projection.occurrences
-      .filter((occurrence) => ("gap" in occurrence ? occurrence.gap.ordinal : occurrence.point.ordinal) >= fromOrdinal && ("gap" in occurrence ? occurrence.gap.ordinal : occurrence.point.ordinal) <= toOrdinal)
-      .map((occurrence) => "gap" in occurrence
-        ? { ordinal: occurrence.gap.ordinal, status: "gap", reason: occurrence.gap.reason }
-        : { ordinal: occurrence.point.ordinal, status: "point", label: occurrence.point.label, coordinate: occurrence.point.coordinate });
-    return reply.send({
-      data: { flightId: flightId(snapshot, flight.index), occurrences },
-      generation: generationSummary(snapshot, now()),
-      safety: PERSISTENT_SAFETY_COPY,
-    });
-  };
-  app.post("/api/v1/routes/source-occurrences", warm(sourceOccurrences));
-  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/routes/source-occurrences", handler: methodNotAllowed("Source occurrences lookup") });
-
   // Feature 4: bulk data browse endpoints. Queries and cursors travel in POST
   // bodies only (repo rule: never tokens or state in URLs). Cursors are bound
   // to the generation AND the family via the "browse-cursor" scoped token with
@@ -1320,6 +1170,39 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     }
     return reply.send({ data, generation: generationSummary(snapshot, now()) });
   };
+  const routeAlternate = async (request: FastifyRequest, reply: FastifyReply) => {
+    assertEmptyQuery(request);
+    const snapshot = store.requireSnapshot();
+    const body = bodyObject(request, ["flightId"]);
+    const selectedId = requiredString(body.flightId, "INVALID_FLIGHT_ID", "A flight ID is required.", 2048);
+    const flightIndex = decodeScoped(selectedId, snapshot, "flight", now);
+    const flight = snapshot.flightByIndex.get(flightIndex);
+    if (!flight || !flight.record.departure || !flight.record.destination) {
+      throw new ApiHttpError(404, "ROUTE_NOT_FOUND", "The requested flight was not found.");
+    }
+    const origin = resolveAirportEndpoint(snapshot, flight.record.departure, "origin");
+    const destination = resolveAirportEndpoint(snapshot, flight.record.destination, "destination");
+    const alternate = directGreatCircleAlternate(origin.coordinate, destination.coordinate);
+    const distanceNm = haversineDistanceNm(origin.coordinate, destination.coordinate);
+    return reply.send({
+      data: {
+        flightId: selectedId,
+        callsign: flight.record.callsign,
+        origin: displayReference(origin),
+        destination: displayReference(destination),
+        kind: "direct-great-circle",
+        label: "Direct (great-circle) alternate",
+        geometry: toGeoJsonLineString(alternate.coordinates),
+        distanceNm,
+        provenance: PUBLIC_PROVENANCE,
+        freshness: new Date(snapshot.retrievedAtMs).toISOString(),
+        safety: PERSISTENT_SAFETY_COPY,
+      },
+      generation: generationSummary(snapshot, now()),
+    });
+  };
+  app.post("/api/v1/routes/alternate", warm(routeAlternate));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/routes/alternate", handler: methodNotAllowed("Alternate route") });
   app.post("/api/v1/routes/options", warm(routeOptions));
   // Non-POST methods on the POST-only option surface answer a bounded 405 —
   // the static routes below must beat the parametric GET /api/v1/routes/:routeId.

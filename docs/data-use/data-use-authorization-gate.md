@@ -115,18 +115,18 @@ block, not an approval.
 - [UAT and timed walkthrough evidence kit](../operations/uat-and-timed-walkthrough.md) (issue #29) — the demonstration procedure the gate guards.
 - [Production access approval](../operations/production-access-approval.md) (issue #34) — the separate, stricter production gate; passing this data-use gate does not pass that one.
 
-## 8. Donor-subpath synthesis scope note (2026-08-18)
+## 8. Airway-label and alternate-route scope note (2026-08-23)
 
-The donor-subpath synthesis capability ([ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md))
-does not broaden this gate. Its two surfaces — `POST /api/v1/routes/synthesis`
-and `POST /api/v1/routes/source-occurrences` — serve only normalized public
-DTO fields already covered by the Data Use Record's exposed-fields decision,
-and they are POST-only: identifiers and tokens travel in request bodies,
-never URLs. Synthesis reuses the authorized in-memory generation, adds no new
-upstream dataset or persistence, never exposes donor callsigns, raw upstream
-records, or raw flight indices, and never mutates the source route. Any
-demonstration window that shows synthesis remains subject to the same
-per-window prerequisites above, and the Section 4 prohibitions apply to
-synthesis surfaces without modification.
+The airway-label and computed-alternate change ([ADR-0003](../adr/0003-airway-labels-and-direct-alternate.md))
+does not broaden this gate. `POST /api/v1/routes/alternate` serves only the
+normalized direct great-circle geometry and distance already covered by the
+Data Use Record's exposed-fields decision, is POST-only (identifiers travel in
+request bodies, never URLs), reuses the authorized in-memory generation, adds
+no new upstream dataset or persistence, and never mutates the source route.
+Recorded route-element airway labels are approved for display; the separate
+airway-name list remains counts-only. Any demonstration window showing these
+surfaces remains subject to the same per-window prerequisites above, and the
+Section 4 prohibitions apply without modification.
 
-Resolved per GitHub issue #26.
+The earlier donor-subpath synthesis and statistical gap-distance capabilities
+were removed on 2026-08-23 and no longer apply.

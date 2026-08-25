@@ -40,6 +40,11 @@ jobs:
             --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             --format json --no-progress flight-route-explorer:release-evidence > trivy-scan.json
       - name: Upload digest bundle, image tar, and scan report
+        # The bundle is authoritative in-repo (docs/evidence/oci-digest-bundle-*.json,
+        # committed by the authorized local lane); this run-bound artifact copy is a
+        # convenience/verifiability record. Tolerate account-level Actions storage
+        # quota exhaustion so a transient upload failure never blocks a merge.
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: oci-digest-bundle

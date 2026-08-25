@@ -17,12 +17,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApiServer } from "../../apps/api/src/index.ts";
-import { synthesisAdapter } from "../fixtures/synthesis-caas.ts";
+import { caasFixtureAdapter } from "../fixtures/caas-fixtures.ts";
 
 type ApiServer = Awaited<ReturnType<typeof createApiServer>>;
 
 async function newServer(t: test.TestContext): Promise<ApiServer> {
-  const server = await createApiServer({ adapter: synthesisAdapter(), refreshSecret: "r2-g5-secret" });
+  const server = await createApiServer({ adapter: caasFixtureAdapter(), refreshSecret: "r2-g5-secret" });
   t.after(() => server.app.close());
   return server;
 }
@@ -97,7 +97,7 @@ test("R2-G5-BUG-2 fix keeps well-formed same-origin state-changing requests allo
 test("R2-G5-BUG-2 fix keeps decorated-but-parseable origins working on the admin alias", async (t) => {
   // Back-to-back refreshes allowed so the alias check is isolated from the
   // rate-limit window.
-  const server = await createApiServer({ adapter: synthesisAdapter(), refreshSecret: "r2-g5-secret", refreshMinIntervalMs: 0 });
+  const server = await createApiServer({ adapter: caasFixtureAdapter(), refreshSecret: "r2-g5-secret", refreshMinIntervalMs: 0 });
   t.after(() => server.app.close());
   const decorated = await server.app.inject({
     method: "POST",

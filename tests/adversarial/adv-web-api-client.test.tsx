@@ -3,23 +3,19 @@ import {
   ApiError,
   fetchReadiness,
   fetchRouteOptions,
-  fetchSynthesis,
   lookupPoint,
   searchCallsigns,
 } from "../../apps/web/src/api.ts";
-import { analyzeIncompleteRouteDistance } from "../../apps/web/src/gapDistanceEstimate.ts";
 import type { RouteOption } from "../../apps/web/src/api.ts";
 
 /**
  * Adversarial lane A9 — owner/domain: parallel adversarial sub-agent / web
- * apiClient (apps/web/src/api.ts) + geometry helper (gapDistanceEstimate.ts):
- * fetch boundaries and malformed responses.
+ * apiClient (apps/web/src/api.ts): fetch boundaries and malformed responses.
  *
  * Deliberately NOT duplicating:
  * - sec-1.test.tsx (hostile coordinate coercion), sec-3.test.tsx (URL privacy),
  *   finding-6.test.tsx (search pagination), overview-api.test.tsx (cursor
- *   traversal), gap-distance.test.tsx (corridor aggregation),
- *   sec-r5-synthesis.test.ts (server-side synthesis contracts).
+ *   traversal).
  *
  * Covered here, previously uncovered:
  * - 200 with unparseable/empty bodies and 204 no-body → clean rejection.
@@ -59,13 +55,6 @@ const GENERATION = {
   reference: { state: "fresh", retrievedAt: "2026-08-16T00:00:00.000Z", freshUntil: "2026-08-17T00:00:00.000Z", staleUntil: "2026-08-18T00:00:00.000Z" },
 };
 
-const UNAVAILABLE_MODEL = {
-  schemaVersion: 1,
-  status: "unavailable",
-  reason: "TEST_NO_CORPUS",
-  message: "No independent historical calibration corpus is available.",
-} as const;
-
 describe("malformed response bodies fail cleanly (A9)", () => {
   it("a 200 with an empty body rejects cleanly, never resolving undefined-derived data", async () => {
     // Real Response so body semantics are genuine: empty body -> json() throws.
@@ -78,7 +67,7 @@ describe("malformed response bodies fail cleanly (A9)", () => {
       status: 200,
       headers: { "content-type": "application/json" }, // lying content-type must not matter
     }));
-    await expect(fetchSynthesis("flight-1", undefined)).rejects.toThrow();
+    await expect(searchCallsigns("flight-1")).rejects.toThrow();
   });
 
   it("a 204 no-body response rejects rather than resolving a phantom result", async () => {
@@ -137,20 +126,6 @@ describe("valid JSON with the wrong shape degrades stably (A9)", () => {
     expect(byId("huge")?.distanceNm).toBe(1e12);
   });
 
-  it("synthesis: non-record and status-less payloads map to the typed SYNTHESIS_MALFORMED error", async () => {
-    stubFetch(() => new Response(JSON.stringify(["full"]), { status: 200 }));
-    await expect(fetchSynthesis("flight-4", undefined)).rejects.toMatchObject({
-      name: "ApiError",
-      status: 502,
-      code: "SYNTHESIS_MALFORMED",
-    });
-
-    stubFetch(() => new Response(JSON.stringify({ status: "COMPLETE", candidates: [] }), { status: 200 }));
-    await expect(fetchSynthesis("flight-4", undefined)).rejects.toMatchObject({
-      name: "ApiError",
-      code: "SYNTHESIS_MALFORMED",
-    });
-  });
 });
 
 describe("HTTP edge statuses map to stable typed errors (A9)", () => {
@@ -256,63 +231,10 @@ describe("privacy: error paths never log flight identifiers (A9)", () => {
 
     await fetchRouteOptions("signed-token-SECRETFLIGHT").catch(() => {});
     await searchCallsigns("SECRET-CALLSIGN").catch(() => {});
-    await fetchSynthesis("signed-token-SECRETFLIGHT", undefined).catch(() => {});
-
     const logged = [...logSpy.mock.calls, ...warnSpy.mock.calls, ...errorSpy.mock.calls]
       .flatMap((args) => args.map((arg) => (typeof arg === "string" ? arg : "")))
       .join(" ");
     expect(logged.includes("SECRETFLIGHT")).toBe(false);
     expect(logged.includes("SECRET-CALLSIGN")).toBe(false);
-  });
-});
-
-describe("geometry guards in the distance analysis (A9)", () => {
-  function singleGapRoute(): RouteOption {
-    // One gap run over one recorded segment: span count must stay 1 or the
-    // mapping invariant (runs == spans) fails closed.
-    return {
-      id: "geom-route",
-      flightId: "geom-flight",
-      callsign: "GEOM1",
-      status: "incomplete",
-      complete: false,
-      pointCount: 4,
-      legs: [
-        { id: "known-a", sequence: 0, status: "resolved", from: "A", to: "B", distanceNm: 0 },
-        { id: "gap-a", sequence: 1, status: "gap", kind: "gap", reason: "missing" },
-        { id: "known-b", sequence: 2, status: "resolved", from: "C", to: "D", distanceNm: 60.1 },
-      ],
-      segments: [[{ lat: 0, lon: 0 }, { lat: 0, lon: 1 }]],
-      gaps: [{ sequence: 1, status: "gap", reason: "missing" }],
-    };
-  }
-
-  it("an endpoint identical to recorded geometry creates no fabricated endpoint corridor", () => {
-    // Both endpoints are supplied, but the destination coincides exactly with
-    // the last recorded point: the sameCoordinate guard must skip it, leaving
-    // exactly one corridor (the differing origin side) with finite bounds.
-    const analysis = analyzeIncompleteRouteDistance(
-      singleGapRoute(),
-      { origin: { lat: 5, lon: 5 }, destination: { lat: 0, lon: 1 } },
-      UNAVAILABLE_MODEL,
-    );
-    expect(analysis.corridors).toHaveLength(1);
-    expect(analysis.corridors[0]?.endpointCorridor).toBe(true);
-    expect(analysis.corridors[0]?.minimumNm).toBeGreaterThan(0);
-    expect(Number.isFinite(analysis.corridors[0]?.minimumNm)).toBe(true);
-  });
-
-  it("a coincident origin endpoint is skipped too, and a zero-distance leg never poisons subtotals", () => {
-    const analysis = analyzeIncompleteRouteDistance(
-      singleGapRoute(),
-      { origin: { lat: 0, lon: 0 }, destination: { lat: 5, lon: 5 } },
-      UNAVAILABLE_MODEL,
-    );
-    // Two endpoints supplied, origin coincides -> still exactly one corridor.
-    expect(analysis.corridors).toHaveLength(1);
-    expect(analysis.corridors[0]?.endpointCorridor).toBe(true);
-    // Zero distance is legal: the resolved-leg subtotal includes the 0 NM leg.
-    expect(analysis.sourceResolvedLegSubtotalNm).toBeCloseTo(60.1, 10);
-    expect(Number.isFinite(analysis.recordedGeometrySubtotalNm)).toBe(true);
   });
 });

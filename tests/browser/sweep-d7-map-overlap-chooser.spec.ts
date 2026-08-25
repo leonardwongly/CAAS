@@ -66,7 +66,7 @@ test("closing the chooser selects nothing and the map stays pannable", async ({ 
   // A confused user changes their mind: Close dismisses without a selection.
   await page.locator(".map-overlap-chooser button", { hasText: "Close" }).click();
   await expect(page.locator(".map-overlap-chooser")).toHaveCount(0);
-  await expect(page.locator(".map-hud")).toContainText("2 of 2 source route records shown");
+  await expect(page.locator(".map-hud")).toContainText("2 of 2 routes shown");
 
   const box = await page.locator(".map-stage").boundingBox();
   if (!box) throw new Error("Stage bounding box unavailable.");
@@ -146,7 +146,7 @@ test("Escape dismisses the chooser without selecting a route", async ({ page }) 
   await expect(page.locator(".map-overlap-chooser")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.locator(".map-overlap-chooser")).toHaveCount(0);
-  await expect(page.locator(".map-hud")).toContainText("2 of 2 source route records shown");
+  await expect(page.locator(".map-hud")).toContainText("2 of 2 routes shown");
 });
 
 test("zoom controls keep their pointer hit targets under the chooser on narrow stages", async ({ page }) => {

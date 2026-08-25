@@ -33,7 +33,7 @@ test("container live lane records PENDING and exits 0 when no credential is conf
     const record = await probeRecord(recordDir, "pending-probe");
     assert.equal(record.mode, "pending-authorized-execution");
     assert.equal(record.summary.failed, 0);
-    assert.equal(record.summary.blocked, 6);
+    assert.equal(record.summary.blocked, 5);
     assert.equal(record.summary.passed, 1);
     assert.equal(record.subject.type, "oci");
   } finally {

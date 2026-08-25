@@ -40,7 +40,7 @@ What was built:
 | Linux build, containerised artifact | `containers/Dockerfile` (digest-pinned, non-root); `pnpm run oci:build` |
 | CI/CD automation (GitHub Actions) | Four workflows in `.github/workflows/` — see [CI/CD Pipeline](#cicd-pipeline) |
 | Cloud deployment | Cloudflare Workers + Containers, staging auto-deployed from `master` (Azure path documented, inert) |
-| Optional: alternate route computation | Donor-subpath synthesis + gap-distance modeling in `packages/route-engine/` |
+| Optional: alternate route computation | Direct great-circle alternate (`packages/route-engine/src/alternate.ts`, `POST /api/v1/routes/alternate`) |
 
 ## Component Diagram
 
@@ -70,15 +70,13 @@ Locally, the same split applies: Vite dev server for the frontend (proxies `/api
 
 ## How It Works (Key Concepts)
 
-**1. Data acquisition.** `packages/upstream-caas/` performs bounded, allow-listed HTTPS GETs against the five CAAS endpoint families, with retries, freshness windows (live ≤ 5 min, reference ≤ 24 h), and strict schema validation. Startup fails closed if any mandatory family is unusable; refreshes build a new generation and swap atomically after full validation. Airways are fetched, parsed, and validated but their unproven values are never surfaced in output — routes are drawn from exactly resolved coordinates only.
+**1. Data acquisition.** `packages/upstream-caas/` performs bounded, allow-listed HTTPS GETs against the five CAAS endpoint families, with retries, freshness windows (live ≤ 5 min, reference ≤ 24 h), and strict schema validation. Startup fails closed if any mandatory family is unusable; refreshes build a new generation and swap atomically after full validation. The Airways reference list is fetched, parsed, and validated but stays counts-only; recorded route legs surface the airway labels carried by the flight plan and draw geometry from resolved waypoint coordinates.
 
 **2. Route resolution.** For a selected flight plan, each waypoint is resolved by **exact reference matching** against Fixes, Airports, and NAVAIDs — never by proximity inference. Unresolved positions are preserved as explicit gaps, and ambiguous matches are preserved, not guessed. Modeled route distance is a full-precision Haversine total (R = 3440.065 NM), displayed to 0.1 NM and treated as descriptive only.
 
 **3. User journey.** The UI lists all air-routes and supports callsign search. Selecting a flight draws its recorded route on the tile map with leg/waypoint detail and auto-fits the view.
 
-**4. Route synthesis (the optional alternate-route task).** `packages/route-engine/src/synthesis.ts` (algorithm `donor-subpath-v1`) proposes alternate routes by borrowing contiguous subpaths from other recorded flights ("donors") whose waypoints join the selected route at shared reference IDs or exact coordinates. Candidates are bounded, deduplicated, and carry donor provenance.
-
-**5. Gap-distance estimation and corridor analysis.** Where a candidate route has uncovered gaps, `packages/route-engine/src/gap-distance.ts` estimates their distance using a trained circuity model over span/latitude/heading cells (with an endpoint-corridor feature), letting synthesized candidates be distance-compared against the recorded baseline at full precision (`compare.ts`).
+**4. Alternate route (the optional task).** `packages/route-engine/src/alternate.ts` computes the direct great-circle path between the resolved departure and destination airports and densifies it for correct geodesic rendering. `POST /api/v1/routes/alternate` serves it as a dashed, clearly-labelled alternate; it is a coordinate-derived computed path, never a borrowed or inferred subpath.
 
 ## Build & Run Steps
 
@@ -133,7 +131,7 @@ Production deployment topology: Cloudflare Worker serving static SPA assets, wit
 
 - *Exact reference resolution over proximity matching.* Aviation reference points have canonical identifiers; guessing the "nearest" fix would silently corrupt a route. Unresolved/ambiguous points are surfaced explicitly instead.
 - *Haversine at full precision (R = 3440.065 NM).* Aviation distances are nautical miles on a spherical model; rounding is applied only at the display boundary so comparisons never accumulate error.
-- *Donor-subpath synthesis instead of graph search.* The dataset is recorded flights, not a connectivity graph; borrowing proven subpaths from real flights produces alternates that are structurally plausible and always traceable to donor provenance. A trained span/latitude/heading circuity model estimates uncovered gaps so candidates can be fairly distance-compared.
+- *Direct great-circle alternate over inferred connectivity.* The supplied Airways endpoint returns names, not a connectivity graph, so the optional alternate is computed honestly as the densified great-circle path between resolved airport coordinates.
 
 **Tooling choices**
 
@@ -161,7 +159,7 @@ Gaps between the current POC and production maturity:
 - **Security hardening** — authenticated/authorized API access (currently single-user), rate limiting, WAF, and key rotation procedures; the CI already enforces secret scanning, dependency audit, and Trivy gating as the baseline.
 - **Observability** — structured metrics/tracing, upstream-failure dashboards, and alerting on generation refresh degradation (a minimal structured logger exists; it is not wired to a telemetry backend).
 - **Scaling** — the single in-memory generation and `max_instances: 1` container suit a POC; production would need horizontal instances sharing a generation source or a cache tier, plus graceful container cold-start handling.
-- **Data governance** — retention/licensing review of upstream records, airway-topology data quality assessment (airways are currently validated but not displayed), and freshness-window tuning against real API quotas.
+- **Data governance** — retention/licensing review of upstream records, airway-topology data quality assessment (the airway-name list is counts-only; recorded leg labels are displayed), and freshness-window tuning against real API quotas.
 - **CI/CD automation** — canary/rollback automation for production deploys, container registry push with signed digests, and scheduled live-lane evidence runs.
 
 ---

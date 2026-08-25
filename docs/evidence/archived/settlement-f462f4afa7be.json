@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "recordKind": "settlement-results",
+  "planKind": "evidence-settlement-v1",
+  "subject": {
+    "type": "commit",
+    "identifiers": {
+      "commit": "f462f4afa7be934fbe8a6c33930ddd69fe18f62c"
+    },
+    "environment": "local-settlement"
+  },
+  "completedAt": "2026-08-25T12:43:52.827Z",
+  "archived": [
+    {
+      "name": "container-live-lane-0c2c689696f2.json",
+      "sha256": "439667dfbfcb8e52b59f7b54c3312f3928f7895ddb4723679db1a604fc248a7b",
+      "byteLength": 6166
+    },
+    {
+      "name": "container-live-lane-be2a61cd4237.json",
+      "sha256": "11a3b1e91cbb5b6769fb1750f2faed618098838cee3090ca2200419e86709fa5",
+      "byteLength": 6133
+    }
+  ],
+  "regenerated": [
+    "docs/evidence/loopback-lane-local-f462f4afa7be.json"
+  ],
+  "validation": {
+    "mode": "serial-after-regeneration",
+    "gateCount": 1,
+    "laneCount": 30
+  },
+  "recovery": "audit written after a mid-apply validation failure; archives were verified byte-for-byte against the reviewed plan",
+  "azure": "untouched",
+  "production": "prohibited"
+}

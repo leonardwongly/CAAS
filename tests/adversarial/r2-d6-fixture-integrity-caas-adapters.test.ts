@@ -1,6 +1,6 @@
 // Owner: R2-D6 — fixture integrity (round-2 adversarial sweep 2026-08-23).
 //
-// The upstream CAAS fixtures (tests/fixtures/synthesis-caas.ts and
+// The upstream CAAS fixtures (tests/fixtures/caas-fixtures.ts and
 // tests/fixtures/sanitized-caas.ts) feed ~20 offline suites but were never
 // checked against reality. This lane pins:
 //   1. Fixture payloads survive REAL packages/contracts parsing: every record
@@ -19,7 +19,7 @@ import test from "node:test";
 import { CoordinateSchema, parseReference } from "../../packages/contracts/src/index.ts";
 import { createCaasAdapter, FAMILY_POLICIES, MAX_ROUTE_ELEMENTS } from "../../packages/upstream-caas/src/index.ts";
 import type { CaasAdapter, CaasTransport, FlightPlanRecord } from "../../packages/upstream-caas/src/index.ts";
-import { synthesisAdapter, synthesisFlights } from "../fixtures/synthesis-caas.ts";
+import { caasFixtureAdapter, caasFixtureFlights } from "../fixtures/caas-fixtures.ts";
 import { sanitizedAdapter, sanitizedFlights } from "../fixtures/sanitized-caas.ts";
 
 function sortedKeys(value: object): string[] {
@@ -56,7 +56,7 @@ function realAdapter(t: { after: (fn: () => void) => void }): CaasAdapter {
 
 test("fixture adapters expose exactly the real CaasAdapter method set", async (t) => {
   const real = realAdapter(t);
-  for (const adapter of [synthesisAdapter(), sanitizedAdapter()]) {
+  for (const adapter of [caasFixtureAdapter(), sanitizedAdapter()]) {
     assert.deepEqual(sortedKeys(adapter), sortedKeys(real), "fixture adapter method set must equal the live adapter method set");
     for (const method of sortedKeys(real)) {
       assert.equal(typeof (adapter as unknown as Record<string, unknown>)[method], "function", `${method} must be a function`);
@@ -66,7 +66,7 @@ test("fixture adapters expose exactly the real CaasAdapter method set", async (t
 
 test("fixture return shapes mirror the real normalizer outputs key-for-key", async (t) => {
   const real = realAdapter(t);
-  for (const adapter of [synthesisAdapter(), sanitizedAdapter()]) {
+  for (const adapter of [caasFixtureAdapter(), sanitizedAdapter()]) {
     const [realDisplay, fixtureDisplay] = [await real.displayAll(), await adapter.displayAll()];
     assert.deepEqual(sortedKeys(fixtureDisplay), sortedKeys(realDisplay), "displayAll result keys");
     assert.deepEqual(sortedKeys(fixtureDisplay.evidence), sortedKeys(realDisplay.evidence), "displayAll evidence keys");
@@ -97,7 +97,7 @@ test("fixture return shapes mirror the real normalizer outputs key-for-key", asy
 });
 
 test("fixture flight records survive real contract parsing", () => {
-  const flights: readonly FlightPlanRecord[] = [...synthesisFlights, ...sanitizedFlights];
+  const flights: readonly FlightPlanRecord[] = [...caasFixtureFlights, ...sanitizedFlights];
   assert.ok(flights.length > 0, "fixtures carry flight records");
   for (const record of flights) {
     assert.ok(record.id.trim().length > 0, "every record has an id");
@@ -123,7 +123,7 @@ test("fixture flight records survive real contract parsing", () => {
 });
 
 test("fixture reference datasets survive real contract parsing with a faithful index", async () => {
-  for (const adapter of [synthesisAdapter(), sanitizedAdapter()]) {
+  for (const adapter of [caasFixtureAdapter(), sanitizedAdapter()]) {
     for (const dataset of ["fixes", "airports", "navaids"] as const) {
       const result = await adapter[dataset]();
       assert.equal(result.dataset, dataset, "dataset label round-trips");
@@ -154,7 +154,7 @@ test("fixture reference datasets survive real contract parsing with a faithful i
 });
 
 test("fixture airways evidence honors the live evidence invariants", async () => {
-  for (const adapter of [synthesisAdapter(), sanitizedAdapter()]) {
+  for (const adapter of [caasFixtureAdapter(), sanitizedAdapter()]) {
     const airways = await adapter.airways();
     assert.equal(airways.family, "airways");
     assert.equal(airways.records, airways.acceptedRecords + airways.rejectedRecords, "records = accepted + rejected");
@@ -169,7 +169,7 @@ test("fixture results are immutable exactly like the real normalizer output", as
   const real = realAdapter(t);
   const realDisplay = await real.displayAll();
   assert.ok(Object.isFrozen(realDisplay) && Object.isFrozen(realDisplay.records) && Object.isFrozen(realDisplay.evidence), "baseline: live results are deep-frozen");
-  for (const adapter of [synthesisAdapter(), sanitizedAdapter()]) {
+  for (const adapter of [caasFixtureAdapter(), sanitizedAdapter()]) {
     assert.ok(Object.isFrozen(adapter), "the adapter object itself is frozen like createCaasAdapter's return");
     const display = await adapter.displayAll();
     assert.ok(Object.isFrozen(display), "displayAll result frozen");
@@ -205,7 +205,7 @@ test("fixture adapters tolerate an AbortSignal argument without rejecting", asyn
   // builds its deadline races on exactly that behavior). They must accept the
   // same (signal?) arity and still resolve.
   const aborted = AbortSignal.abort();
-  for (const adapter of [synthesisAdapter(), sanitizedAdapter()]) {
+  for (const adapter of [caasFixtureAdapter(), sanitizedAdapter()]) {
     await adapter.displayAll(aborted);
     await adapter.airways(aborted);
     await adapter.fixes(aborted);

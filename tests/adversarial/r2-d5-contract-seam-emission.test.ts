@@ -238,7 +238,7 @@ test("drift pin: destination-terminating legs emit the endpoint placeholder sequ
   // DOCUMENTED SEAM DRIFT (r2-d5 finding, escalated): a segment leg that
   // terminates at the destination endpoint carries the endpoint placeholder
   // sequence Number.MAX_SAFE_INTEGER instead of a bounded route position.
-  // The golden byte-stability fixture tests/synthesis/projection-regression
+  // The golden byte-stability fixture tests/projection-regression
   // .test.ts pins exactly this value, so it is contract-frozen; the web
   // normalizer accepts it as an opaque finite number and the UI renders
   // index+1 instead. This test pins the current shape so any future change is
@@ -365,7 +365,6 @@ test("projection surfaces are frozen at the seam: DTO and projection outputs are
     assert.ok(Object.isFrozen(projection.legs));
     assert.ok(Object.isFrozen(projection.waypoints));
     assert.ok(Object.isFrozen(projection.gaps));
-    assert.ok(Object.isFrozen(projection.occurrences));
     const dto = overviewRouteDto(snapshot, flight);
     assert.ok(Object.isFrozen(dto.legs));
     assert.ok(Object.isFrozen(dto.gaps));

@@ -1,6 +1,6 @@
 # ADR-0002: Server-side donor-subpath synthesis
 
-- **Status:** Accepted (owner direction 2026-08-18)
+- **Status:** Superseded by ADR-0003 (owner direction 2026-08-23)
 - **Decision authority:** User
 - **Scope:** Challenge POC only; additive documentation capability, not production authorization
 - **Review trigger:** Any change to synthesis join rules, bounds, provenance semantics, public DTOs, distance partitioning, neutrality, or privacy wording

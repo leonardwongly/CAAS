@@ -60,7 +60,8 @@ Technical contracts, acceptance criteria, gate definitions, and evidence rules r
 - [Production operations: ownership, SLOs, incident response, DR (design candidates)](operations/production-operations.md)
 - [Production-prerequisites register](operations/production-prerequisites-register.md) (closed out of scope by owner decision 2026-08-15; production remains prohibited)
 - [ADR: binding POC authority and legacy reconciliation](adr/0001-poc-authority-and-legacy-reconciliation.md)
-- [ADR: server-side donor-subpath synthesis](adr/0002-server-side-donor-subpath-synthesis.md) — additive on-demand candidate assembly from same-generation observed slices; source routes never mutated
+- [ADR: server-side donor-subpath synthesis](adr/0002-server-side-donor-subpath-synthesis.md) — superseded by ADR-0003
+- [ADR: airway labels and direct alternate](adr/0003-airway-labels-and-direct-alternate.md) — recorded airway labels on legs plus a computed direct great-circle alternate; removes the donor-subpath synthesis capability
 
 ## Evidence
 
@@ -115,13 +116,11 @@ repository. Secretless CI executes on pull requests (evidence validation,
 Semgrep, gitleaks secret scan, dependency audit, image build with Trivy scan);
 the CI-built subject digest is retained at
 [`docs/evidence/oci-digest-bundle-0962c7fedb67.json`](evidence/oci-digest-bundle-0962c7fedb67.json)
-(`sha256:ae5dc6d1…`). **`PG-03` passed on 2026-08-15** for that pre-synthesis
-subject: the exact CI subject ran the loopback-only real-data container lane
-5/5, a run now archived byte-for-byte at
+(`sha256:ae5dc6d1…`). **`PG-03` passed on 2026-08-15** for that subject: the
+exact CI subject ran the loopback-only real-data container lane 5/5, a run now
+archived byte-for-byte at
 [`docs/evidence/archived/container-live-lane-afe29166ac21.json`](evidence/archived/container-live-lane-afe29166ac21.json).
-The container lane has since gained the sixth synthesis-aggregation check for
-donor-subpath synthesis, so the 2026-08-21 evidence settlement re-derived the
-gate manifest and it now honestly records `blocked` (`PG03-EXACT-DIGEST` and
-`PG03-LOOPBACK-REAL-DATA` blocked) until an authorized run on a CI-built
-subject containing the synthesis endpoints passes all six checks. Azure,
-production, and UAT execution remain un-evidenced.
+The donor-subpath synthesis capability and its synthesis-aggregation lane check
+were removed on 2026-08-23 (ADR-0003); a fresh authorized run on a CI-built
+subject is required before the gate can be re-evidenced. Azure, production, and
+UAT execution remain un-evidenced.

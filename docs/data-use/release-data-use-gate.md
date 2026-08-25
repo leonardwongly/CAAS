@@ -84,24 +84,25 @@ checklist with blank verdicts is a blocked release, not a pending one.
   `docs/operations/local-and-azure.md` is owned by that workstream and is not
   edited here.
 
-## 7. Donor-subpath synthesis (added 2026-08-18)
+## 7. Airway labels and computed alternate (added 2026-08-23)
 
-The donor-subpath synthesis capability ([ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md))
+The airway-label and computed-alternate change ([ADR-0003](../adr/0003-airway-labels-and-direct-alternate.md))
 adds no new gate and no new release path. It is governed by the existing
 checklist above:
 
-- Check 4 (exposed fields) covers the synthesis surfaces: `POST /api/v1/routes/synthesis`
-  and `POST /api/v1/routes/source-occurrences` serve only normalized public DTO
-  fields already approved in the Data Use Record (opaque tokens, borrowed
-  geometry, distances, status, aggregate donor counts, and the donor's own
-  sanitized route occurrences for auditing). They never serve raw upstream
-  records, credentials, airway values/types, donor callsigns, or raw flight
-  indices, and identifiers/tokens travel in POST bodies only, never URLs.
-- Synthesis reuses the already-acquired in-memory generation; it adds no new
-  upstream dataset, no persistence, and no change to the retention/teardown
-  decisions in the record, so checks 1–3 and 5–8 apply unchanged.
+- Check 4 (exposed fields) covers `POST /api/v1/routes/alternate`, which serves
+  only the normalized direct great-circle geometry and distance already
+  approved in the Data Use Record, and the recorded route-element airway
+  labels on resolved legs. It never serves raw upstream records, credentials,
+  the airway-name reference list values, or raw flight indices, and
+  identifiers/tokens travel in POST bodies only, never URLs.
+- The alternate reuses the already-acquired in-memory generation; it adds no
+  new upstream dataset, no persistence, and no change to the
+  retention/teardown decisions in the record, so checks 1–3 and 5–8 apply
+  unchanged.
 - Source routes, gaps, distances, signatures, comparisons, and ordering are
-  never mutated by synthesis; a demonstration must be able to show the source
-  DTO unchanged after synthesis.
+  never mutated; a demonstration must be able to show the source DTO unchanged
+  after the alternate is computed.
 
-Resolved per GitHub issue #28.
+The earlier donor-subpath synthesis and statistical gap-distance capabilities
+were removed on 2026-08-23 and no longer apply.

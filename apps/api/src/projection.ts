@@ -35,6 +35,9 @@ export interface PublicLeg {
   readonly to?: string;
   readonly distanceNm?: number;
   readonly reason?: RouteGapReason;
+  /** Outbound airway recorded on the from-occurrence (labels a resolved leg). */
+  readonly airway?: string;
+  readonly airwayType?: string;
 }
 
 export interface PublicWaypoint {
@@ -65,13 +68,10 @@ export interface RouteProjection<TEndpoint extends ProjectionEndpoint = Location
   readonly complete: boolean;
   readonly pointCount: number;
   readonly signature: string;
-  /** Internal synthesis projection: endpoint-inclusive ordinals and resolved
-   * reference identities. Never serialized into any DTO surface. */
-  readonly occurrences: readonly ProjectionOccurrence[];
 }
 
-export type ProjectionOccurrence =
-  | { point: { label: string; coordinate: Coordinate; sequence: number; ordinal: number; referenceId?: string } }
+type ProjectionOccurrence =
+  | { point: { label: string; coordinate: Coordinate; sequence: number; ordinal: number; referenceId?: string; airway?: string; airwayType?: string } }
   | { gap: PublicGap & { ordinal: number } };
 
 export function isProjectionEndpointGap(endpoint: ProjectionEndpoint): endpoint is ProjectionEndpointGap {
@@ -132,14 +132,14 @@ export function routeProjection(
           const named = indexedReferenceResolution(snapshot, element.identifier);
           if (named.status === "resolved") label = displayReference(named.match);
         }
-        occurrences.push({ point: { label, coordinate: element.coordinate, sequence: element.sequence, ordinal: nextOrdinal } });
+        occurrences.push({ point: { label, coordinate: element.coordinate, sequence: element.sequence, ordinal: nextOrdinal, ...(element.airway ? { airway: element.airway } : {}), ...(element.airwayType ? { airwayType: element.airwayType } : {}) } });
         nextOrdinal += 1;
         continue;
       }
       const result = element.identifier ? indexedReferenceResolution(snapshot, element.identifier) : { status: "gap" as const } as ResolutionResult;
       const reason: RouteGapReason = result.status === "ambiguous" ? "ambiguous" : result.status === "resolved" ? "not-found" : element.identifier ? "not-found" : "missing";
       if (result.status === "resolved") {
-        occurrences.push({ point: { label: displayReference(result.match), coordinate: result.match.coordinate, sequence: element.sequence, ordinal: nextOrdinal, referenceId: result.match.id } });
+        occurrences.push({ point: { label: displayReference(result.match), coordinate: result.match.coordinate, sequence: element.sequence, ordinal: nextOrdinal, referenceId: result.match.id, ...(element.airway ? { airway: element.airway } : {}), ...(element.airwayType ? { airwayType: element.airwayType } : {}) } });
         nextOrdinal += 1;
       } else {
         const gap = { status: "gap" as const, sequence: element.sequence, reason };
@@ -170,7 +170,7 @@ export function routeProjection(
     : Object.freeze({ sequence: occurrence.point.sequence, status: "resolved" as const, label: occurrence.point.label })));
   const legs: PublicLeg[] = [];
   const segments: Coordinate[][] = [];
-  let chain: Array<{ label: string; coordinate: Coordinate; sequence: number }> = [];
+  let chain: Array<{ label: string; coordinate: Coordinate; sequence: number; airway?: string; airwayType?: string }> = [];
   const flush = () => {
     if (chain.length >= 2) {
       segments.push(chain.map((point) => point.coordinate));
@@ -184,6 +184,8 @@ export function routeProjection(
           status: "resolved",
           from: from.label,
           to: to.label,
+          ...(from.airway ? { airway: from.airway } : {}),
+          ...(from.airwayType ? { airwayType: from.airwayType } : {}),
           distanceNm: haversineDistanceNm(from.coordinate, to.coordinate),
         });
       }
@@ -222,7 +224,6 @@ export function routeProjection(
     complete,
     pointCount,
     signature,
-    occurrences: Object.freeze(occurrences),
   });
 }
 

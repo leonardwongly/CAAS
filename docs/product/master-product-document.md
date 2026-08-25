@@ -67,9 +67,9 @@ The product does not:
 - file, dispatch, approve, clear, navigate, or recommend a route;
 - evaluate weather, notices to air missions (NOTAMs), air traffic control, fuel, aircraft suitability, legality, or regulatory constraints;
 - infer a nearby point, fix name, airway, or operational path from a gap;
-- silently repair the recorded route; the optional estimated gap preview is a separately labelled, client-only visual estimate under Section 5.4.1;
+- silently repair the recorded route;
 - claim authoritative airway topology from unproven Airways fields;
-- expose credentials, raw upstream records, personal fields, or hidden airway values;
+- expose credentials, raw upstream records, personal fields, or the airway-name reference list values;
 - persist a selected route or local variation across restart;
 - provide production operational control.
 
@@ -229,48 +229,11 @@ The selected route exposes:
 
 Map and table parity is required because geometry alone is neither sufficiently precise nor universally perceivable. Provenance, freshness, and completeness remain separate from modeled values so users can distinguish source facts, calculations, and unavailable data.
 
-### 5.4.1 Estimated gap preview
+### 5.4.1 Computed alternate route
 
-An incomplete recorded route may be opened in an explicit **Estimated gap preview** layer. The recorded route remains unchanged: its gaps, completeness, distance, comparison eligibility, ranking, export behavior, DTO, and server projection are never repaired or replaced.
+For the challenge's optional alternate-route task, the product computes a single coordinate-derived alternate: the densified direct great-circle path between the resolved departure and destination airports, served by `POST /api/v1/routes/alternate` (`{flightId}` → geometry, full-precision distance, label `direct-great-circle`, and the persistent safety copy). It is drawn dashed and clearly labelled; it is a computed path, never a borrowed, interpolated, or inferred subpath, and never a recommendation or a cleared route. The recorded source route, gaps, completeness, distance, signature, comparison, and ordering are never mutated.
 
-The layer drew a dotted visual span only when both anchors were exact normalized coordinates and at least one anchor was adjacent to a recorded component; its synthetic midpoint rendering was retired on 2026-08-20 (ADR-0002). The estimate now survives strictly as a separate descriptive statistical annotation, while donor-subpath synthesis provides the inspectable borrowed-geometry view. Endpoint-only routes, ambiguous anchors, and unproven airway relationships remain visibly unresolved. The visual geometry never creates a named fix, airway, route topology, operational recommendation, or complete-route modeled-distance claim.
-
-This exact-anchor overlay gives an analyst visual continuity without silently rewriting source data. The exact-anchor rule remains fail-closed: absent or ambiguous evidence leaves the original gap intact.
-
-#### 5.4.1.1 Non-operational estimated-distance annotation goal
-
-The Estimated gap preview may additionally show a **separate client-only distance annotation** for an incomplete route. It never populates source `distanceNm`, repairs completeness, renames a gap, changes geometry, or participates in comparison, ordering, ranking, export, API output, persistence, or server state.
-
-The goal is delivered in two releases:
-
-1. **Exact-anchor lower bounds.** Consecutive explicit gap records bounded by the same pair of exact recorded anchors form one corridor and are counted once. The client shows the recorded-geometry Haversine subtotal, source-resolved-leg subtotal when every resolved leg supplies one, the sum of exact-anchor corridor minimums, and their continuous-route geometric minimum. These values are lower bounds, not expected or source route totals. Endpoint-only and unmapped gaps remain unavailable.
-2. **Calibrated statistical annotation.** An offline trainer masks contiguous portions of approved complete historical routes, predicts log circuity from coordinate-only context, holds out whole route groups, and conformal-calibrates intervals. Runtime inference uses an aggregate, versioned artifact containing no historical route identifiers or coordinates. Every corridor must pass support and calibration gates; otherwise only Release 1 remains visible. Multiple-corridor intervals use per-corridor confidence adjusted by the union bound, while the displayed central aggregate is explicitly a sum of corridor medians rather than an exact route-level P50.
-
-No production statistical value is shown until an approved historical corpus satisfies independent-route count, held-out coverage, privacy, and retention requirements. The current absence of such a corpus is an explicit fail-closed state, not permission to fit the active generation or retain flight history silently.
-
-The persistent annotation copy is: **“Visual estimate only. Exact-anchor spans are geometric minimums; any calibrated interval is a non-operational statistical descriptor, not source flight data, a route suggestion, or real-time tracking.”**
-
-### 5.4.2 Observed-donor subpath synthesis (on-demand, additive)
-
-An incomplete recorded route may be opened in an explicit, on-demand **synthesis** chooser. It asks a single bounded question: do other flights in this same immutable data generation contain contiguous forward gap-free coordinate slices between the route's exact anchors? It never edits, removes, or replaces the recorded route.
-
-Four states stay distinct everywhere in the product:
-
-- **Source:** the recorded route's exact resolved points, gaps, completeness, distance, signature, comparison behavior, and ordering — never mutated by synthesis.
-- **Borrowed:** contiguous donor subpaths copied without modification, rendered dotted (recorded geometry stays solid) and labelled as observed on other recorded routes.
-- **Estimated:** candidate distances partition into source-resolved and borrowed components; any estimated total is their sum, labelled separately — it is an annotation, never a route suggestion. The Section 5.4.1 statistical gap-distance annotation remains a separate client-only feature and is not synthesis.
-- **Unsupported:** gaps that no same-generation donor geometry can join remain explicit gaps; nothing is interpolated.
-
-Server behavior is fail-closed and bounded (recorded in [ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md)):
-
-- Two POST-only endpoints carry identifiers/tokens in request bodies, never URLs: `POST /api/v1/routes/synthesis` (`{flightId, cursor?}` → status, corridorCount, corridorsCovered, a candidate page of at most 5, nextCursor) and `POST /api/v1/routes/source-occurrences` (`{proofId}` → the donor flight's observed occurrences for auditing).
-- Statuses are explicit: `not-needed`, `full`, `ambiguous`, `partial`, `unavailable`, `over-limit`, `candidate-limit-exceeded`.
-- Joining requires exact reference identity or exact coordinate; conflicted reference ids are unjoinable with no coordinate fallback; slices are forward-only and contiguous, with no interpolation or fuzzy matching.
-- Bounds: at most 256 endpoint-inclusive points per candidate, at most 20 candidates, a 2 MiB response page, a 5-second deadline, and at most 8 provenance entries per deduplicated geometry (`donorTruncated` beyond that). Algorithm version is `donor-subpath-v1`.
-- Borrowed geometry carries scoped proof tokens resolvable through `source-occurrences`; proofs bind to the current generation and fail closed otherwise.
-- Candidates are never ranked, best-labelled, or shortest-labelled; this extends the comparison-without-a-winner contract of Section 5.5.
-
-Provenance copy and sr-only text describe borrowed segments as observed subpaths copied without modification, and the chooser exposes only aggregate donor counts — never donor callsigns or upstream identifiers.
+The earlier estimated-gap-preview and observed-donor subpath synthesis capabilities were removed on 2026-08-23 ([ADR-0003](../adr/0003-airway-labels-and-direct-alternate.md)).
 
 ### 5.5 Comparison without a winner
 
@@ -341,8 +304,8 @@ This reset boundary clears task-specific state but preserves orientation. Return
 | `MPD-DATA-01` | Draw only exact resolved route components and preserve gaps. | P0 | Implemented/evidenced |
 | `MPD-DATA-02` | Keep Airways values/types out of product output and geometry. | P0 | Implemented/evidenced |
 | `MPD-DIST-01` | Show modeled distance only when the required computation is complete. | P0 | Implemented/evidenced |
-| `MPD-EST-01` | For bounded incomplete routes, show separately labelled exact-anchor and continuous-route geometric lower bounds without changing source facts. | P1 | Implemented; focused unit, interaction, accessibility, and safety tests added |
-| `MPD-EST-02` | Show a calibrated statistical annotation only after an approved historical corpus passes independent-route, privacy, and held-out coverage gates. | P1 | Infrastructure implemented; production model intentionally unavailable pending approved corpus |
+| `MPD-EST-01` | For bounded incomplete routes, keep unresolved gaps explicit and never infer or bridge geometry. | P1 | Implemented |
+| `MPD-EST-02` | (Retired 2026-08-23) Calibrated statistical gap annotation. | P1 | Removed with the donor-synthesis/gap-distance surface |
 | `MPD-CMP-01` | Compare same-endpoint route facts without preference or winner labels. | P0 | Implemented; public preference fields prohibited by tests |
 | `MPD-CMP-02` | Keep incomplete routes visible with explicit unavailable values and gaps. | P0 | Implemented under neutral complete/incomplete grouping |
 | `MPD-VAR-01` | Offer Explore a route variation as an optional local unsaved branch. | P1 | Implemented |
@@ -363,13 +326,13 @@ P0 is reserved for the core browse-select-inspect-compare journey and controls t
 | Flight, recorded route | Approved/cleared flight plan | The product is read-only and non-operational |
 | Compare routes | Best route, winner | Available data cannot determine operational preference |
 | Modeled distance | Optimal distance | It is a geometric calculation, not an operational objective |
-| Exact-anchor minimum / non-operational statistical annotation | Inferred route distance / completed route distance | Incomplete-route annotations remain separate from source `distanceNm` and never imply reconstructed topology |
+| Computed direct great-circle alternate | Inferred or borrowed route geometry | The alternate is a computed coordinate-derived path and never mutates the recorded route |
 | Complete / incomplete | Valid / invalid route | Completeness is computational, not operational validity |
 | Name unavailable (`ICAO`) | Invented full name | Airport labels require authoritative metadata |
 | Explore a route variation | Create and edit a local copy | The approved phrase is clearer and less operationally suggestive |
 | Local and unsaved | Saved draft | Nothing persists across restart |
 | Gap / unresolved / ambiguous | Estimated or nearby point | No proximity inference is permitted |
-| Borrowed geometry / observed donor subpath | Interpolated, repaired, or completed route | Synthesis copies observed same-generation geometry only; the source route stays unchanged (Section 5.4.2) |
+| Computed direct great-circle alternate | Interpolated, repaired, or completed route | The alternate is computed from resolved airport coordinates only; the source route stays unchanged (Section 5.4.1) |
 | International Civil Aviation Organization (ICAO) code | Acronym-only destination label | Users should see the actual airport name first |
 
 ### 8.1 Current technical wording
@@ -400,11 +363,9 @@ The default comparison must not imply a winner. A stable neutral order is used u
 
 The selected recorded route appears first. Remaining routes preserve immutable upstream source order; canonical signature is only a deterministic final fallback. Modeled distance never determines the default order or a preferred route. Public DTOs omit preference fields. Historical generated evidence containing Rank-era checks is preserved unchanged and proves only the older subject and contract named in that record.
 
-### 9.5 Incomplete-route distance annotation
+### 9.5 Incomplete-route distance behavior
 
-A bounded incomplete route may expose a client-derived geometric minimum and, when a separately trained artifact passes release gates, a non-operational statistical annotation. Neither value is the complete-route modeled distance defined in Section 9.1. The server continues to omit total `distanceNm` for incomplete routes, and comparison, ordering, ranking, export, topology, and source DTO behavior continue to treat the route as incomplete.
-
-The geometric minimum uses the same full-precision Haversine convention as source legs. The statistical target is excess path length expressed as log circuity; it is learned only from masked complete historical routes with route-group-held-out validation. Screen geometry and synthetic preview pixels are never distance inputs.
+The server omits total `distanceNm` for incomplete routes; comparison, ordering, ranking, export, topology, and source DTO behavior continue to treat the route as incomplete. The earlier client-side geometric-minimum and statistical gap-distance annotation were removed on 2026-08-23 and no longer exist.
 
 ## 10. Data behavior
 
@@ -480,7 +441,7 @@ The governance contract exists because a convenient name source can still be ina
 - Raw upstream records and credentials are excluded from browser responses, logs, images, evidence, and source control.
 - Flight and user state stay out of URLs.
 - Exact resolution preserves ambiguity and gaps.
-- Airways data is exercised but never exposed as route topology.
+- The airway-name reference list is exercised but never exposed; recorded route-element airway labels are shown on resolved legs and never supply topology.
 - OpenStreetMap tile requests carry coordinates only, use no-referrer behavior, display attribution, and fall back to the schematic map.
 - Network-enforced egress remains a production prerequisite; application-level allow-listing is the accepted POC residual.
 - Production use remains prohibited.
@@ -736,7 +697,7 @@ A residual risk is accepted only when the private POC boundary makes its impact 
 | Compare without winner | Owner decision, 2026-08-16 | Implemented; `AC-POC-COMPARE-01` and preference-field guards |
 | Optional route variation | Owner decision adapting design `USR-03` | Implemented product copy and current mechanics; internal `draft` remains non-user-facing |
 | Explain differences | Design `USR-04` | Neutral comparison implemented; human comprehension remains UAT |
-| Observed-donor subpath synthesis | Owner direction, 2026-08-18 | Implemented additively under [ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md); engine/api/e2e/a11y/responsive suites, adversarial privacy negatives, `PERF-SYNTHESIS-INDEX-HARD`/`PERF-SYNTHESIS-WARM-HARD`, and `LIVE-SYNTHESIS-AGGREGATE` lanes |
+| Computed direct alternate | Owner direction, 2026-08-23 | Implemented under [ADR-0003](../adr/0003-airway-labels-and-direct-alternate.md); engine/api/e2e/a11y/responsive suites and adversarial negatives |
 | Map remains dominant | Design `USR-05` | Current map-first UI evidence |
 | Five-family server acquisition | Design §0.2/0.3 | Local/live lane records and `PG-03` |
 | Non-operational boundary | README and design | Exact copy tests and UAT |
@@ -756,8 +717,8 @@ A residual risk is accepted only when the private POC boundary makes its impact 
 | 2026-08-16 | Add bundled community airport names | Require full name plus ICAO code and governed exact-ICAO data bundle | The pinned OurAirports source improves comprehension but is not official ICAO; fuzzy expansion and runtime lookup were rejected. |
 | 2026-08-16 | Compare without a winner label | Supersede the Rank-era presentation; reconciliation completed locally | Modeled distance alone cannot establish operational preference; selected-first source order and prohibited preference fields now enforce neutrality. |
 | 2026-08-16 | Rename optional editing to Explore a route variation | Keep local mechanics but remove mandatory/operational implication | The phrase signals temporary analysis rather than modification of a filed plan; making editing part of the core journey was rejected. |
-| 2026-08-16 | Add a two-release incomplete-route distance annotation goal | Authorize exact-anchor lower bounds now and calibrated statistical intervals only after historical-corpus gates pass | A geometric minimum is useful without repairing source facts; an uncalibrated point estimate, active-generation fit, or silent flight-history retention was rejected. |
-| 2026-08-18 | Authorize server-side donor-subpath synthesis for incomplete recorded routes | Additive on-demand chooser borrowing only contiguous forward same-generation observed slices; source routes, gaps, distances, signatures, comparisons, and ordering remain untouched | A bounded observed-geometry answer is useful without repairing source facts; client interpolation, fuzzy matching, ranking, reversal, or cross-generation donors were rejected ([ADR-0002](../adr/0002-server-side-donor-subpath-synthesis.md)). |
+| 2026-08-16 | (Retired 2026-08-23) Add a two-release incomplete-route distance annotation goal | Exact-anchor lower bounds and calibrated statistical intervals | Removed with the donor-synthesis/gap-distance surface; no statistical gap annotation remains. |
+| 2026-08-18 | (Superseded 2026-08-23) Authorize server-side donor-subpath synthesis | Additive on-demand chooser borrowing same-generation observed slices | Superseded by [ADR-0003](../adr/0003-airway-labels-and-direct-alternate.md); the borrowed-path concept was removed in favor of a computed direct alternate. |
 | 2026-08-16 | Establish this master document | Make one product-direction source of truth while preserving technical and evidence authority | Consolidation reduces scattered intent conflicts; rewriting technical contracts or evidence history was rejected. |
 
 ## 23. Change control

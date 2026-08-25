@@ -1,6 +1,0 @@
-{
-  "schemaVersion": 1,
-  "status": "unavailable",
-  "reason": "INSUFFICIENT_INDEPENDENT_COMPLETE_ROUTES",
-  "message": "No approved historical corpus has passed independent-route calibration and held-out coverage gates. Lower bounds remain available."
-}

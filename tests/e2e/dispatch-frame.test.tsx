@@ -30,7 +30,7 @@ describe("DISPATCH briefing frame", () => {
     expect(screen.getByRole("navigation", { name: "Route workspace controls" })).toBeTruthy();
     expect(screen.getByText("SPEC-FRE-002")).toBeTruthy();
     expect(screen.getByText(/REV C/)).toBeTruthy();
-    for (const tab of ["Routes", "Data", "Compare", "Synthesis"]) {
+    for (const tab of ["Routes", "Data", "Compare"]) {
       expect(screen.getByRole("button", { name: tab })).toBeTruthy();
     }
     expect(screen.getByRole("button", { name: "Explore variation" })).toBeTruthy();

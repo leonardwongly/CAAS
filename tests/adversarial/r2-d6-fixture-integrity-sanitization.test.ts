@@ -23,7 +23,7 @@ const root = resolve(import.meta.dirname, "../..");
 
 const FIXTURE_FILES = [
   "tests/fixtures/web-app.ts",
-  "tests/fixtures/synthesis-caas.ts",
+  "tests/fixtures/caas-fixtures.ts",
   "tests/fixtures/sanitized-caas.ts",
   "tests/fixtures/sanitized-evidence.txt",
   "tests/fixtures/evidence-manifest.json",

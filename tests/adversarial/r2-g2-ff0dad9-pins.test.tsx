@@ -73,8 +73,8 @@ function installMatchMedia(initial: Record<string, boolean> = {}) {
   };
 }
 
-const WIDE_COPY = "Select a route from the map or list.";
-const NARROW_COPY = "Select a route from the map.";
+const WIDE_COPY = "Search a flight number, or select a flight from the list, to see its route.";
+const NARROW_COPY = "Search a flight number, or select a flight on the map, to see its route.";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -86,8 +86,8 @@ describe("R2-G2 ff0dad9 pins: viewport-dependent select-route copy", () => {
     installApiStub();
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText(`3 source flight records available. ${WIDE_COPY}`)).toBeTruthy());
-    expect(screen.getByText(`Refreshed source data, not real-time tracking. ${WIDE_COPY}`)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(`3 flights available. ${WIDE_COPY}`)).toBeTruthy());
+    expect(screen.getByText(`Refreshed dataset, not real-time tracking. ${WIDE_COPY}`)).toBeTruthy();
   });
 
   it("a narrow media query (<1280px) promises only the map, never the hidden manifest list", async () => {
@@ -95,8 +95,8 @@ describe("R2-G2 ff0dad9 pins: viewport-dependent select-route copy", () => {
     installApiStub();
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText(`3 source flight records available. ${NARROW_COPY}`)).toBeTruthy());
-    expect(screen.getByText(`Refreshed source data, not real-time tracking. ${NARROW_COPY}`)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(`3 flights available. ${NARROW_COPY}`)).toBeTruthy());
+    expect(screen.getByText(`Refreshed dataset, not real-time tracking. ${NARROW_COPY}`)).toBeTruthy();
     expect(screen.queryByText(/or list/)).toBeNull();
   });
 
@@ -104,7 +104,7 @@ describe("R2-G2 ff0dad9 pins: viewport-dependent select-route copy", () => {
     installApiStub();
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText(`3 source flight records available. ${NARROW_COPY}`)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(`3 flights available. ${NARROW_COPY}`)).toBeTruthy());
   });
 
   it("a live media-query change flips the copy in place — the change listener is wired, no remount needed", async () => {
@@ -112,17 +112,17 @@ describe("R2-G2 ff0dad9 pins: viewport-dependent select-route copy", () => {
     installApiStub();
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText(`Refreshed source data, not real-time tracking. ${NARROW_COPY}`)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(`Refreshed dataset, not real-time tracking. ${NARROW_COPY}`)).toBeTruthy());
 
     // The viewport crosses 1280px: the copy must follow without any remount,
     // in both the toolbar and the map HUD.
     media.setMatches("(min-width: 1280px)", true);
-    await waitFor(() => expect(screen.getByText(`3 source flight records available. ${WIDE_COPY}`)).toBeTruthy());
-    expect(screen.getByText(`Refreshed source data, not real-time tracking. ${WIDE_COPY}`)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(`3 flights available. ${WIDE_COPY}`)).toBeTruthy());
+    expect(screen.getByText(`Refreshed dataset, not real-time tracking. ${WIDE_COPY}`)).toBeTruthy();
 
     // And back below the breakpoint.
     media.setMatches("(min-width: 1280px)", false);
-    await waitFor(() => expect(screen.getByText(`Refreshed source data, not real-time tracking. ${NARROW_COPY}`)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(`Refreshed dataset, not real-time tracking. ${NARROW_COPY}`)).toBeTruthy());
     expect(screen.queryByText(/or list/)).toBeNull();
   });
 });
@@ -143,7 +143,7 @@ describe("R2-G2 ff0dad9 pins: honest empty-map copy when the overview fails", ()
     expect(screen.queryByText("Clear the callsign filter or retry the all-flight overview.")).toBeNull();
     // The HUD shows the error in place of the reassuring overview copy — the
     // error string surfaces exactly twice: once in the list alert, once in the
-    // map HUD span that otherwise promises "Refreshed source data…".
+    // map HUD span that otherwise promises "Refreshed dataset…".
     expect(screen.getAllByText("All-flight overview unavailable (stub).")).toHaveLength(2);
     // The live status announces the failure.
     expect(screen.getByRole("status").textContent).toContain("The all-flight overview could not be loaded.");
@@ -169,7 +169,7 @@ describe("R2-G2 ff0dad9 pins: honest empty-map copy when the overview fails", ()
     const user = userEvent.setup();
     render(<App />);
 
-    await screen.findByText("3 of 3 source route records shown");
+    await screen.findByText("3 of 3 routes shown");
     await user.type(screen.getByRole("combobox", { name: "Flight number or code" }), "ZZZ");
     await waitFor(() => expect(screen.getByText("No overview routes to display")).toBeTruthy());
     expect(screen.getByText("Clear the callsign filter or retry the all-flight overview.")).toBeTruthy();
@@ -186,10 +186,10 @@ describe("R2-G2 ff0dad9 pins: honest empty-map copy when the overview fails", ()
     await user.click(within(notice).getByRole("button", { name: "Retry overview" }));
 
     // The retried overview resolves: routes, list, and map lines all return.
-    await waitFor(() => expect(screen.getByText("3 of 3 source route records shown")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("3 of 3 routes shown")).toBeTruthy());
     expect(screen.queryByText("All-flight overview unavailable")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("status").textContent).toContain("3 source flight records loaded");
+    expect(screen.getByRole("status").textContent).toContain("3 flights loaded");
   });
 });
 

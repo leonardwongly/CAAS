@@ -11,8 +11,8 @@
 //      live client rejects with.
 //   3. Contract parsing: stub payloads that represent API data survive real
 //      packages/contracts schemas — bounded coordinates, the live reference
-//      kind vocabulary, synthesis status/match-method enums and page bounds,
-//      request bodies, and the verbatim persistent safety copy.
+//      kind vocabulary, request bodies, and the verbatim persistent safety
+//      copy.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -21,13 +21,9 @@ import { vi } from "vitest";
 import {
   CoordinateSchema,
   GeoJsonPositionSchema,
-  MAX_SYNTHESIS_CANDIDATES,
   PERSISTENT_SAFETY_COPY,
   ReferenceKindSchema,
   RouteDraftSchema,
-  SourceOccurrencesRequestSchema,
-  SYNTHESIS_PAGE,
-  SynthesisRequestSchema,
 } from "../../packages/contracts/src/index.ts";
 import {
   ApiError,
@@ -36,12 +32,10 @@ import {
   browseFlights,
   browseNavaids,
   fetchDataSummary,
-  fetchDonorProof,
   fetchReadiness,
   fetchRouteData,
   fetchRouteOptions,
   fetchRouteOverview,
-  fetchSynthesis,
   lookupPoint,
   refreshLiveData,
   searchCallsigns,
@@ -136,16 +130,6 @@ test("every live client function consumes the default stub payloads", async (t) 
   assert.equal(comparison.comparison.distanceDeltaNm, 0);
   assert.equal(comparison.route.legs.length, 2);
 
-  const synthesis = await fetchSynthesis("flight-2", undefined);
-  assert.equal(synthesis.status, "full");
-  assert.equal(synthesis.candidates.length, 1);
-  assert.equal(synthesis.candidates[0]!.segments.length, 1);
-  assert.deepEqual(synthesis.candidates[0]!.segments[0]!.geometry[0], { lat: 39, lon: -80 }, "borrowed GeoJSON [lon,lat] normalizes to {lat,lon}");
-
-  const proof = await fetchDonorProof("proof-fixture-1");
-  assert.equal(proof.flightId, "donor-proof-flight");
-  assert.deepEqual(proof.occurrences, []);
-
   const summary = await fetchDataSummary();
   assert.equal(summary.families.length, 4);
   assert.equal(summary.airway.records, 3);
@@ -170,16 +154,6 @@ test("stub failure modes surface exactly the ApiError the live client rejects", 
   await assert.rejects(fetchRouteOptions("flight-1"), (error: unknown) => error instanceof ApiError && error.status === 500 && error.code === "ROUTES_FAIL");
   await assert.rejects(validateDraft("KOR1", "KDS1", [], [], "route-1"), (error: unknown) => error instanceof ApiError && error.status === 500 && error.code === "DRAFT_FAIL");
   await assert.rejects(browseFlights(10), (error: unknown) => error instanceof ApiError && error.status === 409 && error.code === "CURSOR_EXPIRED");
-});
-
-test("synthesis failure and one-shot retry recovery match the live client contract", async (t) => {
-  install(t, { failSynthesis: true });
-  await assert.rejects(fetchSynthesis("flight-2", undefined), (error: unknown) => error instanceof ApiError && error.status === 500 && error.code === "SYNTHESIS_FAIL");
-  vi.unstubAllGlobals();
-  install(t, { failSynthesis: "once" });
-  await assert.rejects(fetchSynthesis("flight-2", undefined), "the first attempt fails");
-  const recovered = await fetchSynthesis("flight-2", undefined);
-  assert.equal(recovered.status, "full", "the retry recovers once the one-shot failure is spent");
 });
 
 test("stub payloads survive real contract parsing", async (t) => {
@@ -232,29 +206,6 @@ test("stub payloads survive real contract parsing", async (t) => {
   assert.ok(isRecord(compared.target) && isRecord(compared.comparison), "compare returns target + comparison");
   assert.equal((compared.target as Record<string, unknown>).safety, PERSISTENT_SAFETY_COPY, "the draft safety copy is verbatim");
   assert.equal(SAFETY_NOTICE, PERSISTENT_SAFETY_COPY, "the fixture safety notice is the contracts copy, not a paraphrase");
-
-  // Synthesis: request body, status vocabulary, page bounds, segment grammar.
-  assert.doesNotThrow(() => SynthesisRequestSchema.parse({ flightId: "flight-2" }), "the synthesis request body is contract-valid");
-  assert.doesNotThrow(() => SourceOccurrencesRequestSchema.parse({ proofId: "proof-fixture-1" }), "the donor-proof request body is contract-valid");
-  const envelope = (await rawJson("POST", "/api/v1/routes/synthesis", { flightId: "flight-2" })).json;
-  const apiSource = await readFile(resolve(root, "apps/web/src/api.ts"), "utf8");
-  const statusUnion = apiSource.match(/export type SynthesisStatus = ([^;]+);/)?.[1];
-  assert.ok(statusUnion, "the live client defines a synthesis status union");
-  const statuses = new Set([...statusUnion.matchAll(/"([^"]+)"/g)].map((match) => match[1]!));
-  assert.ok(statuses.has(String(envelope.status)), `envelope status ${String(envelope.status)} is in the live union`);
-  const candidates = envelope.candidates;
-  assert.ok(Array.isArray(candidates), "envelope carries candidates");
-  assert.ok(candidates.length <= SYNTHESIS_PAGE, "one stub page stays inside the synthesis page bound");
-  assert.ok(candidates.length <= MAX_SYNTHESIS_CANDIDATES, "candidates stay inside the candidate cap");
-  for (const candidate of candidates as Array<Record<string, unknown>>) {
-    const segments = candidate.segments;
-    assert.ok(Array.isArray(segments) && segments.length > 0, "candidate carries segments");
-    for (const segment of segments as Array<Record<string, unknown>>) {
-      assert.ok(segment.matchMethod === "reference" || segment.matchMethod === "exact-coordinate", "matchMethod uses the live vocabulary");
-      for (const position of positionsOf(segment.geometry)) assert.doesNotThrow(() => GeoJsonPositionSchema.parse(position), "borrowed geometry is bounded");
-      assert.ok(Array.isArray(segment.proofIds) && (segment.proofIds as unknown[]).every((proof) => typeof proof === "string" && proof.length > 0), "proof ids are non-empty strings");
-    }
-  }
 
   // Browse payloads: reference items carry bounded coordinates and the live
   // family kinds; flight items carry the normalized DTO fields.

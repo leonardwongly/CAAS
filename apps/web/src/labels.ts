@@ -13,6 +13,4 @@ export const ADVISORY_HEADLINE = "Demonstration only — not for filing, dispatc
 /** Byte-identical mirror of `packages/contracts` DRAFT_SAFETY_COPY. */
 export const DRAFT_SAFETY_COPY = "Computationally complete; operational constraints not assessed.";
 
-export const REFRESH_CONFIRM = "Refresh the source-data snapshot? The current flight selection will be cleared. The app will retrieve a new CAAS dataset; it does not track live operations.";
-
-export const GAP_DISTANCE_ANNOTATION_CAVEAT = "Visual estimate only. Exact-anchor spans are geometric minimums; any calibrated interval is a non-operational statistical descriptor, not source flight data, a route suggestion, or real-time tracking.";
+export const REFRESH_CONFIRM = "Refresh the dataset? The current flight selection will be cleared. The app will retrieve a new CAAS dataset; it does not track live operations.";

@@ -79,7 +79,7 @@ test("a failed route-options load in the drawer offers actionable code copy and 
   await page.getByRole("button", { name: "Routes", exact: true }).click();
 
   const drawer = page.getByRole("region", { name: "Route chooser" });
-  await expect(drawer).toContainText("This source-data snapshot has expired. Refresh source data to acquire a new snapshot.");
+  await expect(drawer).toContainText("This dataset has expired. Refresh data to acquire a new snapshot.");
   await drawer.getByRole("button", { name: "Retry route options" }).click();
   await expect(drawer).toContainText("Complete recorded route options", { timeout: 5000 });
   await expect(drawer).toContainText("Recorded error fixture route");

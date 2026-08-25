@@ -69,7 +69,7 @@ test("offline boot recovers through the retry affordance once the connection ret
   await alert.getByRole("button", { name: "Retry overview" }).click();
   await expect(page.getByRole("button", { name: /FR7ALF/ })).toBeVisible({ timeout: 5000 });
   await expect(alert).toHaveCount(0);
-  await expect(page.locator(".sr-status")).toContainText("1 source flight record loaded.");
+  await expect(page.locator(".sr-status")).toContainText("1 flight loaded.");
 });
 
 test("a generation change mid-pagination surfaces an error and never mixes datasets", async ({ page }) => {
@@ -106,13 +106,13 @@ test("a generation change mid-pagination surfaces an error and never mixes datas
   await expect(page.getByRole("button", { name: /FR7BET/ })).toHaveCount(0);
   // The command-strip stamp still carries the last generation the client
   // actually trusted; it never jumps to a half-loaded one.
-  await expect(page.locator(".gen-stamp")).toContainText("GEN");
+  await expect(page.locator(".gen-stamp")).toContainText("Data as of");
 
   // Retry re-traverses under a single generation and lands truthfully.
   await alert.getByRole("button", { name: "Retry overview" }).click();
   await expect(page.getByRole("button", { name: /FR7ALF/ })).toBeVisible({ timeout: 5000 });
   await expect(page.getByRole("button", { name: /FR7BET/ })).toBeVisible();
-  await expect(page.locator(".sr-status")).toContainText("2 source flight records loaded.");
+  await expect(page.locator(".sr-status")).toContainText("2 flights loaded.");
 });
 
 test("a failed refresh keeps the prior generation serving and the selection honest", async ({ page }) => {
@@ -145,7 +145,7 @@ test("a failed refresh keeps the prior generation serving and the selection hone
   await expect(page.locator(".selected-route-label")).toContainText("FR7ALF");
 
   page.on("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Refresh source data" }).click();
+  await page.getByRole("button", { name: "Refresh data" }).click();
 
   // Failure mid-flight: the prior generation is still serving, the selection
   // survives, and the recovery affordance stays actionable.
@@ -154,7 +154,7 @@ test("a failed refresh keeps the prior generation serving and the selection hone
   await expect(alert).toContainText("is still serving requests.");
   await expect(page.locator(".selected-route-label")).toContainText("FR7ALF");
   await expect(page.getByRole("button", { name: /FR7ALF/ })).toBeVisible();
-  const refreshButton = page.getByRole("button", { name: "Refresh source data" });
+  const refreshButton = page.getByRole("button", { name: "Refresh data" });
   await expect(refreshButton).toBeEnabled();
 
   // Second attempt recovers: new generation stamp, selection cleared, and a
@@ -165,7 +165,7 @@ test("a failed refresh keeps the prior generation serving and the selection hone
   await expect(page.locator(".gen-stamp")).not.toHaveText(stampBefore ?? "", { timeout: 8000 });
   await expect(page.locator(".selected-route-label")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /FR7ALF/ })).toBeVisible();
-  await expect(page.locator(".sr-status")).toContainText("Source data refreshed at");
+  await expect(page.locator(".sr-status")).toContainText("Data refreshed at");
 });
 
 test("switching selection never leaves the previous route's endpoint pins on the map", async ({ page }) => {

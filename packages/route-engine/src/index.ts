@@ -320,4 +320,4 @@ export function createRouteCandidate(
   });
 }
 
-export * from "./synthesis.ts";
+export * from "./alternate.ts";

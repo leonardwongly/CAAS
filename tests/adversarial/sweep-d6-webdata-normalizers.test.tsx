@@ -5,7 +5,6 @@ import {
   browseFlights,
   browseNavaids,
   fetchDataSummary,
-  fetchDonorProof,
   fetchReadiness,
   fetchRouteData,
   fetchRouteOptions,
@@ -20,15 +19,15 @@ import {
  * Adversarial sweep owner: D6 — web data layer & gap model.
  *
  * Hostile API response payloads driven through every apps/web/src/api.ts
- * normalizer that no earlier lane exercises: donor proof occurrences, the
- * data-summary/browse family, refresh/readiness, route detail, draft
+ * normalizer that no earlier lane exercises: the data-summary/browse family,
+ * refresh/readiness, route detail, draft
  * comparison, point lookup, overview envelope gates, and the route/gap/leg
  * normalizer fallbacks.
  *
  * Deliberately NOT duplicating:
  * - adv-web-api-client.test.tsx (empty/unparseable bodies, null/primitive
- *   payloads, distance grammar, synthesis envelope, HTTP error mapping,
- *   abort semantics, content-type weirdness),
+ *   payloads, distance grammar, HTTP error mapping, abort semantics,
+ *   content-type weirdness),
  * - sec-1.test.tsx (hex/null/boolean/empty-string coordinate coercion in
  *   geometry/segments/lookup), sec-3.test.tsx (URL privacy),
  * - finding-6.test.tsx (search pagination traversal),
@@ -37,8 +36,8 @@ import {
  * - sec-r4-web-draft.test.tsx (draft validation UI races).
  *
  * Regressions pinned here for the D6 api.ts fixes:
- * - out-of-range coordinates in point matches, browse items, and donor proof
- *   occurrences are dropped (boundedCoordinate, sec-1 parity),
+ * - out-of-range coordinates in point matches and browse items are dropped
+ *   (boundedCoordinate, sec-1 parity),
  * - blank nextCursor strings are terminal in search pagination and never
  *   mark a point lookup as truncated.
  */
@@ -67,67 +66,6 @@ const GENERATION = {
   live: { state: "fresh", retrievedAt: "2026-08-23T00:00:00.000Z", freshUntil: "2026-08-24T00:00:00.000Z", staleUntil: "2026-08-25T00:00:00.000Z" },
   reference: { state: "fresh", retrievedAt: "2026-08-23T00:00:00.000Z", freshUntil: "2026-08-24T00:00:00.000Z", staleUntil: "2026-08-25T00:00:00.000Z" },
 };
-
-describe("fetchDonorProof normalizes hostile occurrence payloads (D6)", () => {
-  it("non-record payloads and non-record data degrade to an empty result, never a crash", async () => {
-    stubJson(["not-a-record"]);
-    expect(await fetchDonorProof("proof-1")).toEqual({ flightId: "", occurrences: [] });
-    stubJson({ data: "not-a-record" });
-    expect(await fetchDonorProof("proof-1")).toEqual({ flightId: "", occurrences: [] });
-    stubJson({ data: { flightId: "flight-9" } });
-    expect(await fetchDonorProof("proof-1")).toEqual({ flightId: "flight-9", occurrences: [] });
-  });
-
-  it("junk occurrences are dropped field-by-field; valid ones survive intact", async () => {
-    stubJson({
-      data: {
-        flightId: "  flight-7  ",
-        occurrences: [
-          "not-a-record",
-          null,
-          { status: "matched" },                                            // no ordinal
-          { ordinal: 2 },                                                    // no status
-          { ordinal: "0x2", status: "matched" },                             // hex ordinal
-          { ordinal: true, status: "matched" },                              // boolean ordinal
-          { ordinal: 1, status: "matched", label: 42, reason: false },       // junk label/reason
-          { ordinal: 2, status: "matched", coordinate: { lat: 10 } },        // partial coordinate
-          { ordinal: 3, status: "matched", coordinate: { lat: 95, lon: 0 } },// out-of-range coordinate (D6 fix)
-          { ordinal: 4, status: "matched", coordinate: { lat: -12.5, lon: 96.25 }, label: " donor pt ", reason: "nearest" },
-        ],
-      },
-    });
-
-    const result = await fetchDonorProof("proof-1");
-    expect(result.flightId).toBe("flight-7");
-    // Coordinates are optional on occurrences: an out-of-range coordinate
-    // drops the coordinate (D6 fix), never the occurrence itself.
-    expect(result.occurrences.map((occurrence) => occurrence.ordinal)).toEqual([1, 2, 3, 4]);
-    expect(result.occurrences[0]).toEqual({ ordinal: 1, status: "matched" });
-    expect(result.occurrences[1]).toEqual({ ordinal: 2, status: "matched" });
-    expect(result.occurrences[2]).toEqual({ ordinal: 3, status: "matched" });
-    expect(result.occurrences[3]).toEqual({ ordinal: 4, status: "matched", label: "donor pt", reason: "nearest", coordinate: { lat: -12.5, lon: 96.25 } });
-  });
-
-  it("proof occurrence coordinates at the exact legal extremes pass; one step beyond is dropped (D6 fix)", async () => {
-    stubJson({
-      data: {
-        flightId: "flight-8",
-        occurrences: [
-          { ordinal: 1, status: "matched", coordinate: { lat: 90, lon: 180 } },
-          { ordinal: 2, status: "matched", coordinate: { lat: -90, lon: -180 } },
-          { ordinal: 3, status: "matched", coordinate: { lat: 90.0001, lon: 0 } },
-          { ordinal: 4, status: "matched", coordinate: { lat: 0, lon: -180.0001 } },
-        ],
-      },
-    });
-    const result = await fetchDonorProof("proof-1");
-    expect(result.occurrences.map((occurrence) => occurrence.ordinal)).toEqual([1, 2, 3, 4]);
-    expect(result.occurrences[0]?.coordinate).toEqual({ lat: 90, lon: 180 });
-    expect(result.occurrences[1]?.coordinate).toEqual({ lat: -90, lon: -180 });
-    expect(result.occurrences[2]?.coordinate).toBeUndefined();
-    expect(result.occurrences[3]?.coordinate).toBeUndefined();
-  });
-});
 
 describe("fetchDataSummary gates generation and airway counts (D6)", () => {
   it("rejects payloads without a usable generation or airway counts", async () => {
