@@ -94,7 +94,7 @@ test("#3 narrow viewport hides the list and the copy stops promising one", async
   await expect(page.getByRole("region", { name: "Full flight list" })).toBeHidden();
   // …so the visible map HUD copy must not claim a list exists.
   const hud = page.locator(".map-hud");
-  await expect(hud).toContainText("Select a route from the map.", { timeout: 5000 });
+  await expect(hud).toContainText("Search a flight number, or select a flight on the map, to see its route.", { timeout: 5000 });
   await expect(hud).not.toContainText("or list");
 });
 
@@ -103,7 +103,7 @@ test("#3 wide viewport keeps the manifest and the 'map or list' copy", async ({ 
   await installTiles(page);
   await page.goto("/");
   await expect(page.getByRole("region", { name: "Full flight list" })).toBeVisible();
-  await expect(page.locator(".toolbar-flight")).toContainText("Select a route from the map or list.", { timeout: 5000 });
+  await expect(page.locator(".toolbar-flight")).toContainText("Search a flight number, or select a flight from the list, to see its route.", { timeout: 5000 });
 });
 
 test("#4 the legend never occludes the base-map toggle with the drawer open", async ({ page }) => {

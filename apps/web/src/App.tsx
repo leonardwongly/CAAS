@@ -958,10 +958,13 @@ function RouteMap({ routes, selectedRoute, alternateGeometry, alternateLabel, ca
   const projectPoint = (coordinate: Coordinate): Point => tilesOn ? pixelFromView(coordinate, view, stageSize) : projectWorldPoint(coordinate);
   const departurePoint = displayEndpoints.departure ? projectPoint(displayEndpoints.departure.coordinate) : undefined;
   const arrivalPoint = displayEndpoints.arrival ? projectPoint(displayEndpoints.arrival.coordinate) : undefined;
-  // The route DTO already carries the canonical "Name (ICAO)" label for both
-  // endpoints; the separate endpoint lookup only supplies map-pin coordinates.
-  const departureLabel = departure;
-  const arrivalLabel = arrival;
+  // The route DTO usually carries the canonical "Name (ICAO)" label for both
+  // endpoints; when it is only a bare code (fixture/edge case), enrich it with
+  // the looked-up airport name. The separate endpoint lookup also supplies the
+  // map-pin coordinates.
+  const hasIcaoCode = (value: string) => /\([A-Z0-9]{3,5}\)$/.test(value);
+  const departureLabel = hasIcaoCode(departure) ? departure : (displayEndpoints.departure?.name ? `${displayEndpoints.departure.name} (${departure})` : departure);
+  const arrivalLabel = hasIcaoCode(arrival) ? arrival : (displayEndpoints.arrival?.name ? `${displayEndpoints.arrival.name} (${arrival})` : arrival);
   const selectedSegmentCount = displayProjection?.segments.length ?? 0;
   const label = hasLine
     ? `${callsign ?? "Selected flight"} world map showing ${departureLabel} departure and ${arrivalLabel} arrival with ${selectedSegmentCount} resolved segment${selectedSegmentCount === 1 ? "" : "s"}${alternates.length ? `; ${alternates.length} alternate recorded route${alternates.length === 1 ? "" : "s"} shown dimmed` : ""}`
