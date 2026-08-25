@@ -392,6 +392,33 @@ export async function fetchAlternate(flightId: OpaqueId, signal?: AbortSignal): 
   };
 }
 
+export async function fetchAlternates(flightId: OpaqueId, signal?: AbortSignal): Promise<AlternateRoute[]> {
+  const payload = await request("/api/v1/routes/alternates", {
+    method: "POST",
+    ...(signal ? { signal } : {}),
+    body: JSON.stringify({ flightId }),
+  });
+  const data = isRecord(payload) && isRecord(payload.data) ? payload.data : undefined;
+  if (!data) throw new ApiError(502, "The alternates response is not an object.", "ALTERNATES_MALFORMED");
+  const list = Array.isArray(data.alternates) ? data.alternates : undefined;
+  if (!list) throw new ApiError(502, "The alternates response has no usable candidates.", "ALTERNATES_MALFORMED");
+  return list.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const geometry = normalizeGeometry(item.geometry);
+    if (!geometry) return [];
+    return [{
+      flightId: stringValue(item, "flightId") ?? flightId,
+      callsign: stringValue(item, "callsign") ?? "Unknown callsign",
+      origin: stringValue(item, "origin") ?? "Unknown departure",
+      destination: stringValue(item, "destination") ?? "Unknown destination",
+      kind: stringValue(item, "kind") ?? "direct-great-circle",
+      label: stringValue(item, "label") ?? "Direct (great-circle) alternate",
+      geometry,
+      distanceNm: finiteNumber(item, "distanceNm") ?? 0,
+    }];
+  });
+}
+
 export type Readiness = {
   status: string;
   generation?: GenerationSummary | undefined;

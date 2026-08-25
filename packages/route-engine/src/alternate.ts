@@ -53,3 +53,20 @@ export function directGreatCircleAlternate(departure: Coordinate, destination: C
   }
   return { coordinates: Object.freeze(coordinates), segmentCount: count };
 }
+
+/**
+ * A genuine coordinate-derived alternate that routes the great circle through
+ * a recorded intermediate waypoint: two densified great-circle legs joined at
+ * the waypoint. This produces a distinct path from the direct great circle
+ * while still using only real recorded coordinates (never invented geometry).
+ */
+export function greatCircleViaWaypoint(departure: Coordinate, waypoint: Coordinate, destination: Coordinate): DirectAlternate {
+  // A waypoint co-located with either endpoint adds no routing: return the
+  // plain direct great circle instead of a doubled degenerate leg.
+  if (waypoint.lat === departure.lat && waypoint.lon === departure.lon) return directGreatCircleAlternate(departure, destination);
+  if (waypoint.lat === destination.lat && waypoint.lon === destination.lon) return directGreatCircleAlternate(departure, destination);
+  const first = directGreatCircleAlternate(departure, waypoint);
+  const second = directGreatCircleAlternate(waypoint, destination);
+  const coordinates = [...first.coordinates.slice(0, -1), ...second.coordinates];
+  return { coordinates: Object.freeze(coordinates), segmentCount: first.segmentCount + second.segmentCount };
+}

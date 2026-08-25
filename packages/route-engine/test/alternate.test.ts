@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { directGreatCircleAlternate, haversineDistanceNm } from "../src/index.ts";
+import { directGreatCircleAlternate, greatCircleViaWaypoint, haversineDistanceNm } from "../src/index.ts";
 
 test("direct great-circle alternate densifies endpoints and preserves exact endpoint coordinates", () => {
   const departure = { lat: 1.35, lon: 103.98 };
@@ -27,4 +27,29 @@ test("densified great-circle legs reconcile to the direct great-circle distance"
     chained += haversineDistanceNm(alternate.coordinates[index - 1], alternate.coordinates[index]);
   }
   assert.ok(Math.abs(chained - direct) < 1e-6, `chained ${chained} vs direct ${direct}`);
+});
+
+test("via-waypoint alternate joins two great circles exactly at the waypoint", () => {
+  const a = { lat: 0, lon: 0 };
+  const waypoint = { lat: 0, lon: 30 };
+  const b = { lat: 0, lon: 90 };
+  const via = greatCircleViaWaypoint(a, waypoint, b);
+  assert.deepEqual(via.coordinates[0], a);
+  assert.deepEqual(via.coordinates[via.coordinates.length - 1], b);
+  const waypointIndex = via.coordinates.findIndex((point) => point.lat === waypoint.lat && point.lon === waypoint.lon);
+  assert.ok(waypointIndex > 0 && waypointIndex < via.coordinates.length - 1, "the waypoint must appear as an interior join");
+  let chained = 0;
+  for (let index = 1; index < via.coordinates.length; index += 1) {
+    chained += haversineDistanceNm(via.coordinates[index - 1], via.coordinates[index]);
+  }
+  const expected = haversineDistanceNm(a, waypoint) + haversineDistanceNm(waypoint, b);
+  assert.ok(Math.abs(chained - expected) < 1e-6, `chained ${chained} vs expected ${expected}`);
+  assert.deepEqual(via.coordinates, [...directGreatCircleAlternate(a, waypoint).coordinates.slice(0, -1), ...directGreatCircleAlternate(waypoint, b).coordinates]);
+});
+
+test("via-waypoint with a co-located waypoint degenerates to the direct great circle", () => {
+  const a = { lat: 0, lon: 0 };
+  const b = { lat: 0, lon: 90 };
+  const via = greatCircleViaWaypoint(a, a, b);
+  assert.deepEqual(via.coordinates, directGreatCircleAlternate(a, b).coordinates);
 });

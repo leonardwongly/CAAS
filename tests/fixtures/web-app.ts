@@ -321,6 +321,42 @@ export function installApiStub(options: StubOptions = {}): { calls: CapturedCall
         generation: generationFor(options),
       });
     }
+    // Alternate selection: POST { flightId } -> { data: { alternates } }.
+    if (method === "POST" && url === "/api/v1/routes/alternates") {
+      return jsonResponse({
+        data: {
+          alternates: [
+            {
+              flightId: String(bodyOf(init).flightId ?? ""),
+              callsign: "FIXTURE1",
+              origin: "KOR1",
+              destination: "KDS1",
+              kind: "direct-great-circle",
+              label: "Direct (great-circle) alternate",
+              geometry: { type: "LineString", coordinates: [[-73, 40], [-118, 33]] },
+              distanceNm: 2100,
+              provenance: "CAAS normalized live generation",
+              freshness: "2026-08-23T00:00:00.000Z",
+              safety: SAFETY_NOTICE,
+            },
+            {
+              flightId: String(bodyOf(init).flightId ?? ""),
+              callsign: "FIXTURE1",
+              origin: "KOR1",
+              destination: "KDS1",
+              kind: "via-waypoint",
+              label: "Via MIDPT (great-circle)",
+              geometry: { type: "LineString", coordinates: [[-73, 40], [-90, 35], [-118, 33]] },
+              distanceNm: 2300,
+              provenance: "CAAS normalized live generation",
+              freshness: "2026-08-23T00:00:00.000Z",
+              safety: SAFETY_NOTICE,
+            },
+          ],
+        },
+        generation: generationFor(options),
+      });
+    }
     // Draft validation: single two-operand POST carrying baselineId + targetDraft.
     if (method === "POST" && url === "/api/v1/routes/compare") {
       if (options.failDraft) return jsonResponse({ error: { message: "Draft validation unavailable (stub).", code: "DRAFT_FAIL" } }, 500);

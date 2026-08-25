@@ -14,6 +14,7 @@ import {
 import {
   compareDistanceOperands,
   directGreatCircleAlternate,
+  greatCircleViaWaypoint,
   haversineDistanceNm,
   resolveExactReference,
   toGeoJsonLineString,
@@ -39,11 +40,13 @@ import {
   token,
   type GenerationSummary,
   type PublicEvidence,
+  type SafeFlight,
   type ScopedToken,
   type Snapshot,
 } from "./snapshot.ts";
 import {
   airportLabelForReference,
+  coordinateKey,
   displayReference,
   indexedReferenceResolution,
   overviewProjection,
@@ -1203,6 +1206,126 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
   };
   app.post("/api/v1/routes/alternate", warm(routeAlternate));
   app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/routes/alternate", handler: methodNotAllowed("Alternate route") });
+
+  // Alternate selection surface: one genuine computed candidate per strategy.
+  // The direct great-circle path is always present; when the recorded flight
+  // has resolved interior waypoints, bounded great-circle-via-waypoint
+  // variants are added (first/middle/last) so the user can select among real
+  // coordinate-derived alternates rather than only show/hide a single one.
+  const MAX_ALTERNATE_CANDIDATES = 4;
+  const resolvedInteriorWaypoints = (
+    snapshot: Snapshot,
+    flight: SafeFlight,
+    origin: Coordinate,
+    destination: Coordinate,
+  ): Array<{ label: string; coordinate: Coordinate }> => {
+    const seen = new Set<string>();
+    const waypoints: Array<{ label: string; coordinate: Coordinate }> = [];
+    for (const element of [...(flight.record.routeElements ?? [])].sort((left, right) => left.sequence - right.sequence)) {
+      let label: string;
+      let coordinate: Coordinate;
+      if (element.coordinate) {
+        label = element.identifier
+          ? (() => {
+              const named = indexedReferenceResolution(snapshot, element.identifier);
+              return named.status === "resolved" ? displayReference(named.match) : `Point ${element.sequence + 1}`;
+            })()
+          : `Point ${element.sequence + 1}`;
+        coordinate = element.coordinate;
+      } else if (element.identifier) {
+        const result = indexedReferenceResolution(snapshot, element.identifier);
+        if (result.status !== "resolved") continue;
+        label = displayReference(result.match);
+        coordinate = result.match.coordinate;
+      } else {
+        continue;
+      }
+      if (coordinateKey(coordinate) === coordinateKey(origin) || coordinateKey(coordinate) === coordinateKey(destination)) continue;
+      const key = coordinateKey(coordinate);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      waypoints.push({ label, coordinate });
+    }
+    return waypoints;
+  };
+  const alternateViaPicks = (waypoints: readonly { label: string; coordinate: Coordinate }[]): Array<{ label: string; coordinate: Coordinate }> => {
+    if (waypoints.length <= 2) return [...waypoints];
+    const ordered = [waypoints[0]!, waypoints[Math.floor((waypoints.length - 1) / 2)]!, waypoints[waypoints.length - 1]!];
+    const seen = new Set<string>();
+    return ordered.filter((waypoint) => {
+      const key = coordinateKey(waypoint.coordinate);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const alternateCandidate = (
+    snapshot: Snapshot,
+    flight: SafeFlight,
+    selectedId: string,
+    origin: Location,
+    destination: Location,
+    kind: string,
+    label: string,
+    coordinates: readonly Coordinate[],
+    distanceNm: number,
+  ): Record<string, unknown> => ({
+    flightId: selectedId,
+    callsign: flight.record.callsign,
+    origin: displayReference(origin),
+    destination: displayReference(destination),
+    kind,
+    label,
+    geometry: toGeoJsonLineString(coordinates),
+    distanceNm,
+    provenance: PUBLIC_PROVENANCE,
+    freshness: new Date(snapshot.retrievedAtMs).toISOString(),
+    safety: PERSISTENT_SAFETY_COPY,
+  });
+  const routeAlternates = async (request: FastifyRequest, reply: FastifyReply) => {
+    assertEmptyQuery(request);
+    const snapshot = store.requireSnapshot();
+    const body = bodyObject(request, ["flightId"]);
+    const selectedId = requiredString(body.flightId, "INVALID_FLIGHT_ID", "A flight ID is required.", 2048);
+    const flightIndex = decodeScoped(selectedId, snapshot, "flight", now);
+    const flight = snapshot.flightByIndex.get(flightIndex);
+    if (!flight || !flight.record.departure || !flight.record.destination) {
+      throw new ApiHttpError(404, "ROUTE_NOT_FOUND", "The requested flight was not found.");
+    }
+    const origin = resolveAirportEndpoint(snapshot, flight.record.departure, "origin");
+    const destination = resolveAirportEndpoint(snapshot, flight.record.destination, "destination");
+    const direct = directGreatCircleAlternate(origin.coordinate, destination.coordinate);
+    const candidates: Record<string, unknown>[] = [alternateCandidate(
+      snapshot,
+      flight,
+      selectedId,
+      origin,
+      destination,
+      "direct-great-circle",
+      "Direct (great-circle) alternate",
+      direct.coordinates,
+      haversineDistanceNm(origin.coordinate, destination.coordinate),
+    )];
+    for (const waypoint of alternateViaPicks(resolvedInteriorWaypoints(snapshot, flight, origin.coordinate, destination.coordinate))) {
+      const via = greatCircleViaWaypoint(origin.coordinate, waypoint.coordinate, destination.coordinate);
+      candidates.push(alternateCandidate(
+        snapshot,
+        flight,
+        selectedId,
+        origin,
+        destination,
+        "via-waypoint",
+        `Via ${waypoint.label} (great-circle)`,
+        via.coordinates,
+        haversineDistanceNm(origin.coordinate, waypoint.coordinate) + haversineDistanceNm(waypoint.coordinate, destination.coordinate),
+      ));
+      if (candidates.length >= MAX_ALTERNATE_CANDIDATES) break;
+    }
+    return reply.send({ data: { alternates: candidates }, generation: generationSummary(snapshot, now()) });
+  };
+  app.post("/api/v1/routes/alternates", warm(routeAlternates));
+  app.route({ method: ["GET", "PUT", "DELETE", "OPTIONS", "PATCH"], url: "/api/v1/routes/alternates", handler: methodNotAllowed("Alternate routes") });
+
   app.post("/api/v1/routes/options", warm(routeOptions));
   // Non-POST methods on the POST-only option surface answer a bounded 405 —
   // the static routes below must beat the parametric GET /api/v1/routes/:routeId.
