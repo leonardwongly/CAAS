@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildRouteQueryFromDraft,
   displayDistanceNm,
+  distanceToGreatCircleArcNm,
   fromGeoJsonPosition,
   haversineDistanceNm,
   resolveExactReference,
@@ -25,6 +26,31 @@ test("Haversine uses nautical-mile earth radius and preserves full precision", (
   assert.ok(distance > 2_990 && distance < 3_000);
   assert.equal(haversineDistanceNm(jfk.coordinate, jfk.coordinate), 0);
   assert.equal(displayDistanceNm(distance), Math.round((distance + Number.EPSILON) * 10) / 10);
+});
+
+test("cross-track distance is zero on the great-circle arc and ~600 NM per 10 degrees off it", () => {
+  const from = { lat: 0, lon: 0 };
+  const to = { lat: 0, lon: 10 };
+  // On the equator arc, halfway between the endpoints.
+  assert.ok(distanceToGreatCircleArcNm({ lat: 0, lon: 5 }, from, to) < 0.01);
+  // Ten degrees of latitude off the arc.
+  const off = distanceToGreatCircleArcNm({ lat: 10, lon: 5 }, from, to);
+  assert.ok(off > 590 && off < 610, `expected ~600 NM, got ${off}`);
+  // Beyond the arc end: clamped to the nearer endpoint (5 degrees).
+  const beyond = distanceToGreatCircleArcNm({ lat: 0, lon: 15 }, from, to);
+  assert.ok(beyond > 295 && beyond < 305, `expected ~300 NM, got ${beyond}`);
+});
+
+test("cross-track handles degenerate arcs and antimeridian crossings", () => {
+  const same = { lat: 1, lon: 1 };
+  assert.ok(distanceToGreatCircleArcNm({ lat: 1, lon: 2 }, same, same) > 0);
+  assert.ok(distanceToGreatCircleArcNm({ lat: 1, lon: 1 }, same, same) < 0.01);
+  // Shortest arc from 179E to 179W crosses the antimeridian at 180E/W.
+  const west = { lat: 0, lon: 179 };
+  const east = { lat: 0, lon: -179 };
+  assert.ok(distanceToGreatCircleArcNm({ lat: 0, lon: 180 }, west, east) < 0.01);
+  const off = distanceToGreatCircleArcNm({ lat: 10, lon: 180 }, west, east);
+  assert.ok(off > 590 && off < 610, `expected ~600 NM across the antimeridian, got ${off}`);
 });
 
 test("exact resolution distinguishes missing and ambiguous references", () => {
