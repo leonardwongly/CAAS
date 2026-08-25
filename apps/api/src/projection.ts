@@ -5,6 +5,7 @@ import {
   type Location,
 } from "@flight-route-explorer/contracts";
 import {
+  distanceToGreatCircleArcNm,
   haversineDistanceNm,
   toGeoJsonLineString,
   type ResolutionResult,
@@ -78,6 +79,45 @@ export function isProjectionEndpointGap(endpoint: ProjectionEndpoint): endpoint 
   return "gap" in endpoint;
 }
 
+/**
+ * Route-context disambiguation for duplicate fix references (ADR-0004).
+ *
+ * A reference that matches several distinct coordinates is a fail-closed
+ * "ambiguous" gap today. When the route itself supplies two resolved
+ * neighbours, the recorded coordinate consistent with the route is the
+ * candidate closest to the great-circle arc between those neighbours. The
+ * rule only auto-resolves when the best candidate is both within a bounded
+ * cross-track distance and clearly closer than every runner-up; any tie or
+ * weak separation keeps the honest ambiguous gap. This never invents a
+ * coordinate: the chosen point is a real recorded location from the
+ * reference dataset.
+ */
+export const AMBIGUOUS_PROXIMITY_CAP_NM = 200;
+export const AMBIGUOUS_PROXIMITY_MARGIN_NM = 1;
+
+export function resolveAmbiguousByProximity(
+  matches: readonly Location[],
+  before: Coordinate,
+  after: Coordinate,
+): Location | undefined {
+  let best: Location | undefined;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  let secondDistance = Number.POSITIVE_INFINITY;
+  for (const match of matches) {
+    const distance = distanceToGreatCircleArcNm(match.coordinate, before, after);
+    if (distance < bestDistance) {
+      secondDistance = bestDistance;
+      bestDistance = distance;
+      best = match;
+    } else if (distance < secondDistance) {
+      secondDistance = distance;
+    }
+  }
+  if (best === undefined || bestDistance > AMBIGUOUS_PROXIMITY_CAP_NM) return undefined;
+  if (secondDistance - bestDistance < AMBIGUOUS_PROXIMITY_MARGIN_NM) return undefined;
+  return best;
+}
+
 export function routeProjection(
   snapshot: Snapshot,
   flight: SafeFlight,
@@ -109,47 +149,76 @@ export function routeProjection(
   // assigned in push order and never renumbered (the adjacent-endpoint splice
   // removes an occurrence but the survivors keep their assigned values).
   let nextOrdinal = 0;
-  const pushEndpoint = (endpoint: ProjectionEndpoint, sequence: number) => {
-    if (isProjectionEndpointGap(endpoint)) {
-      occurrences.push({ gap: { ...endpoint.gap, ordinal: nextOrdinal } });
-      gaps.push(endpoint.gap);
+  // Ordered entries are resolved in two passes so ambiguous references can be
+  // disambiguated against their resolved neighbours before any geometry is
+  // built. The endpoints participate as resolved context coordinates, never
+  // as candidates themselves.
+  type OrderedEntry =
+    | { kind: "point"; label: string; coordinate: Coordinate; sequence: number; referenceId?: string; airway?: string; airwayType?: string }
+    | { kind: "candidate"; sequence: number; matches: Location[]; airway?: string; airwayType?: string }
+    | { kind: "gap"; sequence: number; reason: RouteGapReason };
+  const endpointEntry = (endpoint: ProjectionEndpoint, sequence: number): OrderedEntry =>
+    isProjectionEndpointGap(endpoint)
+      ? { kind: "gap", sequence: endpoint.gap.sequence, reason: endpoint.gap.reason }
+      : { kind: "point", label: displayReference(endpoint), coordinate: endpoint.coordinate, sequence, referenceId: endpoint.id };
+  const elementEntry = (element: NonNullable<typeof elements>[number]): OrderedEntry => {
+    if (element.coordinate) {
+      let label = `Point ${element.sequence + 1}`;
+      if (element.identifier) {
+        const named = indexedReferenceResolution(snapshot, element.identifier);
+        if (named.status === "resolved") label = displayReference(named.match);
+      }
+      return { kind: "point", label, coordinate: element.coordinate, sequence: element.sequence, ...(element.airway ? { airway: element.airway } : {}), ...(element.airwayType ? { airwayType: element.airwayType } : {}) };
+    }
+    const result = element.identifier ? indexedReferenceResolution(snapshot, element.identifier) : { status: "gap" as const } as ResolutionResult;
+    if (result.status === "resolved") {
+      return { kind: "point", label: displayReference(result.match), coordinate: result.match.coordinate, sequence: element.sequence, referenceId: result.match.id, ...(element.airway ? { airway: element.airway } : {}), ...(element.airwayType ? { airwayType: element.airwayType } : {}) };
+    }
+    if (result.status === "ambiguous") {
+      return { kind: "candidate", sequence: element.sequence, matches: result.matches, ...(element.airway ? { airway: element.airway } : {}), ...(element.airwayType ? { airwayType: element.airwayType } : {}) };
+    }
+    return { kind: "gap", sequence: element.sequence, reason: element.identifier ? "not-found" : "missing" };
+  };
+
+  const ordered: OrderedEntry[] = [endpointEntry(origin, -1)];
+  if (elements === undefined) {
+    ordered.push({ kind: "gap", sequence: 0, reason: "missing" });
+  } else {
+    ordered.push(...[...elements].sort((left, right) => left.sequence - right.sequence).map(elementEntry));
+  }
+  ordered.push(endpointEntry(destination, Number.MAX_SAFE_INTEGER));
+
+  // Second pass: resolve ambiguous references against their resolved
+  // neighbours. Only a confident proximity pick resolves; anything else keeps
+  // the fail-closed ambiguous gap.
+  for (let index = 0; index < ordered.length; index += 1) {
+    const entry = ordered[index];
+    if (!entry || entry.kind !== "candidate") continue;
+    let before: OrderedEntry | undefined;
+    let after: OrderedEntry | undefined;
+    for (let scan = index - 1; scan >= 0; scan -= 1) {
+      if (ordered[scan]?.kind === "point") { before = ordered[scan]; break; }
+    }
+    for (let scan = index + 1; scan < ordered.length; scan += 1) {
+      if (ordered[scan]?.kind === "point") { after = ordered[scan]; break; }
+    }
+    if (!before || !after || before.kind !== "point" || after.kind !== "point") continue;
+    const chosen = resolveAmbiguousByProximity(entry.matches, before.coordinate, after.coordinate);
+    if (!chosen) continue;
+    ordered[index] = { kind: "point", label: displayReference(chosen), coordinate: chosen.coordinate, sequence: entry.sequence, referenceId: chosen.id, ...(entry.airway ? { airway: entry.airway } : {}), ...(entry.airwayType ? { airwayType: entry.airwayType } : {}) };
+  }
+
+  const pushEntry = (entry: OrderedEntry) => {
+    if (entry.kind === "point") {
+      occurrences.push({ point: { label: entry.label, coordinate: entry.coordinate, sequence: entry.sequence, ordinal: nextOrdinal, ...(entry.referenceId ? { referenceId: entry.referenceId } : {}), ...(entry.airway ? { airway: entry.airway } : {}), ...(entry.airwayType ? { airwayType: entry.airwayType } : {}) } });
     } else {
-      occurrences.push({ point: { label: displayReference(endpoint), coordinate: endpoint.coordinate, sequence, ordinal: nextOrdinal, referenceId: endpoint.id } });
+      const gap = { status: "gap" as const, sequence: entry.sequence, reason: entry.kind === "gap" ? entry.reason : "ambiguous" as const };
+      occurrences.push({ gap: { ...gap, ordinal: nextOrdinal } });
+      gaps.push(gap);
     }
     nextOrdinal += 1;
   };
-  pushEndpoint(origin, -1);
-  if (elements === undefined) {
-    const gap = { status: "gap" as const, sequence: 0, reason: "missing" as const };
-    occurrences.push({ gap: { ...gap, ordinal: nextOrdinal } });
-    gaps.push(gap);
-    nextOrdinal += 1;
-  } else {
-    for (const element of [...elements].sort((left, right) => left.sequence - right.sequence)) {
-      if (element.coordinate) {
-        let label = `Point ${element.sequence + 1}`;
-        if (element.identifier) {
-          const named = indexedReferenceResolution(snapshot, element.identifier);
-          if (named.status === "resolved") label = displayReference(named.match);
-        }
-        occurrences.push({ point: { label, coordinate: element.coordinate, sequence: element.sequence, ordinal: nextOrdinal, ...(element.airway ? { airway: element.airway } : {}), ...(element.airwayType ? { airwayType: element.airwayType } : {}) } });
-        nextOrdinal += 1;
-        continue;
-      }
-      const result = element.identifier ? indexedReferenceResolution(snapshot, element.identifier) : { status: "gap" as const } as ResolutionResult;
-      const reason: RouteGapReason = result.status === "ambiguous" ? "ambiguous" : result.status === "resolved" ? "not-found" : element.identifier ? "not-found" : "missing";
-      if (result.status === "resolved") {
-        occurrences.push({ point: { label: displayReference(result.match), coordinate: result.match.coordinate, sequence: element.sequence, ordinal: nextOrdinal, referenceId: result.match.id, ...(element.airway ? { airway: element.airway } : {}), ...(element.airwayType ? { airwayType: element.airwayType } : {}) } });
-        nextOrdinal += 1;
-      } else {
-        const gap = { status: "gap" as const, sequence: element.sequence, reason };
-        occurrences.push({ gap: { ...gap, ordinal: nextOrdinal } });
-        gaps.push(gap);
-        nextOrdinal += 1;
-      }
-    }
-  }
-  pushEndpoint(destination, Number.MAX_SAFE_INTEGER);
+  for (const entry of ordered) pushEntry(entry);
 
   // Remove only route points directly adjacent to the corresponding endpoint.
   // Guard: with zero route elements the only occurrences are the two endpoints

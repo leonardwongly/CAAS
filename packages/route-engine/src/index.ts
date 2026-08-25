@@ -157,6 +157,54 @@ export function haversineDistanceNm(aInput: unknown, bInput: unknown): number {
   return EARTH_RADIUS_NM * centralAngle;
 }
 
+/**
+ * Perpendicular (cross-track) great-circle distance from a point to the arc
+ * between two positions, clamped to the nearer endpoint when the projection
+ * falls beyond the arc. This is the route-context metric used to disambiguate
+ * duplicate fix references: the recorded coordinate consistent with the
+ * neighbouring resolved waypoints is the one closest to the arc between them.
+ *
+ * Degenerate arcs (identical endpoints) and coincident points return 0 via the
+ * endpoint-distance branch, never NaN.
+ */
+export function distanceToGreatCircleArcNm(pointInput: unknown, fromInput: unknown, toInput: unknown): number {
+  const point = toCoordinate(pointInput);
+  const from = toCoordinate(fromInput);
+  const to = toCoordinate(toInput);
+  const totalNm = haversineDistanceNm(from, to);
+  const fromPointNm = haversineDistanceNm(from, point);
+  // A degenerate arc has no cross-track direction; fall back to the endpoint distance.
+  if (totalNm < 1e-9) return fromPointNm;
+  const initialBearing = (latA: number, lonA: number, latB: number, lonB: number): number => {
+    // Normalize the longitude delta to the shortest arc so antimeridian
+    // crossings produce the bearing of the same great circle haversine uses.
+    let dLon = lonB - lonA;
+    dLon = ((dLon + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+    const y = Math.sin(dLon) * Math.cos(latB);
+    const x = Math.cos(latA) * Math.sin(latB) - Math.sin(latA) * Math.cos(latB) * Math.cos(dLon);
+    return Math.atan2(y, x);
+  };
+  const lat1 = degreesToRadians(from.lat);
+  const lon1 = degreesToRadians(from.lon);
+  const lat2 = degreesToRadians(to.lat);
+  const lon2 = degreesToRadians(to.lon);
+  const latP = degreesToRadians(point.lat);
+  const lonP = degreesToRadians(point.lon);
+  const theta12 = initialBearing(lat1, lon1, lat2, lon2);
+  const theta13 = initialBearing(lat1, lon1, latP, lonP);
+  const angularFromPoint = fromPointNm / EARTH_RADIUS_NM;
+  const crossTrackAngular = Math.asin(Math.min(1, Math.max(-1, Math.sin(angularFromPoint) * Math.sin(theta13 - theta12))));
+  // A point near a pole of the arc has an undefined along-track projection;
+  // report the endpoint distance instead of dividing by a ~0 cosine.
+  if (Math.abs(crossTrackAngular) >= Math.PI / 2 - 1e-9) return fromPointNm;
+  const alongTrackAngular = Math.acos(Math.min(1, Math.max(-1, Math.cos(angularFromPoint) / Math.cos(crossTrackAngular))));
+  const alongTrackNm = alongTrackAngular * EARTH_RADIUS_NM;
+  if (alongTrackNm < 0 || alongTrackNm > totalNm) {
+    return Math.min(fromPointNm, haversineDistanceNm(to, point));
+  }
+  return Math.abs(crossTrackAngular) * EARTH_RADIUS_NM;
+}
+
 export function degreesToRadians(degrees: number): number {
   return degrees * (Math.PI / 180);
 }
