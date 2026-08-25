@@ -40,7 +40,7 @@ What was built:
 | Linux build, containerised artifact | `containers/Dockerfile` (digest-pinned, non-root); `pnpm run oci:build` |
 | CI/CD automation (GitHub Actions) | Four workflows in `.github/workflows/` — see [CI/CD Pipeline](#cicd-pipeline) |
 | Cloud deployment | Cloudflare Workers + Containers, staging auto-deployed from `master` (Azure path documented, inert) |
-| Optional: alternate route computation | Direct great-circle alternate (`packages/route-engine/src/alternate.ts`, `POST /api/v1/routes/alternate`) |
+| Optional: alternate route computation | Selectable computed alternates — direct great-circle plus great-circle-via-waypoint variants (`packages/route-engine/src/alternate.ts`, `POST /api/v1/routes/alternates`) with a pick-list UI |
 
 ## Component Diagram
 
@@ -72,11 +72,11 @@ Locally, the same split applies: Vite dev server for the frontend (proxies `/api
 
 **1. Data acquisition.** `packages/upstream-caas/` performs bounded, allow-listed HTTPS GETs against the five CAAS endpoint families, with retries, freshness windows (live ≤ 5 min, reference ≤ 24 h), and strict schema validation. Startup fails closed if any mandatory family is unusable; refreshes build a new generation and swap atomically after full validation. The Airways reference list is fetched, parsed, and validated but stays counts-only; recorded route legs surface the airway labels carried by the flight plan and draw geometry from resolved waypoint coordinates.
 
-**2. Route resolution.** For a selected flight plan, each waypoint is resolved by **exact reference matching** against Fixes, Airports, and NAVAIDs — never by proximity inference. Unresolved positions are preserved as explicit gaps, and ambiguous matches are preserved, not guessed. Modeled route distance is a full-precision Haversine total (R = 3440.065 NM), displayed to 0.1 NM and treated as descriptive only.
+**2. Route resolution.** For a selected flight plan, each waypoint is resolved by **exact reference matching** against Fixes, Airports, and NAVAIDs. When an identifier matches several distinct coordinates (a duplicate fix), the route's own resolved neighbours disambiguate it: the candidate closest to the great-circle arc between them is selected, but only within a bounded cross-track distance (200 NM) and only when it beats every runner-up by a clear margin (1 NM). Ties and weak separations stay explicit ambiguous gaps — never guessed — and unresolved positions remain visible gaps. Modeled route distance is a full-precision Haversine total (R = 3440.065 NM), displayed to 0.1 NM and treated as descriptive only.
 
-**3. User journey.** The UI lists all air-routes and supports callsign search. Selecting a flight draws its recorded route on the tile map with leg/waypoint detail and auto-fits the view.
+**3. User journey.** The UI lists all air-routes and supports callsign search. Selecting a flight draws its recorded route on the tile map with leg/waypoint detail and auto-fits the view; the selected-route panel can show and switch between the computed alternates.
 
-**4. Alternate route (the optional task).** `packages/route-engine/src/alternate.ts` computes the direct great-circle path between the resolved departure and destination airports and densifies it for correct geodesic rendering. `POST /api/v1/routes/alternate` serves it as a dashed, clearly-labelled alternate; it is a coordinate-derived computed path, never a borrowed or inferred subpath.
+**4. Alternate routes (the optional task).** `packages/route-engine/src/alternate.ts` computes coordinate-derived alternates: the direct great-circle path between the resolved departure and destination airports, plus bounded great-circle-via-waypoint variants through the flight's resolved interior waypoints (first/middle/last, max 4 candidates). `POST /api/v1/routes/alternates` serves them labelled with full-precision distances, and the UI presents a selectable pick-list; the chosen alternate renders dashed and clearly labelled. Every candidate is a genuine computed path, never a borrowed or inferred subpath.
 
 ## Build & Run Steps
 
@@ -118,20 +118,22 @@ Four GitHub Actions workflows under `.github/workflows/`:
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `ci-secretless-validation.yml` | push to `master`, PRs | Hermetic offline validation: config/policy checks, typecheck, lint, unit tests, plus semgrep, dependency audit, and gitleaks secret scan. No credentials in scope. |
+| `ci-secretless-validation.yml` | push to `master`, PRs | Secretless validation: config/policy, typecheck, lint, unit tests, offline/evidence lanes, loopback + security/container smoke, and the real-browser critical path (Playwright Chromium + WebKit), plus semgrep, dependency audit, and gitleaks secret scan. No credentials in scope. |
 | `oci-subject-build.yml` | push to `master`, PRs | Builds the authoritative OCI subject from the digest-pinned `containers/Dockerfile`, verifies image assertions, scans HIGH/CRITICAL vulnerabilities with Trivy (exit-code gated), and uploads the digest-bundle evidence. |
 | `cloudflare-deploy.yml` | push to `master` (staging), manual dispatch (production) | Builds frontend assets and deploys Worker + assets + container via Wrangler. GitHub Environments scope deployment credentials; production requires explicit manual dispatch. |
 | `poc-pr-static.yml` | PRs touching infra/deploy/app paths | Offline static validation of deployment artifacts (Bicep, deploy scripts). |
 
 Production deployment topology: Cloudflare Worker serving static SPA assets, with `/api/*` forwarded to the Fastify container instance managed as a Durable Object (`wrangler.jsonc`). Inert Azure artifacts (`infra/bicep/`, `deploy/`) document an alternative cloud path but are not deployed by CI.
 
+Live staging deployment: <https://flight-route-explorer-staging.leonardwong.workers.dev> (auto-deployed from `master`).
+
 ## Design Rationale
 
 **Algorithm choices**
 
-- *Exact reference resolution over proximity matching.* Aviation reference points have canonical identifiers; guessing the "nearest" fix would silently corrupt a route. Unresolved/ambiguous points are surfaced explicitly instead.
+- *Exact reference resolution first, conservative proximity disambiguation for duplicates.* Aviation reference points have canonical identifiers; the route never fabricates a coordinate. When an identifier genuinely matches several recorded coordinates, the route's resolved neighbours select the geometrically consistent one — only within strict cross-track and margin guardrails. Ties and weak cases stay explicit gaps, and user-authored drafts still require an explicit selection.
 - *Haversine at full precision (R = 3440.065 NM).* Aviation distances are nautical miles on a spherical model; rounding is applied only at the display boundary so comparisons never accumulate error.
-- *Direct great-circle alternate over inferred connectivity.* The supplied Airways endpoint returns names, not a connectivity graph, so the optional alternate is computed honestly as the densified great-circle path between resolved airport coordinates.
+- *Computed great-circle alternates over inferred connectivity.* The supplied Airways endpoint returns names, not a connectivity graph, so alternates are computed honestly as densified great-circle paths between resolved airport coordinates — direct, and via recorded waypoints.
 
 **Tooling choices**
 
@@ -172,6 +174,6 @@ Supporting material for the evidence-first development process used in this repo
 - [Master product document](docs/product/master-product-document.md) and [POC architecture](docs/architecture/poc-boundary.md)
 - [Real CAAS data contract](docs/data-use/caas-contract.md) and [data-use gates](docs/data-use/data-use-authorization-gate.md)
 - [Validation and evidence rules](docs/testing/evidence-and-validation.md); retained machine-executed records under [docs/evidence/](docs/evidence/)
-- [Architecture decision records](docs/adr/) and [POC capability/gate-status matrix](docs/status/poc-capability-and-gate-matrix.md)
+- [Architecture decision records](docs/adr/) (ADR-0001–ADR-0004) and [POC capability/gate-status matrix](docs/status/poc-capability-and-gate-matrix.md)
 - [Security posture](docs/security/) including dependency audit and Trivy scan reports
 - Inert Azure POC artifacts: [infra/bicep/](infra/bicep/), [deploy/](deploy/)
