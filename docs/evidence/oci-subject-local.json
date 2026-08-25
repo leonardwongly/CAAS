@@ -11,19 +11,19 @@
   "subject": {
     "type": "oci",
     "identifiers": {
-      "digest": "sha256:8cc7a86277c32dbb63cecf4db9687c5745530566f192f074f49550c0edfa311c",
-      "commit": "828a70968420350f9df514f5488430e4cf7bb4ee",
-      "tarSha256": "6735e0182454be585a1fd52d8cbee3bc29396fb3986a8852ca5570a80f89a1db"
+      "digest": "sha256:165dd031ea4d0aa4e03925ee7afb967e5e3b145768c11b02221c576113d4c8a5",
+      "commit": "f462f4afa7be",
+      "tarSha256": "1d094e993dc778a926c94bf3f832c4606c85662d3ba4d39068d82fa587695251"
     },
-    "environment": "verified-ci-subject"
+    "environment": "local-build-candidate"
   },
   "checks": [
     {
       "checkId": "PG03-EXACT-DIGEST",
       "mandatory": true,
-      "procedure": "An authorized container live run (scripts/validation/container-live-lane.mjs) executed the image whose ID equals the committed CI-built bundle's image ID (sha256:8cc7a86277c32dbb63cecf4db9687c5745530566f192f074f49550c0edfa311c); the record's subject digest matches exactly.",
-      "startedAt": "2026-08-21T15:22:46.069Z",
-      "endedAt": "2026-08-21T15:22:46.070Z",
+      "procedure": "The subject must be the single authoritative CI-built OCI image; the locally built candidate is recorded here with its real digest and remains unverified until an authorized container live run on the exact CI digest is recorded.",
+      "startedAt": "2026-08-25T12:43:24.073Z",
+      "endedAt": "2026-08-25T12:43:24.074Z",
       "threshold": {
         "rule": "measured value hash-equals expected",
         "operator": "hash-equals",
@@ -32,7 +32,7 @@
       },
       "measurement": {
         "summary": "exact subject digest is the verified OCI subject",
-        "value": "verified-oci-subject",
+        "value": "sha256:165dd031ea4d0aa4e03925ee7afb967e5e3b145768c11b02221c576113d4c8a5",
         "units": "digest",
         "sampleCount": 1
       },
@@ -62,23 +62,19 @@
           "sha256": "bffe83901e66a2f16762b52ba7c6039afcbdcca2b575c010abb2fd3e44c2e15c"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-0c2c689696f2.json",
-          "sha256": "9b3024ac8db7102fcaff77e63ef0c6bcb87c0a8a1d6471b52a36222137dc3bb7"
-        },
-        {
-          "path": "docs/evidence/oci-digest-bundle-0c2c689696f2.json",
-          "sha256": "9b3024ac8db7102fcaff77e63ef0c6bcb87c0a8a1d6471b52a36222137dc3bb7"
+          "path": "docs/evidence/oci-digest-bundle-f462f4afa7be.json",
+          "sha256": "2748f3abc585bd62712e31a2bda0e0f7b802ca98b560379638a2df36d670eb49"
         }
       ],
-      "result": "pass",
+      "result": "blocked",
       "failureFallback": "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject."
     },
     {
       "checkId": "PG03-LOOPBACK-REAL-DATA",
       "mandatory": true,
-      "procedure": "The exact subject passed the loopback real-data checks in the container (container-live-lane-0c2c689696f2.json): liveness, five-family acquisition, browse exact-once, secret exclusion.",
-      "startedAt": "2026-08-21T15:22:46.069Z",
-      "endedAt": "2026-08-21T15:22:46.070Z",
+      "procedure": "The verified subject must pass the loopback gate with real data (authorized run). Mechanics pass fixture-backed (docs/evidence/loopback-lane-local.json); the authorized container run on the exact digest is pending.",
+      "startedAt": "2026-08-25T12:43:24.073Z",
+      "endedAt": "2026-08-25T12:43:24.074Z",
       "threshold": {
         "rule": "measured value equals expected",
         "operator": "equals",
@@ -87,7 +83,7 @@
       },
       "measurement": {
         "summary": "exact subject passes loopback with real data",
-        "value": true,
+        "value": false,
         "units": "boolean",
         "sampleCount": 1
       },
@@ -117,27 +113,19 @@
           "sha256": "bffe83901e66a2f16762b52ba7c6039afcbdcca2b575c010abb2fd3e44c2e15c"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-0c2c689696f2.json",
-          "sha256": "9b3024ac8db7102fcaff77e63ef0c6bcb87c0a8a1d6471b52a36222137dc3bb7"
-        },
-        {
-          "path": "docs/evidence/oci-digest-bundle-0c2c689696f2.json",
-          "sha256": "9b3024ac8db7102fcaff77e63ef0c6bcb87c0a8a1d6471b52a36222137dc3bb7"
-        },
-        {
-          "path": "docs/evidence/container-live-lane-0c2c689696f2.json",
-          "sha256": "439667dfbfcb8e52b59f7b54c3312f3928f7895ddb4723679db1a604fc248a7b"
+          "path": "docs/evidence/oci-digest-bundle-f462f4afa7be.json",
+          "sha256": "2748f3abc585bd62712e31a2bda0e0f7b802ca98b560379638a2df36d670eb49"
         }
       ],
-      "result": "pass",
+      "result": "blocked",
       "failureFallback": "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject."
     },
     {
       "checkId": "PG03-SECRETLESS",
       "mandatory": true,
       "procedure": "The image was built by scripts/validation/build-oci.mjs with no credential in the environment, no registry push, and the image config records no secret environment; the CI workflow is hermetic (no secrets, no Azure operations).",
-      "startedAt": "2026-08-21T15:22:46.069Z",
-      "endedAt": "2026-08-21T15:22:46.070Z",
+      "startedAt": "2026-08-25T12:43:24.073Z",
+      "endedAt": "2026-08-25T12:43:24.074Z",
       "threshold": {
         "rule": "measured value equals expected",
         "operator": "equals",
@@ -176,12 +164,8 @@
           "sha256": "bffe83901e66a2f16762b52ba7c6039afcbdcca2b575c010abb2fd3e44c2e15c"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-0c2c689696f2.json",
-          "sha256": "9b3024ac8db7102fcaff77e63ef0c6bcb87c0a8a1d6471b52a36222137dc3bb7"
-        },
-        {
-          "path": "docs/evidence/oci-digest-bundle-0c2c689696f2.json",
-          "sha256": "9b3024ac8db7102fcaff77e63ef0c6bcb87c0a8a1d6471b52a36222137dc3bb7"
+          "path": "docs/evidence/oci-digest-bundle-f462f4afa7be.json",
+          "sha256": "2748f3abc585bd62712e31a2bda0e0f7b802ca98b560379638a2df36d670eb49"
         }
       ],
       "result": "pass",
@@ -191,8 +175,8 @@
       "checkId": "PG03-RESOURCE-SHAPE",
       "mandatory": true,
       "procedure": "non-root runtime user and linux/amd64 verified from docker image inspect of the built image; 1 vcpu and 2 GiB verified by validate:policy from infra/bicep invariants (cpu: 1, memory '2Gi').",
-      "startedAt": "2026-08-21T15:22:46.069Z",
-      "endedAt": "2026-08-21T15:22:46.070Z",
+      "startedAt": "2026-08-25T12:43:24.073Z",
+      "endedAt": "2026-08-25T12:43:24.074Z",
       "threshold": {
         "rule": "the set of measured values equals the expected set",
         "operator": "set-equals",
@@ -241,19 +225,26 @@
           "sha256": "bffe83901e66a2f16762b52ba7c6039afcbdcca2b575c010abb2fd3e44c2e15c"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-0c2c689696f2.json",
-          "sha256": "9b3024ac8db7102fcaff77e63ef0c6bcb87c0a8a1d6471b52a36222137dc3bb7"
-        },
-        {
-          "path": "docs/evidence/oci-digest-bundle-0c2c689696f2.json",
-          "sha256": "9b3024ac8db7102fcaff77e63ef0c6bcb87c0a8a1d6471b52a36222137dc3bb7"
+          "path": "docs/evidence/oci-digest-bundle-f462f4afa7be.json",
+          "sha256": "2748f3abc585bd62712e31a2bda0e0f7b802ca98b560379638a2df36d670eb49"
         }
       ],
       "result": "pass",
       "failureFallback": "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject."
     }
   ],
-  "blockingIssues": [],
-  "gateResult": "pass",
+  "blockingIssues": [
+    {
+      "id": "PG03-EXACT-DIGEST: pending authoritative CI-built OCI subject and authorized live loopback on that exact digest",
+      "priority": "P0",
+      "status": "open"
+    },
+    {
+      "id": "PG03-LOOPBACK-REAL-DATA: pending authoritative CI-built OCI subject and authorized live loopback on that exact digest",
+      "priority": "P0",
+      "status": "open"
+    }
+  ],
+  "gateResult": "blocked",
   "failureFallback": "PG-03 must fully pass before any Azure write; keep the gate blocked until every check passes on the exact verified subject."
 }
