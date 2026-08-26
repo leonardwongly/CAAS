@@ -89,6 +89,91 @@ const DRAFT_TTL_MS = 15 * 60 * 1000;
 const MAX_SEARCH_LENGTH = 64;
 const MAX_ERROR_MESSAGE = 160;
 
+// Per-client rate limiting (plan §6.3): the read/query data surface may be
+// called at most RATE_LIMIT_MAX times per RATE_LIMIT_WINDOW_MS per client.
+// Only requests that carry a real client address are throttled; loopback/local
+// callers (the single-user access model and Fastify inject() fixtures) are
+// exempt so local development and the offline suite are never throttled.
+// Health-probe and static-asset paths are also exempt (see isRateLimitedPath).
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = 120;
+const RATE_LIMIT_MAX_CLIENTS = 4096;
+
+// Health/probe paths are never throttled: startup/live/ready probes and the
+// static SPA surface must always answer (k8s/Container Apps probes and the
+// container smoke test rely on them even during a response flood).
+const RATE_LIMIT_EXEMPT = new Set([
+  "/api/v1/health", "/api/v1/healthz", "/api/v1/live", "/api/v1/livez", "/api/v1/liveness",
+  "/api/v1/health/live", "/api/v1/readiness", "/api/v1/ready", "/api/v1/readyz",
+  "/api/v1/health/ready", "/api/v1/startup", "/api/v1/startupz", "/api/v1/health/startup",
+]);
+
+function isLoopbackIp(ip: string): boolean {
+  return ip === "::1" || ip === "localhost" || ip === "::ffff:127.0.0.1" || ip === "0:0:0:0:0:0:0:1" || /^127\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}$/.test(ip);
+}
+
+function clientRequestKey(request: FastifyRequest): string | undefined {
+  // Behind Cloudflare the edge sets CF-Connecting-IP, which the client cannot
+  // forge; it is authoritative for the deployed path. When it is absent (a
+  // local test or a direct socket) fall back to X-Forwarded-For (first hop)
+  // and finally to the socket address. Loopback/local callers return undefined
+  // so the single-user local model and the offline inject() fixtures are never
+  // throttled.
+  const cf = request.headers["cf-connecting-ip"];
+  if (typeof cf === "string" && cf.trim()) {
+    const ip = cf.trim().replace(/^\[(.*)\]$/, "$1");
+    if (ip) return `cf:${ip}`;
+  }
+  const xff = request.headers["x-forwarded-for"];
+  if (typeof xff === "string" && xff.trim()) {
+    const first = xff.split(",")[0]!.trim().replace(/^\[(.*)\]$/, "$1");
+    if (first) return `xff:${first}`;
+  }
+  const ip = typeof request.ip === "string" ? request.ip : "";
+  if (!ip || isLoopbackIp(ip)) return undefined;
+  return `sock:${ip}`;
+}
+
+function isRateLimitedPath(pathname: string): boolean {
+  if (!pathname.startsWith("/api/v1/")) return false;
+  return !RATE_LIMIT_EXEMPT.has(pathname.replace(/\/+$/, ""));
+}
+
+class SlidingWindowLimiter {
+  private readonly buckets = new Map<string, { count: number; windowStart: number }>();
+  private readonly windowMs: number;
+  private readonly max: number;
+  private readonly nowValue: () => number;
+
+  constructor(windowMs: number, max: number, nowValue: () => number) {
+    this.windowMs = windowMs;
+    this.max = max;
+    this.nowValue = nowValue;
+  }
+
+  allow(key: string): { ok: true } | { ok: false; retryAfterMs: number } {
+    if (this.buckets.size > RATE_LIMIT_MAX_CLIENTS) this.prune();
+    const t = this.nowValue();
+    const bucket = this.buckets.get(key);
+    if (!bucket || t - bucket.windowStart >= this.windowMs) {
+      this.buckets.set(key, { count: 1, windowStart: t });
+      return { ok: true };
+    }
+    if (bucket.count < this.max) {
+      bucket.count++;
+      return { ok: true };
+    }
+    return { ok: false, retryAfterMs: bucket.windowStart + this.windowMs - t };
+  }
+
+  private prune(): void {
+    const t = this.nowValue();
+    for (const [key, bucket] of this.buckets) {
+      if (t - bucket.windowStart >= this.windowMs) this.buckets.delete(key);
+    }
+  }
+}
+
 export interface ApiServerOptions {
   readonly adapter?: CaasAdapter;
   readonly transport?: CaasTransport;
@@ -98,6 +183,11 @@ export interface ApiServerOptions {
   readonly assetDirectory?: string;
   readonly refreshSecret?: string;
   readonly logger?: boolean;
+  // Per-client rate limiting for the data surface. Defaults to a 60s window
+  // with 120 requests per client. Disable (or set `disableRateLimit`) for
+  // test fixtures and the local single-user loopback lane.
+  readonly rateLimit?: { readonly windowMs: number; readonly max: number };
+  readonly disableRateLimit?: boolean;
   // Minimum interval between refresh starts, in milliseconds. Defaults to
   // 30s so an unauthenticated client cannot burn upstream quota with a
   // refresh flood (each refresh is a full ~170 MiB five-family acquisition).
@@ -813,6 +903,23 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
       return target.code(400).send({ error: { code: "INVALID_REQUEST", message: "The request could not be parsed." } });
     },
   });
+  if (options.disableRateLimit !== true) {
+    const rateLimiter = new SlidingWindowLimiter(options.rateLimit?.windowMs ?? RATE_LIMIT_WINDOW_MS, options.rateLimit?.max ?? RATE_LIMIT_MAX, now);
+    app.addHook("onRequest", async (request, reply) => {
+      // Shed floods before the costly handler work. Health probes and the
+      // static SPA surface are exempt; loopback/local callers are exempt.
+      const pathname = request.url.split("?")[0] ?? request.url;
+      if (!isRateLimitedPath(pathname)) return;
+      const client = clientRequestKey(request);
+      if (client === undefined) return;
+      const decision = rateLimiter.allow(client);
+      if (!decision.ok) {
+        reply.header("retry-after", String(Math.max(1, Math.ceil(decision.retryAfterMs / 1000))));
+        return reply.code(429).send({ error: { code: "RATE_LIMITED", message: "Too many requests; retry after the window resets." } });
+      }
+      return;
+    });
+  }
   app.addHook("onRequest", async (request, reply) => {
     // Cross-site request defense for state-changing methods: a browser that
     // POSTs from another origin always carries an Origin header; reject any
@@ -857,7 +964,7 @@ export async function createApiServer(options: ApiServerOptions = {}): Promise<{
     return payload;
   });
 
-  const SECURITY_EVENT_CODES = new Set(["UNAUTHORIZED", "TOO_MANY_MATCHES", "CURSOR_EXPIRED", "GENERATION_EXPIRED", "TOKEN_INVALID", "SELECTION_MISMATCH", "CROSS_ORIGIN_DENIED", "DRAFT_CAPACITY_REACHED", "REFRESH_RATE_LIMITED", "REFRESH_FAILED"]);
+  const SECURITY_EVENT_CODES = new Set(["UNAUTHORIZED", "TOO_MANY_MATCHES", "CURSOR_EXPIRED", "GENERATION_EXPIRED", "TOKEN_INVALID", "SELECTION_MISMATCH", "CROSS_ORIGIN_DENIED", "DRAFT_CAPACITY_REACHED", "RATE_LIMITED", "REFRESH_RATE_LIMITED", "REFRESH_FAILED"]);
   app.setErrorHandler((error, request, reply) => {
     // Security-relevant rejections are logged when a logger is configured;
     // bounded, code-only lines — never request bodies or identifiers.
