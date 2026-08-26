@@ -294,6 +294,12 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
 .alternate-controls .alternate-option-distance { color: var(--muted); font-size: .72rem; white-space: nowrap; }
 .alternate-controls .alternate-option.is-active .alternate-option-distance { color: var(--ink-60); }
 .alternate-controls .alternate-distance { color: var(--ink-60); font-size: .8rem; }
+.alternate-info { align-items: center; color: var(--muted); display: flex; font-size: .68rem; gap: 6px; position: relative; }
+.alternate-info .info-icon { align-items: center; background: transparent; border: 1px solid var(--ink-60); border-radius: 50%; color: var(--ink-60); cursor: help; display: inline-flex; font-family: var(--font-mono); font-size: .6rem; height: 15px; justify-content: center; line-height: 1; padding: 0; width: 15px; }
+.alternate-info .info-icon:hover { border-color: var(--ink); color: var(--ink); }
+.alternate-info .info-icon:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.info-tooltip { background: var(--ink); border-radius: 2px; color: var(--paper); display: none; font-family: var(--font-mono); font-size: var(--text-micro); left: 0; max-width: 280px; padding: 6px 8px; position: absolute; top: calc(100% + 5px); z-index: 7; }
+.alternate-info .info-icon:focus + .info-tooltip, .alternate-info .info-icon:hover + .info-tooltip { display: block; }
 .map-first-panel { background: var(--sheet); border: 1px solid var(--line); border-radius: 2px; min-height: inherit; overflow: hidden; position: relative; }.map-first-panel .map-stage { height: min(780px, calc(100vh - 270px)); min-height: 500px; }.map-first-panel .map-fallback-banner { bottom: 58px; left: auto; right: 20px; top: auto; }.map-first-panel .map-endpoints { bottom: 37px; left: auto; right: 20px; }.map-first-panel .map-attribution { bottom: 56px; }
 .map-hud { background: var(--sheet); border: 1px solid var(--hairline); border-radius: 2px; display: grid; gap: 3px; left: 20px; max-width: min(390px, calc(100% - 120px)); padding: 10px 12px; position: absolute; top: 18px; z-index: 3; }.map-hud .eyebrow { margin: 0; }.map-hud strong { color: var(--ink); font-size: .84rem; }.map-hud > span:last-child { color: var(--muted); font-size: .69rem; line-height: 1.35; }
 .rail-entry { position: relative; }
@@ -343,6 +349,7 @@ table[aria-labelledby="route-legs-heading"] tbody tr:not(.gap-row) td:last-child
   .rail-count { background: Highlight; border-color: Canvas; color: HighlightText; }
   .legend-dot { background: transparent; border: 2px solid CanvasText; }
   .legend-gap { border-color: CanvasText; }
+  .info-tooltip { background: Canvas; border: 1px solid CanvasText; color: CanvasText; }
   .map-fallback-banner, .map-hud, .map-endpoint, .map-attribution, .safety-banner, .map-legend, .restore-controls, .map-rail button, .map-zoom-controls button { border-color: ButtonBorder; }
   .search-input-row input:focus-visible, .skip-link:focus, .route-card:focus-visible, .quiet-button:focus-visible, .search-button:focus-visible, .map-rail button:focus-visible, .restore-controls:focus-visible, .retry-button:focus-visible, .table-scroll:focus-visible, .edit-copy-button:focus-visible, .text-button:focus-visible, .draft-row-actions button:focus-visible, .section-title h2:focus, .group-heading h3:focus, .map-zoom-controls button:focus-visible { outline-color: Highlight; }
   #gap-hatch line { stroke: CanvasText; }
