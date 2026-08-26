@@ -25,7 +25,7 @@ jobs:
   deploy:
     name: Deploy Cloudflare ${{ github.event_name == 'workflow_dispatch' && inputs.target || 'staging' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     environment: cloudflare-${{ github.event_name == 'workflow_dispatch' && inputs.target || 'staging' }}
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
