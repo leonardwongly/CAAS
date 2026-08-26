@@ -20,3 +20,10 @@ tests/test-results/
 # Local generated analysis and scratch output
 .superpowers/
 tmp/
+
+# Local authoring / agent tooling and capture (never commit)
+.qoder/
+.kiro/
+.claude/
+.wrangler/
+temp-screenshots/
