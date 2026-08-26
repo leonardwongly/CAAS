@@ -51,6 +51,16 @@ jobs:
             exit 1
           fi
 
+      - name: Verify the pnpm install-policy stays locked
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A PR must not widen the script-execution surface. pnpm only runs
+          # build scripts for packages listed in `allowBuilds`, so the policy is
+          # the gate between untrusted PR code and postinstall execution. Fail
+          # closed if a PR tries to loosen it.
+          ruby -e 'require "yaml"; d = YAML.load_file("pnpm-workspace.yaml"); abort "allowBuilds must stay exactly esbuild, workerd" unless d["allowBuilds"] == { "esbuild" => true, "workerd" => true }; abort "blockExoticSubdeps must remain true" unless d["blockExoticSubdeps"] == true; abort "trustPolicy must remain no-downgrade" unless d["trustPolicy"] == "no-downgrade"; abort "minimumReleaseAge must remain set" unless d["minimumReleaseAge"].is_a?(Integer) && d["minimumReleaseAge"] >= 10080'
+
       - name: Verify the Bicep topology stays minimal
         shell: bash
         run: |

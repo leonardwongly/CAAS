@@ -33,12 +33,15 @@ jobs:
         run: node scripts/validation/build-oci.mjs --verify
       - name: Scan the built subject for HIGH/CRITICAL vulnerabilities
         run: |
+          # Scan the Docker-archive tar (docker save) directly. The trivy
+          # container is given only the archive, never the host Docker socket:
+          # a malicious PR-supplied build script can no longer escape into the
+          # host daemon through the scan container.
           docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$PWD:/work" -w /work \
             ghcr.io/aquasecurity/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 image \
             --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
-            --format json --no-progress flight-route-explorer:release-evidence > trivy-scan.json
+            --format json --no-progress --input /work/oci-subject.tar > trivy-scan.json
       - name: Upload digest bundle, image tar, and scan report
         # The bundle is authoritative in-repo (docs/evidence/oci-digest-bundle-*.json,
         # committed by the authorized local lane); this run-bound artifact copy is a

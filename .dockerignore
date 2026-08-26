@@ -9,3 +9,10 @@
 .superpowers
 tmp
 .DS_Store
+.qoder
+.kiro
+.claude
+.wrangler
+temp-screenshots
+docs/evidence/archived
+docs/evidence/*-local-*.json

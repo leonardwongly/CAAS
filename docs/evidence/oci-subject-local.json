@@ -11,9 +11,9 @@
   "subject": {
     "type": "oci",
     "identifiers": {
-      "digest": "sha256:6b193da46827c70ca79bba6a2aede9b1abdbeca698c6952c24bd07ab34a48e0d",
-      "commit": "8ade7b0a7af7",
-      "tarSha256": "c90b06fa4e327da9e65a7b63c07667edbec396cda8ae37d3f5b8aa13a6d98285"
+      "digest": "sha256:c4cc623dd59ddbe80bff6431ea3411d2f4555c6668080bfa081e56d1771ce216",
+      "commit": "7bb7408814a3",
+      "tarSha256": "1e39724e402d9f15e8835284e737170f08e06d76fd49fc41865dd70a31fd6b88"
     },
     "environment": "local-build-candidate"
   },
@@ -22,8 +22,8 @@
       "checkId": "PG03-EXACT-DIGEST",
       "mandatory": true,
       "procedure": "The subject must be the single authoritative CI-built OCI image; the locally built candidate is recorded here with its real digest and remains unverified until an authorized container live run on the exact CI digest is recorded.",
-      "startedAt": "2026-08-25T13:50:29.981Z",
-      "endedAt": "2026-08-25T13:50:29.982Z",
+      "startedAt": "2026-08-26T06:35:12.972Z",
+      "endedAt": "2026-08-26T06:35:12.973Z",
       "threshold": {
         "rule": "measured value hash-equals expected",
         "operator": "hash-equals",
@@ -32,7 +32,7 @@
       },
       "measurement": {
         "summary": "exact subject digest is the verified OCI subject",
-        "value": "sha256:6b193da46827c70ca79bba6a2aede9b1abdbeca698c6952c24bd07ab34a48e0d",
+        "value": "sha256:c4cc623dd59ddbe80bff6431ea3411d2f4555c6668080bfa081e56d1771ce216",
         "units": "digest",
         "sampleCount": 1
       },
@@ -59,11 +59,11 @@
         },
         {
           "path": ".github/workflows/oci-subject-build.yml",
-          "sha256": "7de13388d469cd3f0850686a22923cb66b0be276bb6421a31a9837b23dc4cfb5"
+          "sha256": "f1d49c6530ae2ea108fbf010c9846ea3bb6e64f9a950a7dd74ece9b3073ebbdb"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-8ade7b0a7af7.json",
-          "sha256": "7d2998ea355cb5dd83af8ea64ebb887cd172394609d073dc49e89b389a4144e1"
+          "path": "docs/evidence/oci-digest-bundle-7bb7408814a3.json",
+          "sha256": "cac573e5986a028b2a1adabdb7e12b70f80b94335e01d6fe578183acdd0db540"
         }
       ],
       "result": "blocked",
@@ -73,8 +73,8 @@
       "checkId": "PG03-LOOPBACK-REAL-DATA",
       "mandatory": true,
       "procedure": "The verified subject must pass the loopback gate with real data (authorized run). Mechanics pass fixture-backed (docs/evidence/loopback-lane-local.json); the authorized container run on the exact digest is pending.",
-      "startedAt": "2026-08-25T13:50:29.981Z",
-      "endedAt": "2026-08-25T13:50:29.982Z",
+      "startedAt": "2026-08-26T06:35:12.972Z",
+      "endedAt": "2026-08-26T06:35:12.973Z",
       "threshold": {
         "rule": "measured value equals expected",
         "operator": "equals",
@@ -110,11 +110,11 @@
         },
         {
           "path": ".github/workflows/oci-subject-build.yml",
-          "sha256": "7de13388d469cd3f0850686a22923cb66b0be276bb6421a31a9837b23dc4cfb5"
+          "sha256": "f1d49c6530ae2ea108fbf010c9846ea3bb6e64f9a950a7dd74ece9b3073ebbdb"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-8ade7b0a7af7.json",
-          "sha256": "7d2998ea355cb5dd83af8ea64ebb887cd172394609d073dc49e89b389a4144e1"
+          "path": "docs/evidence/oci-digest-bundle-7bb7408814a3.json",
+          "sha256": "cac573e5986a028b2a1adabdb7e12b70f80b94335e01d6fe578183acdd0db540"
         }
       ],
       "result": "blocked",
@@ -124,8 +124,8 @@
       "checkId": "PG03-SECRETLESS",
       "mandatory": true,
       "procedure": "The image was built by scripts/validation/build-oci.mjs with no credential in the environment, no registry push, and the image config records no secret environment; the CI workflow is hermetic (no secrets, no Azure operations).",
-      "startedAt": "2026-08-25T13:50:29.981Z",
-      "endedAt": "2026-08-25T13:50:29.982Z",
+      "startedAt": "2026-08-26T06:35:12.972Z",
+      "endedAt": "2026-08-26T06:35:12.973Z",
       "threshold": {
         "rule": "measured value equals expected",
         "operator": "equals",
@@ -161,11 +161,11 @@
         },
         {
           "path": ".github/workflows/oci-subject-build.yml",
-          "sha256": "7de13388d469cd3f0850686a22923cb66b0be276bb6421a31a9837b23dc4cfb5"
+          "sha256": "f1d49c6530ae2ea108fbf010c9846ea3bb6e64f9a950a7dd74ece9b3073ebbdb"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-8ade7b0a7af7.json",
-          "sha256": "7d2998ea355cb5dd83af8ea64ebb887cd172394609d073dc49e89b389a4144e1"
+          "path": "docs/evidence/oci-digest-bundle-7bb7408814a3.json",
+          "sha256": "cac573e5986a028b2a1adabdb7e12b70f80b94335e01d6fe578183acdd0db540"
         }
       ],
       "result": "pass",
@@ -175,8 +175,8 @@
       "checkId": "PG03-RESOURCE-SHAPE",
       "mandatory": true,
       "procedure": "non-root runtime user and linux/amd64 verified from docker image inspect of the built image; 1 vcpu and 2 GiB verified by validate:policy from infra/bicep invariants (cpu: 1, memory '2Gi').",
-      "startedAt": "2026-08-25T13:50:29.981Z",
-      "endedAt": "2026-08-25T13:50:29.982Z",
+      "startedAt": "2026-08-26T06:35:12.972Z",
+      "endedAt": "2026-08-26T06:35:12.973Z",
       "threshold": {
         "rule": "the set of measured values equals the expected set",
         "operator": "set-equals",
@@ -222,11 +222,11 @@
         },
         {
           "path": ".github/workflows/oci-subject-build.yml",
-          "sha256": "7de13388d469cd3f0850686a22923cb66b0be276bb6421a31a9837b23dc4cfb5"
+          "sha256": "f1d49c6530ae2ea108fbf010c9846ea3bb6e64f9a950a7dd74ece9b3073ebbdb"
         },
         {
-          "path": "docs/evidence/oci-digest-bundle-8ade7b0a7af7.json",
-          "sha256": "7d2998ea355cb5dd83af8ea64ebb887cd172394609d073dc49e89b389a4144e1"
+          "path": "docs/evidence/oci-digest-bundle-7bb7408814a3.json",
+          "sha256": "cac573e5986a028b2a1adabdb7e12b70f80b94335e01d6fe578183acdd0db540"
         }
       ],
       "result": "pass",
