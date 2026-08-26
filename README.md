@@ -70,21 +70,18 @@ Locally, the same split applies: Vite dev server for the frontend (proxies `/api
 
 ## How It Works (Key Concepts)
 
-**1. Data acquisition.** `packages/upstream-caas/` performs bounded, allow-listed HTTPS GETs against the five CAAS endpoint families, with retries, freshness windows (live ≤ 5 min, reference ≤ 24 h), and strict schema validation. Startup fails closed if any mandatory family is unusable; refreshes build a new generation and swap atomically after full validation. The Airways reference list is fetched, parsed, and validated but stays counts-only; recorded route legs surface the airway labels carried by the flight plan and draw geometry from resolved waypoint coordinates.
+**1. Data acquisition.** `packages/upstream-caas/` is the sole CAAS client: bounded, allow-listed GETs with retries and freshness windows (live ≤ 5 min, reference ≤ 24 h), Zod-validated before feeding a rotating in-memory `Generation` (no database). A refresh swaps the whole batch atomically and startup fails closed, so the UI never sees partial or stale data. Airways stay counts-only — that endpoint returns names, no topology.
 
 **2. Route resolution.** For a selected flight plan, each waypoint is resolved by **exact reference matching** against Fixes, Airports, and NAVAIDs. When an identifier matches several distinct coordinates (a duplicate fix), the route's own resolved neighbours disambiguate it: the candidate closest to the great-circle arc between them is selected, but only within a bounded cross-track distance (200 NM) and only when it beats every runner-up by a clear margin (1 NM). Ties and weak separations stay explicit ambiguous gaps — never guessed — and unresolved positions remain visible gaps. Modeled route distance is a full-precision Haversine total (R = 3440.065 NM), displayed to 0.1 NM and treated as descriptive only.
 
 **3. User journey.** The UI lists all air-routes and supports callsign search. Selecting a flight draws its recorded route on the tile map with leg/waypoint detail and auto-fits the view; the selected-route panel can show and switch between the computed alternates.
 
-**4. Alternate routes (the optional task).** The supplied Airways endpoint returns names only — no coordinates, connectivity, or topology — so the only alternate that can be computed honestly from the authorized coordinate data is a great-circle path between resolved airport coordinates. `packages/route-engine/src/alternate.ts` never borrows an existing flight's subpath or infers geometry; every candidate is a genuine coordinate-derived geodesic.
+**4. Alternate routes (the optional task).** The Airways endpoint is names-only, so the only honest alternate is a great-circle path between resolved airports — computed, never borrowed or inferred (`packages/route-engine/src/alternate.ts`).
 
-- **How a candidate is generated.** Each alternate is computed, not traced. The direct path is a **densified great-circle**: points are interpolated between departure and destination with spherical interpolation (slerp), yielding a true geodesic on both Mercator and equirectangular maps rather than a straight projected chord. It defaults to 32 segments and is capped at `MAX_ROUTE_POINTS - 1` (255). The via-waypoint variants join two such densified legs exactly at a recorded interior waypoint, producing a visibly different route from the direct path; a waypoint co-located with either endpoint degenerates to the plain direct great circle instead of a doubled, zero-length leg.
-
-- **Candidate set.** The always-present `direct-great-circle` candidate is joined by up to three `via-waypoint` candidates through the flight's resolved interior waypoints — first, middle, and last, de-duplicated and bounded so the total never exceeds 4. Interior waypoints come from the route elements that carry a resolved coordinate (directly or via reference resolution); endpoints and duplicates are excluded.
-
-- **How it is served.** `POST /api/v1/routes/alternate` returns the direct alternate alone; `POST /api/v1/routes/alternates` returns the full candidate set. Each candidate carries a GeoJSON `LineString` geometry, a full-precision Haversine distance (rounded to 0.1 NM only for display), provenance, freshness, and the persistent demonstration-only safety copy. Distances for via-waypoint candidates sum the two legs, never a direct-substituted estimate.
-
-- **How it is shown.** After a flight is selected, the UI's "Show alternates" control fetches the candidate set, auto-selects the first, and presents a pick-list. Selecting a candidate renders it dashed and labelled by kind (e.g. "Direct (great-circle) alternate", "Via &lt;waypoint&gt; (great-circle)") alongside its distance; "Hide alternates" clears it. The map key lists the direct alternate as a distinct line style so it is not confused with the recorded route.
+- **Generated** — the direct path is a densified great-circle (slerp, 32 segments, capped at `MAX_ROUTE_POINTS - 1`) so it renders as a geodesic, not a chord; via-waypoint variants join two such legs at a recorded interior waypoint.
+- **Candidate set** — always `direct-great-circle`, plus up to three `via-waypoint` variants through first/middle/last resolved interior waypoints (de-duplicated, max 4).
+- **Served** — `POST /api/v1/routes/alternate` (direct) or `POST /api/v1/routes/alternates` (all); each is a GeoJSON `LineString` with a full-precision Haversine distance and the demo-only safety copy.
+- **Shown** — "Show alternates" fetches the set; picking a candidate draws it dashed, labelled by kind with its distance.
 
 ## Build & Run Steps
 
@@ -160,7 +157,7 @@ Live staging deployment: <https://flight-route-explorer-staging.leonardwong.work
 
 ## AI Usage Declaration
 
-AI-assisted coding tools were used during development, implementation, test authoring, and documentation. All AI-suggested output — tooling choices, framework selections, and generated code — was reviewed, tested, and verified by the author before inclusion, and the rationale behind every AI-influenced actions are supported by human decision and reasoning.
+AI-assisted coding tools were used for development, testing, and documentation. All AI-generated output, including tooling, frameworks, and code, was reviewed, tested, and verified by the author, with final decisions supported by human judgment and reasoning.
 
 ## Road to Production
 
