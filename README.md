@@ -167,7 +167,7 @@ Gaps between the current POC and production maturity:
 - **Observability** — structured metrics/tracing, upstream-failure dashboards, and alerting on generation refresh degradation (a minimal structured logger exists; it is not wired to a telemetry backend).
 - **Scaling** — the single in-memory generation and `max_instances: 1` container suit a POC; production would need horizontal instances sharing a generation source or a cache tier, plus graceful container cold-start handling.
 - **Data governance** — retention/licensing review of upstream records, airway-topology data quality assessment (the airway-name list is counts-only; recorded leg labels are displayed), and freshness-window tuning against real API quotas.
-- **CI/CD automation** — canary/rollback automation for production deploys, container registry push with signed digests, and scheduled live-lane evidence runs.
+- **CI/CD automation** — canary/rollback automation for production deploys, container registry push with signed digests, and scheduled live-lane evidence runs
 
 ---
 
